@@ -189,30 +189,38 @@ Sources, in order of authority:
 - **`ioc.pdf`**: interrupt wiring.
 - **IRIX `vdma_set_tlb`** (`kern/io/vdma.c`, `0x880dab5c` in `unix.clean`): the TLB entry format, from
   disassembly.
-- **MAME** `src/mame/sgi/mc.cpp` (`~/code/mame`, last touched 2023-07, `adc3349c1ce`): bit meanings
-  (`perform_dma`, `dma_translate`). It agrees with the IRIX code wherever the two can be compared.
+- **IRIX `VdmaInit`, `vdma_wait`, `vdma_fault`** (`0x880da5ac`..) and **`ng1_dma_intr`** (`newport.o`):
+  CTL bits, the fault/restart protocol, and the meaning of the DMA_RUN status bits.
+- **MAME** `src/mame/sgi/mc.cpp` (`~/code/mame`, last touched 2023-07, `adc3349c1ce`): transfer semantics
+  (`perform_dma`, `dma_translate`). It models no faults.
+- **iris** `src/mc.rs` (`~/code/iris`, the Rust IRIX emulator): bit names (`DMA_CTL_XLATE`, `DMA_MODE_LONG`,
+  the `DMA_CAUSE_*` fault bits) and a fault model. These came in with its initial commit, with no cited source,
+  but they agree with the IRIX code everywhere the two can be compared.
 
 **Registers** (physical `0x1fa0xxxx`; the 32-bit value is the low word, at `+4` from the doubleword address
 given in `mc.pdf`):
 
 | Register | Address | Meaning |
 |---|---|---|
-| DMA_GIO_MASK / DMA_GIO_SUB | `0x150` / `0x158` | GIO address translation; IRIX's pixel path does not use them, and MAME ignores them |
-| DMA_CAUSE | `0x160` | bit 3 = DMA done (MAME). Writing 0 clears it and drops the interrupt |
-| DMA_CTL | `0x168` | bit 4 = interrupt enable. IRIX writes `0x110`; bit 8 is not identified |
+| DMA_GIO_MASK / DMA_GIO_SUB | `0x150` / `0x158` | GIO address translation; `VdmaInit` zeroes them, and MAME ignores them |
+| DMA_CAUSE | `0x160` | iris: bit 0 FAULT, bit 1 TLB_MISS, bit 2 CLEAN, bit 3 COMPLETE. IRIX only ever writes 0 to it, which drops the interrupt, and reads the status from DMA_RUN instead |
+| DMA_CTL | `0x168` | bit 4 = interrupt enable; **bit 8 = XLATE** (MEMADR is virtual and goes through the DMA TLB; when clear it is physical). iris: bit 1 = 16 KB pages, bit 0 = 8-byte PTEs (both 0 for IRIX: 4 KB pages, 4-byte PTEs, matching `vdma_set_tlb`'s `VA[21:12]*4` indexing). `VdmaInit` writes `0x2000410c`; MCdma ORs in `0x110` (interrupt) or sets `0x100` and clears `0x10` (poll). Bits 2, 3, 14, 29 are unidentified |
 | DMA_TLB_HI_n / DMA_TLB_LO_n, n = 0..3 | `0x180 + 0x10*n` / `0x188 + 0x10*n` | 4-entry DMA TLB, below |
 | DMA_MEMADR | `0x2000` | memory **virtual** address; `0x2008` also loads default parameters |
 | DMA_SIZE | `0x2010` | `[31:16]` line count, `[15:0]` line width in bytes; also loads COUNT's byte count |
 | DMA_STRIDE | `0x2018` | `[25:16]` line zoom, `[15:0]` **signed** stride, added to the address after each line |
 | DMA_GIO_ADR | `0x2020` | GIO address, no start |
 | DMA_GIO_ADRS | `0x2028` | GIO address **and start** (IRIX's path) |
-| DMA_MODE | `0x2030` | bit 1 TO_HOST (GIO→memory), bit 2 SYNC, bit 3 FILL, bit 4 DIR (1 = increment), bit 5 SNOOP; bit 6 (set in IRIX's `0x50`/`0x52`) is not identified |
+| DMA_MODE | `0x2030` | bit 1 TO_HOST (GIO→memory), bit 2 SYNC (wait for vsync to start), bit 3 FILL, bit 4 DIR (1 = increment), bit 5 SNOOP, **bit 6 LONG** (iris's name; see below) |
 | DMA_COUNT | `0x2038` | `[25:16]` zoom count, `[15:0]` byte count (working counters) |
 | DMA_STDMA | `0x2040` | write bit 0 = start |
-| DMA_RUN | `0x2048` | read-only: bit 6 = running, bit 3 = done |
+| DMA_RUN | `0x2048` | read-only: bit 6 = running, bit 3 = done; when stopped without done, bits [5:0] give the reason (see *Graphics MMU faults*) |
 | DMA_MEMADRDS | `0x2070` | GIO address + default parameters + start |
 
 **Address translation (the "MMU"):** two levels, reusing the process's own MIPS page table.
+- The "DMA TLB" is misnamed: its 4 software-loaded entries cache **pointers to pages of PTEs** (the first
+  level of the walk), never translations. The second level is a **hardware page-table walk** on every page touched.
+  The CPU, by contrast, refills its own TLB in software from the same page table, using the same EntryLo-format PTEs.
 - Each TLB entry maps one **4 MB** VA region, so 4 entries cover 16 MB of buffer.
 - `TLB_HI` = VA & `0xffc00000`.
 - `TLB_LO` = (PA of a 4 KB page of PTEs >> 12) << 6 | 2. Bit 1 is valid. That page holds the 1024 PTEs for the
@@ -224,7 +232,41 @@ given in `mc.pdf`):
 - So **the engine does one memory read per page crossed**. A model has to do that read from memory as well.
 - **Before loading the TLB, the kernel writes the PTE page back from its cache** (`cache_operation`), because the
   walk reads memory directly.
-- MAME returns PA 0 on a miss and does not check the valid bit. Real-hardware fault behaviour is unknown.
+- The 4 TLB entries hold only PTE-page pointers; whether real hardware caches the last PTE is unknown.
+
+**Graphics MMU faults and restart (from IRIX's handlers; MAME models none, and iris raises the cause bit but does not
+resume):**
+- A translation failure **stops** the engine:
+  - DMA_RUN bit 6 (running) and bit 3 (done) are both clear, and the low bits give the reason;
+  - **MEMADR holds the faulting VA**, and the counters stay where they stopped;
+  - the DMA interrupt (Local0 bit 4) is raised, the same as on completion.
+- `ng1_dma_intr` and the polling loop `vdma_wait` both read DMA_RUN:
+  1. bit 3 set: done; clear DMA_CAUSE and wake the sleeper;
+  2. otherwise, if MEMADR equals the VA of the previous fault, no progress was made: `cmn_err`, fail;
+  3. otherwise call `vdma_fault(run)`. If it returns 0, write 0 to DMA_CAUSE and **1 to DMA_STDMA, which resumes
+     the transfer from where it stopped**.
+- `vdma_fault(run)` decides:
+  - run bit 3 set: nothing to do;
+  - **any of run bits 1, 2, 4, 5 (`0x36`) set: fatal**. Bit 1 is a "TLB miss": no first-level entry covers the 4 MB
+    region, so the walker has nowhere to start. IRIX loads every entry it needs up front, so this is a bug; bit 2 is a clean fault. Bits 4 and 5 are unidentified;
+  - otherwise (bit 0, a **graphics MMU page fault**: the hardware walker found V=0 in the PTE): find the valid TLB entry for VA[31:22], read the PTE.
+    - If the IRIX software-valid bit (PTE bit 30) is clear, fail.
+    - For a to-host transfer, fail if the D bit (2) is clear.
+    - Otherwise set **V (bit 1)** in the PTE, write it back with a cache writeback, and return 0 to restart.
+- This exists because of IRIX's reference-bit emulation: pages can be software-valid but hardware-invalid (V=0).
+  DMA_RUN's low bits use the same encoding as iris's DMA_CAUSE bits (0 fault, 1 TLB miss, 2 clean, 3 done),
+  which is the cross-check that iris's names are right.
+- **For a model:** a fault means stop, set the reason bit, leave MEMADR = VA, and interrupt; STDMA resumes. On a
+  stock IRIX boot the fault path should be rare (Xsgi buffers are touched before the ioctl), so a first model can
+  treat any fault as fatal and still run.
+
+**MODE bit 6 (LONG):**
+- IRIX always sets it (`0x50`/`0x52`), and iris names it LONG but gives it no behaviour.
+- `mc.pdf` calls the graphics DMA master a "long burst" device for GIO arbitration, so it most likely selects
+  long-burst / 64-bit GIO transfers *(inferred)*.
+- MAME ignores it and always does 64-bit GIO accesses, which is what IRIX's setting needs, so a model can treat
+  LONG as the only mode.
+- MAME's `DMA_MEMADRDS` default mode `0x28` (FILL + SNOOP, no LONG) is the one place it is clear.
 
 **Transfer:** for each line, `zoom` times, for `width` bytes:
 - **Memory→GIO** (IRIX draw, mode `0x50`): pack up to 8 bytes **big-endian** and do one 64-bit GIO write to
