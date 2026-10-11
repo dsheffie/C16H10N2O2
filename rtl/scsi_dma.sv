@@ -84,6 +84,14 @@ module scsi_dma
    wire [31:0] w_bc = bswap32(dma_rsp_load_data[63:32]);
    wire [31:0] w_dp = bswap32(dma_rsp_load_data[95:64]);
 
+   // Separate block: these depend only on r_bp/r_cnt.  Inside the next-state block
+   // (which reads abort) rd_stalled -> shim -> abort -> t_take was a false comb loop.
+   always_comb begin
+      t_off  = r_bp[3:0];
+      t_take = ({1'b0, r_cnt} < (5'd16 - {1'b0, t_off})) ? r_cnt[4:0] : (5'd16 - {1'b0, t_off});
+      t_mask = (16'hffff >> (5'd16 - t_take)) << t_off;
+   end // always_comb
+
    always_comb begin
       n_state    = r_state;
       n_nbdp     = r_nbdp;
@@ -98,9 +106,6 @@ module scsi_dma
       n_desc_cnt = r_desc_cnt;
       n_acc      = r_acc;
       n_acc_n    = r_acc_n;
-      t_off      = r_bp[3:0];
-      t_take     = ({1'b0, r_cnt} < (5'd16 - {1'b0, t_off})) ? r_cnt[4:0] : (5'd16 - {1'b0, t_off});
-      t_mask     = (16'hffff >> (5'd16 - t_take)) << t_off;
 
       dma_req_valid      = 1'b0;
       dma_req_addr       = {{(`PA_WIDTH-32){1'b0}}, r_nbdp};

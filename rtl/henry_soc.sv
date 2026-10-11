@@ -42,6 +42,15 @@
 // per-beat engine is no longer instantiated; the shim completes on scsi_rsp_seq.
 // scsi_dma.sv is kept for its standalone unit test (sim/scsi_dma_test).
 `define ENABLE_SCSI_DMA 1
+// DEVICE_SNOOP: DMA masters reach memory through dma_snoop_shims (PRE-WBINV / access /
+// POST-WBINV on the core's inclusive-L2 snoop port).  Needs an r9999 with the WBINV
+// snoop port (inclusive-l2).  The ENET engine has no other coherence path, so
+// ENABLE_ENET_DMA implies it; it can also be set on its own (SCSI shim only).
+`ifdef ENABLE_ENET_DMA
+`ifndef DEVICE_SNOOP
+`define DEVICE_SNOOP 1
+`endif
+`endif
 
 module henry_soc
   #(// MC MEMCFG0 (bank0 cfg) as STORED: BE lw -> bswap.  0x0000203f -> 0x3f200000
@@ -301,7 +310,7 @@ module henry_soc
    wire                 w_snoop_ack;
    wire                 w_snoop_done;   /* the L2 finished the snoop (inclusive-L2 core) */
    wire                 w_snoop_wbinv;  /* snoop op: 1 = WBINV, 0 = DROP/discard */
-   /* ENABLE_ENET_DMA: two dma_snoop_shims (ENET, SCSI) share the snoop port */
+   /* DEVICE_SNOOP: two dma_snoop_shims (ENET, SCSI) share the snoop port */
    wire                 w_esnp_valid, w_esnp_wbinv, w_esnp_ack;
    wire [`PA_WIDTH-1:0] w_esnp_addr;
    wire                 w_ssnp_valid, w_ssnp_wbinv, w_ssnp_ack;
@@ -774,6 +783,9 @@ module henry_soc
    assign w_enet_rx_pop         = 1'b0;
    assign w_enet_tx_beat_en_i   = 1'b0;
    assign w_enet_tx_beat_data_i = '0;
+   assign w_esnp_valid = 1'b0;
+   assign w_esnp_addr = 'd0;
+   assign w_esnp_wbinv = 1'b0;
 `else
    /* inclusive-L2 coherence: the engine's accesses go through dma_snoop_shim, which
     * WBINV-snoops each line before the access and again after a write (and
@@ -925,7 +937,7 @@ module henry_soc
     * ties its L2 snoop request to 0 (r9999 core_l1d_l1i, task #51), so the L2 never
     * acks: this FIFO filled after 16 DMA line stores and then silently dropped every
     * push -- dead logic.  DMA coherence is the ARM-requested flush's job. */
-`ifdef ENABLE_ENET_DMA
+`ifdef DEVICE_SNOOP
    /* The ENET and SCSI dma_snoop_shims share the core's one snoop port.  Each holds
     * its request until acked; the L2 acks the request it sampled in IDLE one cycle
     * later, so the selection is LOCKED from the cycle a request is presented until
@@ -1109,7 +1121,7 @@ module henry_soc
       .cancel(w_sdma_abort),
       .disk_wr_en(scsi_disk_wr_en), .disk_wr_data(scsi_disk_wr_data));
    assign scsi_dma_done = w_eng_done;
-`ifdef ENABLE_ENET_DMA
+`ifdef DEVICE_SNOOP
 `ifndef NO_SCSI_SNOOP_SHIM
    /* inclusive-L2 coherence for SCSI DMA: the same PRE-WBINV / access / POST-WBINV
     * wrapper as ENET (dma_snoop_shim), so disk data never meets a stale cached line */
