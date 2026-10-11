@@ -117,10 +117,23 @@ module enet_shim
    wire         w_tx_complete = (r_tx_req_seq != r_tx_done_seq) & (enet_tx_rsp_seq == r_tx_req_seq);
    wire         w_rx_inject   = (enet_rx_rsp_seq != r_rx_done_seq);
 
-   // Seeq register writes: the byte lives in the MSB of the guest word, i.e. byte
-   // (reg&3)*4 of the line.  regs 0..3 in line 0x54000, regs 4..7 in line 0x54010.
-   wire [7:0] w_r0 = wdata[7:0];      wire [7:0] w_r1 = wdata[39:32];
-   wire [7:0] w_r2 = wdata[71:64];    wire [7:0] w_r3 = wdata[103:96];
+   // Seeq register writes: regs 0..3 in line 0x54000, regs 4..7 in line 0x54010, one
+   // register per 32-bit word.  Linux sgiseeq stores each register as an `unsigned int`
+   // (sw), so the value is the LSB of the guest word, which lands in wdata[32k+31:32k+24]
+   // (traced in henry_tb, 2026-10-09: station 08 00 69 12 34 56, rx_cmd 0xbe).  The old
+   // decode read wdata[32k+7:32k] -- the MSB lane -- and latched 0 for every register;
+   // nothing noticed because neither IRIX nor the ARM servicer filters on them.  A byte
+   // store (sb) carries one mask bit: take whichever lane it selects.
+   function automatic logic [7:0] seeq_byte(input logic [31:0] w, input logic [3:0] m);
+      seeq_byte = m[3] ? w[31:24] :
+                  m[2] ? w[23:16] :
+                  m[1] ? w[15:8] :
+                  w[7:0];
+   endfunction // seeq_byte
+   wire [7:0] w_r0 = seeq_byte(wdata[31:0],   mask[3:0]);
+   wire [7:0] w_r1 = seeq_byte(wdata[63:32],  mask[7:4]);
+   wire [7:0] w_r2 = seeq_byte(wdata[95:64],  mask[11:8]);
+   wire [7:0] w_r3 = seeq_byte(wdata[127:96], mask[15:12]);
    wire w_bank0 = (r_tx_cmd & XC_BANK_MASK) == 8'h00;             // bank 0 = station address
 
    always_ff @(posedge clk) begin
@@ -137,16 +150,16 @@ module enet_shim
       else begin
          // ---- Seeq 8003 PIO register writes (station addr banks + rx/tx cmd) ----
          if(w_seeqlo & is_store & w_bank0) begin                 // regs 0..3 = station[0..3]
-            if(mask[0])  r_station[47:40] <= w_r0;               // reg0 = station byte 0 (MSB)
-            if(mask[4])  r_station[39:32] <= w_r1;
-            if(mask[8])  r_station[31:24] <= w_r2;
-            if(mask[12]) r_station[23:16] <= w_r3;
+            if(|mask[3:0])   r_station[47:40] <= w_r0;               // reg0 = station byte 0 (MSB)
+            if(|mask[7:4])   r_station[39:32] <= w_r1;
+            if(|mask[11:8])  r_station[31:24] <= w_r2;
+            if(|mask[15:12]) r_station[23:16] <= w_r3;
          end
          if(w_seeqhi & is_store) begin
-            if(w_bank0 & mask[0]) r_station[15:8] <= w_r0;       // reg4 = station byte 4
-            if(w_bank0 & mask[4]) r_station[7:0]  <= w_r1;       // reg5 = station byte 5
-            if(mask[8])  r_rx_cmd <= w_r2;                       // reg6 = RX command
-            if(mask[12]) r_tx_cmd <= w_r3;                       // reg7 = TX command
+            if(w_bank0 & (|mask[3:0])) r_station[15:8] <= w_r0;       // reg4 = station byte 4
+            if(w_bank0 & (|mask[7:4])) r_station[7:0]  <= w_r1;       // reg5 = station byte 5
+            if(|mask[11:8])  r_rx_cmd <= w_r2;                       // reg6 = RX command
+            if(|mask[15:12]) r_tx_cmd <= w_r3;                       // reg7 = TX command
          end
          // ---- Seeq status OLD-marking on register reads (reg6/reg7) ----
          if(w_seeqhi & ~is_store & mask[8])  r_rx_stat <= r_rx_stat | RS_OLD;
@@ -240,6 +253,18 @@ module enet_shim
    assign enet_tx_nbdp    = r_tx_req_nbdp;
    assign enet_rx_arm_seq = r_rx_arm_seq;
    assign enet_rx_nbdp    = r_rx_nbdp;
+`ifdef VERILATOR
+`ifdef ENET_DMA_TRACE
+   /* sim-only: which byte lane does each guest Seeq register store use? */
+   always_ff @(posedge clk) begin
+      if(!reset && (w_seeqlo | w_seeqhi) && is_store) begin
+         $display("[seeqwr] %s mask %04x wdata %032x station %012x rx_cmd %02x tx_cmd %02x",
+                  w_seeqlo ? "lo" : "hi", mask, wdata, r_station, r_rx_cmd, r_tx_cmd);
+      end
+   end
+`endif
+`endif
+
    assign enet_station    = r_station;
    assign enet_rx_cmd     = r_rx_cmd;
    assign enet_intrq      = r_rx_irq | r_tx_irq;

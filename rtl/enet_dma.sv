@@ -49,6 +49,7 @@ module enet_dma
     input  logic [31:0]  tx_nbdp,
     output logic         tx_busy,
     output logic         tx_done,        // 1-cycle when the chain completes
+    output logic [13:0]  tx_len,         // exact frame bytes of the last chain (valid at tx_done)
     output logic         irq,            // 1-cycle if the finishing descriptor had XIE
     // ---- DMA master -> henry DRAM arbiter ----
     output logic                  dma_req_valid,
@@ -77,7 +78,8 @@ module enet_dma
       S_TX_WB    = 4'd8,   // write BC back: set ETXD
       S_NEXT     = 4'd9,   // advance to dp or finish
       S_DONE     = 4'd10,
-      S_DROP     = 4'd11   // RX: ring full / buffer unusable
+      S_DROP     = 4'd11,  // RX: ring full / buffer unusable
+      S_TX_FLUSH = 4'd12   // TX: push the final partial beat, then done
    } state_t;
 
    state_t        r_state, n_state;
@@ -86,7 +88,7 @@ module enet_dma
    logic [13:0]   r_cnt,   n_cnt;       // bytes remaining in this descriptor
    logic [31:0]   r_dp,    n_dp;        // next descriptor
    logic [31:0]   r_bc,    n_bc;        // the descriptor's BC word (for read-modify-write)
-   logic [13:0]   r_bufsz, n_bufsz;     // RX: the descriptor's buffer size
+   logic [13:0]   r_bufsz, n_bufsz;     // RX: buffer residual (size - frame bytes)
    logic          r_eox,   n_eox;
    logic          r_xie,   n_xie;
    logic [127:0]  r_data,  n_data;
@@ -96,6 +98,26 @@ module enet_dma
    logic          r_irq,   n_irq;
    logic [31:0]   r_crbdp, n_crbdp;
    logic [7:0]    r_desc_cnt, n_desc_cnt;   // runaway-chain guard
+   /* TX byte packer.  A TX buffer can start at any byte (Linux maps skb->data, which
+    * the stack places 2 bytes into a line for IP alignment; IRIX mbuf chains split a
+    * frame at arbitrary bytes), but the DRAM port returns whole aligned 16B lines.
+    * Each load contributes min(16 - bp[3:0], cnt) bytes, packed into a 32B
+    * accumulator (memory byte b in bits [8b+7:8b]) across descriptor boundaries; a
+    * full 16B beat goes to the host, and the chain's tail goes out as a final
+    * partial beat.  tx_len is the exact frame length. */
+   logic [255:0]  r_acc,   n_acc;
+   logic [5:0]    r_acc_n, n_acc_n;     // valid bytes in r_acc (< 16 between loads)
+   logic [13:0]   r_txlen, n_txlen;
+   logic [3:0]    t_tx_off;
+   logic [4:0]    t_tx_take;
+   logic [127:0]  t_tx_bytes;
+   /* rx_go / tx_go are 1-cycle pulses but are only taken in S_IDLE, with RX first:
+    * a kick that arrived while the engine was busy (or in the same cycle as the
+    * other one) was DROPPED -- the guest's transmits were lost behind host traffic
+    * (Linux: TX packets 0, NETDEV WATCHDOG), and a lost rx_go stalls the host's RX
+    * servicer forever.  Latch them until started. */
+   logic          r_rx_pend, n_rx_pend;
+   logic          r_tx_pend, n_tx_pend;
 
    // descriptor fields: BE in DRAM, byte-swap each 32-bit lane of the line
    wire [31:0] w_bp = bswap32(dma_rsp_load_data[31:0]);
@@ -114,7 +136,7 @@ module enet_dma
    /* RX release: clear ROWN (hand the buffer to the CPU), set COUNT = residual,
     * preserve every other flag bit. TX: just set ETXD. */
    wire [31:0] w_bc_rx_wb = (r_bc & ~BC_ROWN & ~BC_COUNT) |
-                            ({18'd0, (r_bufsz - r_cnt)} & BC_COUNT);
+                            ({18'd0, r_bufsz} & BC_COUNT);
    wire [31:0] w_bc_tx_wb = r_bc | BC_ETXD;
    wire [31:0] w_bc_wb    = (r_state == S_TX_WB) ? w_bc_tx_wb : w_bc_rx_wb;
 
@@ -132,6 +154,14 @@ module enet_dma
 	n_data     = r_data;
 	n_crbdp    = r_crbdp;
 	n_desc_cnt = r_desc_cnt;
+	n_acc      = r_acc;
+	n_acc_n    = r_acc_n;
+	n_txlen    = r_txlen;
+	t_tx_off   = r_bp[3:0];
+	t_tx_take  = ({1'b0, r_cnt} < (5'd16 - {1'b0, t_tx_off})) ? r_cnt[4:0] : (5'd16 - {1'b0, t_tx_off});
+	t_tx_bytes = (dma_rsp_load_data >> {t_tx_off, 3'd0}) & ({128{1'b1}} >> {(5'd16 - t_tx_take), 3'd0});
+	n_rx_pend = r_rx_pend | rx_go;
+	n_tx_pend = r_tx_pend | tx_go;
 	n_done     = 1'b0;
 	n_txdone   = 1'b0;
 	n_drop     = 1'b0;
@@ -149,17 +179,22 @@ module enet_dma
 	case(r_state)
 	  S_IDLE:
 	    begin
-	       if(rx_go)
+	       if(r_rx_pend | rx_go)
 		 begin
 		    n_nbdp     = rx_nbdp;
 		    n_cnt      = rx_len;
 		    n_desc_cnt = 8'd0;
+		    n_rx_pend  = 1'b0;
 		    n_state    = S_RX_DESC;
 		 end
-	       else if(tx_go)
+	       else if(r_tx_pend | tx_go)
 		 begin
 		    n_nbdp     = tx_nbdp;
 		    n_desc_cnt = 8'd0;
+		    n_tx_pend  = 1'b0;
+		    n_acc      = 256'd0;
+		    n_acc_n    = 6'd0;
+		    n_txlen    = 14'd0;
 		    n_state    = S_TX_DESC;
 		 end
 	    end
@@ -191,6 +226,10 @@ module enet_dma
 			   begin
 			      n_cnt = w_bc[13:0];
 			   end
+			 /* the release writes COUNT = residual = buffer - bytes written
+			  * (Linux: len = PKT_BUF_SZ - COUNT - 3).  r_cnt counts down to 0
+			  * by the writeback, so capture the residual now. */
+			 n_bufsz = w_bc[13:0] - n_cnt;
 			 n_state = S_RX_BEAT;
 		      end
 		 end
@@ -225,7 +264,7 @@ module enet_dma
 	       dma_req_valid      = 1'b1;
 	       dma_req_addr       = {{(`PA_WIDTH-32){1'b0}}, r_nbdp};
 	       dma_req_opcode     = 5'd7;
-	       dma_req_store_data = {32'd0, bswap32(w_bc_wb), 64'd0};
+	       dma_req_store_data = {64'd0, bswap32(w_bc_wb), 32'd0};   // BC = bytes 4..7 = bits [63:32] (BC_MASK)
 	       dma_req_mask       = BC_MASK;
 	       if(dma_rsp_valid)
 		 begin
@@ -252,29 +291,37 @@ module enet_dma
 		 end
 	    end
 	  S_TX_MEM:
-	    begin                                   // load mem[bp]
+	    begin                                   // load the aligned line holding bp
 	       dma_req_valid  = 1'b1;
-	       dma_req_addr   = {{(`PA_WIDTH-32){1'b0}}, r_bp};
+	       dma_req_addr   = {{(`PA_WIDTH-32){1'b0}}, r_bp[31:4], 4'd0};
 	       dma_req_opcode = 5'd4;
 	       if(dma_rsp_valid)
 		 begin
-		    n_data  = dma_rsp_load_data;
+		    n_acc   = r_acc | ({128'd0, t_tx_bytes} << {r_acc_n, 3'd0});
+		    n_acc_n = r_acc_n + {1'b0, t_tx_take};
+		    n_bp    = r_bp + {27'd0, t_tx_take};
+		    n_cnt   = r_cnt - {9'd0, t_tx_take};
+		    n_txlen = r_txlen + {9'd0, t_tx_take};
 		    n_state = S_TX_HOST;
 		 end
 	    end
 	  S_TX_HOST:
-	    begin                                   // push the beat to the host
-	       tx_wr_en = 1'b1;
-	       n_bp     = r_bp + 32'd16;
-	       n_cnt    = (r_cnt > 14'd16) ? (r_cnt - 14'd16) : 14'd0;
-	       n_state  = (r_cnt <= 14'd16) ? S_TX_WB : S_TX_MEM;
+	    begin                                   // a full beat is ready: push it
+	       if(r_acc_n >= 6'd16)
+		 begin
+		    tx_wr_en   = 1'b1;
+		    tx_wr_data = r_acc[127:0];
+		    n_acc      = r_acc >> 128;
+		    n_acc_n    = r_acc_n - 6'd16;
+		 end
+	       n_state = (r_cnt == 14'd0) ? S_TX_WB : S_TX_MEM;
 	    end
 	  S_TX_WB:
 	    begin                                   // mark the buffer transmitted
 	       dma_req_valid      = 1'b1;
 	       dma_req_addr       = {{(`PA_WIDTH-32){1'b0}}, r_nbdp};
 	       dma_req_opcode     = 5'd7;
-	       dma_req_store_data = {32'd0, bswap32(w_bc_wb), 64'd0};
+	       dma_req_store_data = {64'd0, bswap32(w_bc_wb), 32'd0};   // BC = bytes 4..7 = bits [63:32] (BC_MASK)
 	       dma_req_mask       = BC_MASK;
 	       if(dma_rsp_valid)
 		 begin
@@ -285,9 +332,16 @@ module enet_dma
 	    /* EOX, a null link (stale/garbage descriptor), or a runaway chain -> stop */
 	    if(r_eox | (r_dp == 32'd0) | (r_desc_cnt == 8'hff))
 	      begin
-		 n_txdone = 1'b1;
-		 n_irq    = r_xie;
-		 n_state  = S_IDLE;
+		 if(r_acc_n != 6'd0)
+		   begin
+		      n_state  = S_TX_FLUSH;
+		   end
+		 else
+		   begin
+		      n_txdone = 1'b1;
+		      n_irq    = r_xie;
+		      n_state  = S_IDLE;
+		   end
 	      end
 	    else
 	      begin
@@ -295,6 +349,16 @@ module enet_dma
 		 n_desc_cnt = r_desc_cnt + 8'd1;
 		 n_state    = S_TX_DESC;
 	      end
+	  S_TX_FLUSH:
+	    begin                                   // the chain's tail: a partial beat
+	       tx_wr_en   = 1'b1;
+	       tx_wr_data = r_acc[127:0];
+	       n_acc      = 256'd0;
+	       n_acc_n    = 6'd0;
+	       n_txdone   = 1'b1;
+	       n_irq      = r_xie;
+	       n_state    = S_IDLE;
+	    end
 	  S_DONE:                                   // unreachable: RX/TX pulse on exit
 	    begin
 	       n_state = S_IDLE;
@@ -328,6 +392,11 @@ module enet_dma
 	     r_irq      <= 1'b0;
 	     r_crbdp    <= 32'd0;
 	     r_desc_cnt <= 8'd0;
+	     r_acc      <= 256'd0;
+	     r_acc_n    <= 6'd0;
+	     r_txlen    <= 14'd0;
+	     r_rx_pend  <= 1'b0;
+	     r_tx_pend  <= 1'b0;
 	  end
 	else
 	  begin
@@ -347,16 +416,45 @@ module enet_dma
 	     r_irq      <= n_irq;
 	     r_crbdp    <= n_crbdp;
 	     r_desc_cnt <= n_desc_cnt;
+	     r_acc      <= n_acc;
+	     r_acc_n    <= n_acc_n;
+	     r_txlen    <= n_txlen;
+	     r_rx_pend  <= n_rx_pend;
+	     r_tx_pend  <= n_tx_pend;
 	  end
      end // always_ff
+
+`ifdef VERILATOR
+   /* sim-only trace of the engine's state walk (ENET_DMA_TRACE) */
+`ifdef ENET_DMA_TRACE
+   logic [63:0] r_trc_cyc;
+   always_ff@(posedge clk)
+     begin
+	r_trc_cyc <= reset ? 64'd0 : r_trc_cyc + 64'd1;
+	if(!reset && (r_state != n_state))
+	  begin
+	     $display("[enet_dma] %0t st %0d -> %0d nbdp %08x bp %08x bc %08x dp %08x cnt %0d", r_trc_cyc, r_state, n_state, r_nbdp, r_bp, r_bc, r_dp, r_cnt);
+	  end
+	if(!reset && (rx_go | tx_go))
+	  begin
+	     $display("[enet_dma] %0t go rx %0d tx %0d st %0d rx_nbdp %08x tx_nbdp %08x", r_trc_cyc, rx_go, tx_go, r_state, rx_nbdp, tx_nbdp);
+	  end
+	if(!reset && (r_txdone | r_done))
+	  begin
+	     $display("[enet_dma] %0t done tx %0d rx %0d", r_trc_cyc, r_txdone, r_done);
+	  end
+     end // always_ff
+`endif
+`endif
 
    assign rx_busy      = (r_state == S_RX_DESC) | (r_state == S_RX_BEAT) |
 			 (r_state == S_RX_MEM)  | (r_state == S_RX_WB);
    assign tx_busy      = (r_state == S_TX_DESC) | (r_state == S_TX_MEM) |
 			 (r_state == S_TX_HOST) | (r_state == S_TX_WB) |
-			 (r_state == S_NEXT);
+			 (r_state == S_NEXT) | (r_state == S_TX_FLUSH);
    assign rx_done      = r_done;
    assign tx_done      = r_txdone;
+   assign tx_len       = r_txlen;
    assign rx_dropped   = r_drop;
    assign irq          = r_irq;
    assign rx_crbdp     = r_crbdp;

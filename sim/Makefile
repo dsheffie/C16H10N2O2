@@ -73,7 +73,7 @@ endif
 #     the sub-make's -MMD deps then recompile exactly the changed .o and relink.
 #     (Previously those files were not prerequisites, so `make` silently ran a stale
 #     binary -- a core .cc/.hh edit never landed without a `make clean`.)
-obj_dir/.verilated: $(RTL)/henry_soc.sv $(RTL)/mc.sv $(RTL)/hpc3.sv $(RTL)/ioc.sv $(RTL)/int3.sv $(RTL)/scsi_shim.sv $(RTL)/enet_shim.sv $(RTL)/dram_trace.sv $(RTL)/mem_arbiter.sv $(wildcard $(R9999)/*.sv $(R9999)/*.vh) Makefile
+obj_dir/.verilated: $(wildcard $(RTL)/*.sv $(RTL)/*.vh) $(wildcard $(R9999)/*.sv $(R9999)/*.vh) Makefile
 	# Pass the golden-ISS .cc to Verilator's --exe so it compiles them (RTL-agnostic)
 	# alongside henry_tb.cpp into obj_dir/*.o.
 	$(VERILATOR) $(VFLAGS) $(RTL)/henry_soc.sv henry_tb.cpp $(INTERP_CC)
@@ -102,9 +102,13 @@ obj_dir/henry_tb: obj_dir/.verilated henry_tb.cpp $(INTERP_CC) $(wildcard $(R999
 	# prebuilt (a locally-compiled disassemble.o additionally wants -lcapstone, which
 	# this link does not carry).
 	rm -f $(R9999)/interpret.o
+	# Same VPATH trap for Verilator's runtime: ooo_core leaves a SINGLE-threaded
+	# $(R9999)/verilated.o, and a THREADS build links it (undefined VL_PRINTF_MT,
+	# endOfEval) -- force the local, threaded compile.
+	$(if $(THREADS),rm -f $(R9999)/verilated.o,)
 	$(MAKE) CXX="clang++-16" LINK="clang++-16 -flto" \
 	        OPT_FAST="$(if $(OPTFAST),$(OPTFAST),-O2)" OPT_GLOBAL="-O2" OPT_SLOW="-O1" \
-	        LDLIBS="-lboost_serialization -lzstd -lcapstone" \
+	        LDLIBS="-lboost_serialization -lzstd -lcapstone $(if $(THREADS),-pthread -latomic,)" \
 	        -C obj_dir -f V$(TOP).mk henry_tb
 	# CANARY: fail loudly if the store-check did not actually get compiled in, rather
 	# than shipping a binary whose checker is a no-op.

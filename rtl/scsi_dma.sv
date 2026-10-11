@@ -16,9 +16,12 @@
 //   +8  DP  next-descriptor pointer; follow until EOX
 // Data buffers are raw byte streams (no swap); descriptor words are BE.
 //
-// Phase-1 scope: 16-byte-aligned BC counts and 16-byte-aligned NBDP; the disk
-// side is assumed always-ready (no backpressure).  Backpressure + the TB block
-// transport (4 KB / 8-LBA chunks) come in a later phase.
+// Buffers may start at any byte (IRIX reads the volume header into a buffer at
+// +8): the DRAM port moves aligned 16B lines with a byte mask, so memory is
+// always touched one aligned line at a time -- a masked prologue line, full
+// middle lines, a masked epilogue line per buffer -- and the disk side sees a
+// contiguous 16B beat stream.  A 32B byte accumulator (r_acc, stream byte b in
+// bits [8b+7:8b]) carries the bytes between the two.
 // -----------------------------------------------------------------------------
 module scsi_dma
    (input  logic         clk,
@@ -47,15 +50,16 @@ module scsi_dma
     output logic         disk_wr_en,     // WRITE: pulse, disk_wr_data valid this cycle
     output logic [127:0] disk_wr_data);  // WRITE: mem -> disk beat
 
-   typedef enum logic [2:0] {
-      S_IDLE   = 3'd0,
-      S_DESC   = 3'd1,   // read the descriptor line @ r_nbdp
-      S_R_DISK = 3'd2,   // READ : pull a disk beat
-      S_R_MEM  = 3'd3,   // READ : store the beat to mem[bp]
-      S_W_MEM  = 3'd4,   // WRITE: load mem[bp]
-      S_W_DISK = 3'd5,   // WRITE: push the beat to disk
-      S_NEXT   = 3'd6,   // advance to dp or finish
-      S_DONE   = 3'd7
+   typedef enum logic [3:0] {
+      S_IDLE    = 4'd0,
+      S_DESC    = 4'd1,   // read the descriptor line @ r_nbdp
+      S_R_DISK  = 4'd2,   // READ : pull a disk beat if the accumulator is short
+      S_R_MEM   = 4'd3,   // READ : store one aligned line of the buffer
+      S_W_MEM   = 4'd4,   // WRITE: load one aligned line of the buffer
+      S_W_DISK  = 4'd5,   // WRITE: push a full beat to disk
+      S_NEXT    = 4'd6,   // advance to dp or finish
+      S_DONE    = 4'd7,
+      S_W_FLUSH = 4'd8    // WRITE: push the stream's final partial beat
    } state_t;
 
    state_t        r_state,  n_state;
@@ -66,10 +70,14 @@ module scsi_dma
    logic          r_eox,    n_eox;
    logic          r_xie,    n_xie;
    logic          r_to_dev, n_to_dev;
-   logic [127:0]  r_data,   n_data;     // beat latched between disk and mem
    logic          r_done,   n_done;
    logic          r_irq,    n_irq;
    logic [7:0]    r_desc_cnt, n_desc_cnt;  // chain-length guard (null/garbage link)
+   logic [255:0]  r_acc,    n_acc;      // stream bytes between disk and memory
+   logic [5:0]    r_acc_n,  n_acc_n;    // valid bytes in r_acc
+   logic [3:0]    t_off;                // bp's byte offset in its line
+   logic [4:0]    t_take;               // buffer bytes in bp's line: min(16-off, cnt)
+   logic [15:0]   t_mask;               // t_take bytes starting at lane t_off
 
    // descriptor fields: BE in DRAM, so byte-swap each 32-bit lane of the line
    wire [31:0] w_bp = bswap32(dma_rsp_load_data[31:0]);
@@ -85,19 +93,23 @@ module scsi_dma
       n_eox      = r_eox;
       n_xie      = r_xie;
       n_to_dev   = r_to_dev;
-      n_data     = r_data;
       n_done     = 1'b0;
       n_irq      = 1'b0;
       n_desc_cnt = r_desc_cnt;
+      n_acc      = r_acc;
+      n_acc_n    = r_acc_n;
+      t_off      = r_bp[3:0];
+      t_take     = ({1'b0, r_cnt} < (5'd16 - {1'b0, t_off})) ? r_cnt[4:0] : (5'd16 - {1'b0, t_off});
+      t_mask     = (16'hffff >> (5'd16 - t_take)) << t_off;
 
       dma_req_valid      = 1'b0;
       dma_req_addr       = {{(`PA_WIDTH-32){1'b0}}, r_nbdp};
       dma_req_opcode     = 5'd4;
-      dma_req_store_data = r_data;
+      dma_req_store_data = r_acc[127:0];
       dma_req_mask       = 16'hffff;
       disk_rd_en         = 1'b0;
       disk_wr_en         = 1'b0;
-      disk_wr_data       = r_data;       // WRITE beat = the line just loaded from mem
+      disk_wr_data       = r_acc[127:0];
 
       case(r_state)
         S_IDLE:
@@ -105,6 +117,8 @@ module scsi_dma
              n_nbdp     = nbdp;
              n_to_dev   = to_device;
              n_desc_cnt = 8'd0;
+             n_acc      = 256'd0;
+             n_acc_n    = 6'd0;
              n_state    = S_DESC;
           end
         S_DESC: begin                              // read the descriptor line @ r_nbdp
@@ -121,46 +135,62 @@ module scsi_dma
                                               : (r_to_dev ? S_W_MEM : S_R_DISK);
            end
         end
-        S_R_DISK:                                  // READ: pull a disk beat (stall until one is ready)
-          if(disk_rd_valid) begin
+        S_R_DISK:                                  // READ: top up the accumulator (stall until a beat)
+          if(r_acc_n >= {1'b0, t_take})
+            n_state = S_R_MEM;
+          else if(disk_rd_valid) begin
              disk_rd_en = 1'b1;
-             n_data     = disk_rd_data;
+             n_acc      = r_acc | ({128'd0, disk_rd_data} << {r_acc_n, 3'd0});
+             n_acc_n    = r_acc_n + 6'd16;
              n_state    = S_R_MEM;
           end
-        S_R_MEM: begin                             // READ: store the beat to mem[bp]
+        S_R_MEM: begin                             // READ: store bp's line, t_take bytes at lane t_off
            dma_req_valid      = 1'b1;
-           dma_req_addr       = {{(`PA_WIDTH-32){1'b0}}, r_bp};
+           dma_req_addr       = {{(`PA_WIDTH-32){1'b0}}, r_bp[31:4], 4'd0};
            dma_req_opcode     = 5'd7;
-           dma_req_store_data = r_data;
-           // final partial beat (cnt not a multiple of 16, e.g. MODE SENSE 254,
-           // READ CAPACITY 8): byte-mask so we don't over-write past the buffer.
-           dma_req_mask       = (r_cnt >= 14'd16) ? 16'hffff
-                                                  : ((16'd1 << r_cnt[3:0]) - 16'd1);
+           dma_req_store_data = r_acc[127:0] << {t_off, 3'd0};
+           dma_req_mask       = t_mask;            // prologue / full line / epilogue
            if(dma_rsp_valid) begin
-              n_bp    = r_bp + 32'd16;
-              n_cnt   = (r_cnt > 14'd16) ? (r_cnt - 14'd16) : 14'd0;
-              n_state = (r_cnt <= 14'd16) ? S_NEXT : S_R_DISK;
+              n_acc   = r_acc >> {t_take, 3'd0};
+              n_acc_n = r_acc_n - {1'b0, t_take};
+              n_bp    = r_bp + {27'd0, t_take};
+              n_cnt   = r_cnt - {9'd0, t_take};
+              n_state = (r_cnt == {9'd0, t_take}) ? S_NEXT : S_R_DISK;
            end
         end
-        S_W_MEM: begin                             // WRITE: load mem[bp]
+        S_W_MEM: begin                             // WRITE: load bp's line, keep t_take bytes
            dma_req_valid  = 1'b1;
-           dma_req_addr   = {{(`PA_WIDTH-32){1'b0}}, r_bp};
+           dma_req_addr   = {{(`PA_WIDTH-32){1'b0}}, r_bp[31:4], 4'd0};
            dma_req_opcode = 5'd4;
            if(dma_rsp_valid) begin
-              n_data  = dma_rsp_load_data;
+              n_acc   = r_acc | ({128'd0, ((dma_rsp_load_data >> {t_off, 3'd0}) &
+                                           ({128{1'b1}} >> {(5'd16 - t_take), 3'd0}))} << {r_acc_n, 3'd0});
+              n_acc_n = r_acc_n + {1'b0, t_take};
+              n_bp    = r_bp + {27'd0, t_take};
+              n_cnt   = r_cnt - {9'd0, t_take};
               n_state = S_W_DISK;
            end
         end
-        S_W_DISK: begin                            // WRITE: push the beat to disk
-           disk_wr_en = 1'b1;
-           n_bp       = r_bp + 32'd16;
-           n_cnt      = (r_cnt > 14'd16) ? (r_cnt - 14'd16) : 14'd0;
-           n_state    = (r_cnt <= 14'd16) ? S_NEXT : S_W_MEM;
+        S_W_DISK: begin                            // WRITE: a full beat is ready -> push it
+           if(r_acc_n >= 6'd16) begin
+              disk_wr_en   = 1'b1;
+              disk_wr_data = r_acc[127:0];
+              n_acc        = r_acc >> 128;
+              n_acc_n      = r_acc_n - 6'd16;
+           end
+           n_state = (r_cnt == 14'd0) ? S_NEXT : S_W_MEM;
+        end
+        S_W_FLUSH: begin                           // WRITE: the stream's tail as a padded beat
+           disk_wr_en   = 1'b1;
+           disk_wr_data = r_acc[127:0];
+           n_acc        = 256'd0;
+           n_acc_n      = 6'd0;
+           n_state      = S_DONE;
         end
         S_NEXT:
           // EOX, a null link (stale/garbage descriptor), or a runaway chain -> stop.
           if(r_eox | (r_dp == 32'd0) | (r_desc_cnt == 8'hff))
-            n_state = S_DONE;
+            n_state = (r_to_dev && (r_acc_n != 6'd0)) ? S_W_FLUSH : S_DONE;
           else begin
              n_nbdp     = r_dp;
              n_desc_cnt = r_desc_cnt + 8'd1;
@@ -186,10 +216,11 @@ module scsi_dma
          r_eox    <= 1'b0;
          r_xie    <= 1'b0;
          r_to_dev <= 1'b0;
-         r_data   <= 128'd0;
          r_done   <= 1'b0;
          r_irq    <= 1'b0;
          r_desc_cnt <= 8'd0;
+         r_acc    <= 256'd0;
+         r_acc_n  <= 6'd0;
       end
       else begin
          r_state  <= n_state;
@@ -200,10 +231,11 @@ module scsi_dma
          r_eox    <= n_eox;
          r_xie    <= n_xie;
          r_to_dev <= n_to_dev;
-         r_data   <= n_data;
          r_done   <= n_done;
          r_irq    <= n_irq;
          r_desc_cnt <= n_desc_cnt;
+         r_acc    <= n_acc;
+         r_acc_n  <= n_acc_n;
       end
    end
 
@@ -211,7 +243,7 @@ module scsi_dma
    // Engine is blocked in the READ data phase with no beat available -- i.e. it
    // wants a disk beat the ARM/TB hasn't streamed. The shim uses this (+ the ARM
    // having posted its rsp) to complete a short/no-data transfer instead of hanging.
-   assign rd_stalled = (r_state == S_R_DISK) & ~disk_rd_valid;
+   assign rd_stalled = (r_state == S_R_DISK) & (r_acc_n < {1'b0, t_take}) & ~disk_rd_valid;
    assign done = r_done;
    assign irq  = r_irq;
 

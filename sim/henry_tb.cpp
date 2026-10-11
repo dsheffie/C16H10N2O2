@@ -22,7 +22,8 @@
  * fidelity gap by construction.
  * CONSTRAINT: only save when the SCSI shim is QUIESCENT (no command in flight), so the
  * shim's transfer statics are all at their defaults and need not be serialized. */
-static uint64_t g_save_at = 0;              /* --save-at <retired> (0 = disabled) */
+static uint64_t g_save_at = 0;
+static uint64_t g_unaligned_mem_req = 0;   /* DRAM line requests with phys[3:0] != 0 */              /* --save-at <retired> (0 = disabled) */
 static std::string g_save_file;             /* --save-file <path> */
 static std::string g_restore_file;          /* --restore <path> */
 static std::string g_save_diskcopy;         /* disk snapshot path (derived) */
@@ -780,6 +781,41 @@ static uint64_t  g_shortrd_cyc = 0;  /* cycle of the last short-read completion 
  * stalled (a genuine short read) and the fallback completes the command. */
 static int64_t   g_drain_deadline = -1;
 static long      g_done_normal = 0;  /* completions via scsi_dma_done (correct path) */
+/* SCSI READ data check: on each READ chunk's dma_done, walk its descriptor chain in
+ * DRAM and compare every destination byte with the disk bytes this TB streamed.
+ * Catches a DMA engine that lands data at the wrong place (e.g. an unaligned BP). */
+static uint32_t  g_chunk_nbdp = 0;
+static long      g_rdchk_reads = 0, g_rdchk_bytes = 0, g_rdchk_bad_reads = 0, g_rdchk_bad_bytes = 0;
+static void scsi_read_check(const std::vector<uint8_t> &buf, size_t pos, size_t len, uint32_t nbdp) {
+  size_t off = 0; long bad = 0; uint32_t first_pa = 0; size_t first_off = 0;
+  for(int guard = 0; guard < 256 && off < len; guard++) {
+    bool b0 = false, b1 = false, b2 = false;
+    uint64_t d = fpga_map(nbdp, &b0);
+    if(b0) { break; }
+    uint32_t bp = ((uint32_t)g_mem[d] << 24) | ((uint32_t)g_mem[d+1] << 16) | ((uint32_t)g_mem[d+2] << 8) | g_mem[d+3];
+    uint32_t bc = ((uint32_t)g_mem[d+4] << 24) | ((uint32_t)g_mem[d+5] << 16) | ((uint32_t)g_mem[d+6] << 8) | g_mem[d+7];
+    uint32_t dp = ((uint32_t)g_mem[d+8] << 24) | ((uint32_t)g_mem[d+9] << 16) | ((uint32_t)g_mem[d+10] << 8) | g_mem[d+11];
+    size_t cnt = bc & 0x3fff;
+    for(size_t i = 0; i < cnt && off < len; i++, off++) {
+      uint64_t a = fpga_map(bp + (uint32_t)i, &b1);
+      if(b1) { b2 = true; break; }
+      if(g_mem[a] != buf[pos + off]) {
+        if(bad == 0) { first_pa = bp + (uint32_t)i; first_off = off; }
+        bad++;
+      }
+    }
+    if(b2 || (bc & 0x80000000u) || dp == 0) { break; }
+    nbdp = dp;
+  }
+  g_rdchk_reads++; g_rdchk_bytes += (long)off;
+  if(bad) {
+    g_rdchk_bad_reads++; g_rdchk_bad_bytes += bad;
+    if(g_rdchk_bad_reads <= 20) {
+      fprintf(stderr, "[scsi-rdchk] MISMATCH %ld/%zu bytes, first at pa=%08x (stream off %zu), chain nbdp=%08x\n",
+              bad, off, first_pa, first_off, g_chunk_nbdp);
+    }
+  }
+}
 static long      g_shortrd_n = 0;
 static uint8_t *scsi_mem(void * /*ctx*/, uint32_t phys, uint32_t len) {
   bool bad = false;
@@ -814,6 +850,11 @@ static uint32_t g_erx_len = 0, g_erx_beat = 0, g_erx_nbeats = 0;
  * when it reports the chain complete. */
 static uint8_t  g_etx_buf[ENET_FRAME_MAX + 32];
 static uint32_t g_etx_len = 0;
+/* ENET TX service trace: ETX_TRACE=1 (read once) */
+static const bool g_etx_trace = getenv("ETX_TRACE") != nullptr;
+static uint32_t g_etx_seen_seq = 0;
+static uint32_t g_etx_watch_nbdp = 0, g_etx_watch_last = 0xffffffff;
+static uint64_t g_etx_watch_until = 0;
 
 // ---- core instrumentation/co-sim DPI hooks: stubbed (RTL-only run) ----
 // Declared extern "C" via Vhenry_soc__Dpi.h above, so these definitions get C
@@ -2725,18 +2766,49 @@ int main(int argc, char **argv) {
       // ---- TX: the ENGINE walks the chain and reads memory; we just collect the
       //      beats it emits and write the tap when it says the chain is done.
       tb->enet_tx_beat_pop = 0;
+      if(g_etx_trace && tb->enet_tx_req_seq != g_etx_seen_seq) {
+        fprintf(stderr, "[etx] cyc %llu kick req_seq %u\n", (unsigned long long)cyc, (unsigned)tb->enet_tx_req_seq);
+        g_etx_seen_seq = tb->enet_tx_req_seq;
+      }
+      if(g_etx_trace && cyc < g_etx_watch_until) {
+        /* post-done watch: the guest-visible descriptor cntinfo and shim IRQ/ACTIVE */
+        bool wbad = false;
+        uint64_t a = FPGA_ADDRESS_MAP ? fpga_map(g_etx_watch_nbdp + 4, &wbad) : ((g_etx_watch_nbdp + 4) & MEM_MASK);
+        uint32_t ci = ((uint32_t)g_mem[a] << 24) | ((uint32_t)g_mem[a+1] << 16) | ((uint32_t)g_mem[a+2] << 8) | g_mem[a+3];
+        uint32_t st = (uint32_t)(tb->enet_dbg & 0xf) | (ci << 4);
+        if(st != g_etx_watch_last) {
+          fprintf(stderr, "[etx] cyc %llu watch cntinfo@pa %08x %08x dbg(txact,rxact,txirq,rxirq) %x\n",
+                  (unsigned long long)cyc, g_etx_watch_nbdp + 4, ci, (unsigned)(tb->enet_dbg & 0xf));
+          g_etx_watch_last = st;
+        }
+      }
       if(tb->enet_tx_beat_valid && g_etx_len + 16 <= sizeof(g_etx_buf)) {
         tb->enet_tx_beat_pop = 1;
-        /* beats arrive as a 128-bit word, MSB-first in memory order */
+        /* beats arrive as a 128-bit word, memory byte b in bits [8b+7:8b] */
         for(int b = 0; b < 16; b++) {
-          g_etx_buf[g_etx_len + b] = (uint8_t)(tb->enet_tx_beat_data[(15 - b) / 4] >> (8 * ((15 - b) & 3)));
+          g_etx_buf[g_etx_len + b] = (uint8_t)(tb->enet_tx_beat_data[b / 4] >> (8 * (b & 3)));
         }
         g_etx_len += 16;
       }
       if(tb->enet_dma_tx_done) {
-        if(g_etx_len >= 14) { ssize_t n = ::write(g_enet_tap.fd, g_etx_buf, g_etx_len); (void)n; }
+        /* the engine packs the frame from any byte offset; trim the zero-padded tail
+         * of the last beat to the exact length it reports */
+        if(tb->enet_dma_tx_len <= g_etx_len) {
+          g_etx_len = tb->enet_dma_tx_len;
+        }
+        if(g_etx_trace) {
+          fprintf(stderr, "[etx] cyc %llu tx_done len %u req_seq %u fifo_valid %d head", (unsigned long long)cyc,
+                  g_etx_len, (unsigned)tb->enet_tx_req_seq, (int)tb->enet_tx_beat_valid);
+          for(uint32_t b = 0; b < 16 && b < g_etx_len; b++) { fprintf(stderr, " %02x", g_etx_buf[b]); }
+          fprintf(stderr, "\n");
+        }
+        if(g_etx_len >= 14) {
+          ssize_t n = ::write(g_enet_tap.fd, g_etx_buf, g_etx_len);
+          if(g_etx_trace) { fprintf(stderr, "[etx] tap write %zd/%u errno %d\n", n, g_etx_len, n < 0 ? errno : 0); }
+        }
         g_etx_len = 0;
         tb->enet_tx_rsp_seq = tb->enet_tx_req_seq;   // echo -> shim clears ACTIVE + TX IRQ
+        if(g_etx_trace) { g_etx_watch_nbdp = tb->enet_tx_nbdp; g_etx_watch_until = cyc + 2000000; }
         g_last_enet_tx_req_seq = tb->enet_tx_req_seq;
       }
 
@@ -2749,7 +2821,13 @@ int main(int argc, char **argv) {
         if(n < 14) { break; }
         uint8_t sta[6];
         for(int j = 0; j < 6; j++) { sta[j] = (uint8_t)(tb->enet_station >> (8*(5-j))); }
-        if(!enet_addr_filter((uint8_t)tb->enet_rx_cmd, sta, fr, (uint32_t)n)) { break; }
+        bool pass = enet_addr_filter((uint8_t)tb->enet_rx_cmd, sta, fr, (uint32_t)n);
+        if(g_etx_trace) {
+          fprintf(stderr, "[erx] cyc %llu tap read %zd rx_cmd %02x sta %012llx dst %02x:%02x:%02x:%02x:%02x:%02x type %02x%02x %s\n",
+                  (unsigned long long)cyc, n, (unsigned)(uint8_t)tb->enet_rx_cmd, (unsigned long long)tb->enet_station,
+                  fr[0], fr[1], fr[2], fr[3], fr[4], fr[5], fr[12], fr[13], pass ? "PASS" : "filtered");
+        }
+        if(!pass) { break; }
         /* the layout the driver expects; the engine writes these bytes verbatim */
         memset(g_erx_buf, 0, sizeof(g_erx_buf));
         g_erx_buf[0] = 0; g_erx_buf[1] = 0;                       // 2-byte pad
@@ -2769,7 +2847,8 @@ int main(int argc, char **argv) {
           uint32_t off = g_erx_beat * 16;
           for(int w = 0; w < 4; w++) {
             uint32_t v = 0;
-            for(int b = 0; b < 4; b++) { v = (v << 8) | g_erx_buf[off + (3 - w) * 4 + b]; }
+            /* memory byte b lands in bits [8b+7:8b] (the DRAM/engine convention) */
+            for(int b = 3; b >= 0; b--) { v = (v << 8) | g_erx_buf[off + w * 4 + b]; }
             tb->enet_rx_beat_data[w] = v;
           }
           tb->enet_rx_beat_push = 1;
@@ -2827,7 +2906,7 @@ int main(int argc, char **argv) {
       if(g_active) {
         uint32_t rem = (uint32_t)(g_total - g_pos);    // chunk = WD33C93 count (== chain)
         g_chunk = (req.xfer_len && req.xfer_len < rem) ? req.xfer_len : rem;
-        if(!g_to_dev) { g_streaming = true; }          // READ: feed the engine this chunk
+        if(!g_to_dev) { g_streaming = true; g_chunk_nbdp = req.nbdp; }  // READ: feed the engine this chunk
         else          { if(!resume) g_buf.clear(); g_capturing = true; }  // WRITE: drain
       } else {
         post_rsp();                                    // timeout / no data (shim aborts)
@@ -2876,6 +2955,7 @@ int main(int argc, char **argv) {
       }
       if(tb->scsi_dma_done) {                          // engine finished this chunk's chain
         g_drain_deadline = -1; g_done_normal++;        // engine confirmed the drain
+        scsi_read_check(g_buf, g_pos, g_chunk, g_chunk_nbdp);
         g_pos += g_chunk; g_streaming = false;
         if(g_pos < g_total) {                          // chunk PAUSE: IRIX will resume
           g_pending_rsp.completion = SCSI_DONE_PAUSE; g_pending_rsp.scsi_status = 0x49;
@@ -2900,6 +2980,7 @@ int main(int argc, char **argv) {
          * buffer while beats are still in flight, it sees stale memory.  Log every firing
          * with the cycle so it can be ordered against the [memwr] DRAM-write timestamps. */
         g_shortrd_cyc = cyc; g_shortrd_n++;
+        scsi_read_check(g_buf, g_pos, std::min<size_t>(g_chunk, g_buf.size() - g_pos), g_chunk_nbdp);  /* else a stalled engine is never checked */
         if(g_shortrd_n <= 3000)
           fprintf(stderr, "[shortrd] cyc=%llu op=%02x lba=%u streamed=%zu/%zu pos=%zu chunk=%u"
                   "  <-- COMPLETE posted WITHOUT scsi_dma_done\n",
@@ -3061,6 +3142,27 @@ int main(int argc, char **argv) {
     if(tb->mem_req_valid && !prev_mem_req_valid && reply_cyc == -1) {  // accept on 0->1 edge only
       uint32_t phys = (uint32_t)tb->mem_req_addr & 0x1fffffffu;  // 29-bit phys to the AXI master
       req_is_halt = (phys == HALT_PA);
+      /* AXI_ALIGN=1: model the silicon AXI master, which moves aligned 16B beats --
+       * an unaligned line address returns / writes the ALIGNED line (byte lanes are
+       * fixed).  Without it this model honours byte addresses, which hid the ENET
+       * engine's unaligned-TX bug.  Unaligned requests are counted either way. */
+      { static const bool axi_align = getenv("AXI_ALIGN") != nullptr;
+        if(phys & 0xfu) {
+          ++g_unaligned_mem_req;
+          if(g_unaligned_mem_req <= 8) {
+            fprintf(stderr, "[unaligned] cyc=%llu phys=%08x op=%u mask=%04x%s\n", (unsigned long long)cyc,
+                    phys, (unsigned)tb->mem_req_opcode, (unsigned)tb->mem_req_mask, axi_align ? " (aligned: AXI_ALIGN)" : "");
+          }
+          if(axi_align) {
+            phys &= ~0xfu;
+          }
+        }
+      }
+      { static const uint32_t pgw = getenv("PAGEWATCH") ? (uint32_t)strtoul(getenv("PAGEWATCH"),0,0) : 0;
+        if(pgw && (phys & ~0xfffu) == (pgw & ~0xfffu))
+          fprintf(stderr, "[pgw] cyc=%llu phys=%08x op=%u mask=%04x sd=%08x %08x %08x %08x\n",
+                  (unsigned long long)cyc, phys, (unsigned)tb->mem_req_opcode, (unsigned)tb->mem_req_mask,
+                  tb->mem_req_store_data[0], tb->mem_req_store_data[1], tb->mem_req_store_data[2], tb->mem_req_store_data[3]); }
       req_phys    = phys;                       // latch guest-PA for the checker ISS-mem mirror
       if(FPGA_ADDRESS_MAP) {
         req_addr = fpga_map(phys, &req_bad);
@@ -3214,6 +3316,10 @@ int main(int argc, char **argv) {
   }
 
   tip_dump("final");
+  tb->final();   /* run the RTL `final` blocks ([BISTAT]/[PRESCHK] snoop + probe stats) */
+  fprintf(stderr, "[tb] unaligned DRAM line requests: %llu\n", (unsigned long long)g_unaligned_mem_req);
+  fprintf(stderr, "[scsi-rdchk] %ld READ chunks / %ld bytes checked: %ld chunks with %ld bad bytes\n",
+          g_rdchk_reads, g_rdchk_bytes, g_rdchk_bad_reads, g_rdchk_bad_bytes);
   fprintf(stderr, "[tb] final: retired %llu  last_pc 0x%llx  head_pc 0x%llx  "
           "cause=%u epc=0x%llx badv=0x%llx sr=0x%08x irq=%u\n",
           (unsigned long long)retired, (unsigned long long)last_pc,

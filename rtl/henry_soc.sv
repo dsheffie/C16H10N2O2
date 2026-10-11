@@ -202,6 +202,7 @@ module henry_soc
    output logic                  enet_dma_rx_dropped,// ring full / buffer unusable
    output logic [31:0]           enet_dma_crbdp,     // descriptor just filled
    output logic                  enet_dma_tx_done,   // TX chain complete (host writes the tap)
+   output logic [13:0]           enet_dma_tx_len,    // exact frame bytes of that chain
    // ---- ENET shim mailbox (enet_shim.sv): Seeq 8003 + HPC3 ENET DMA channels ----
    // FPGA: map to AXI-lite slv_regs; sim: henry_tb tap servicer.  (Tied off unless
    // `ENABLE_ENET_SHIM.)  TX = guest-initiated doorbell; RX = service free-runs.
@@ -298,6 +299,13 @@ module henry_soc
    wire                 w_snoop_valid;
    wire [`PA_WIDTH-1:0] w_snoop_addr;
    wire                 w_snoop_ack;
+   wire                 w_snoop_done;   /* the L2 finished the snoop (inclusive-L2 core) */
+   wire                 w_snoop_wbinv;  /* snoop op: 1 = WBINV, 0 = DROP/discard */
+   /* ENABLE_ENET_DMA: two dma_snoop_shims (ENET, SCSI) share the snoop port */
+   wire                 w_esnp_valid, w_esnp_wbinv, w_esnp_ack;
+   wire [`PA_WIDTH-1:0] w_esnp_addr;
+   wire                 w_ssnp_valid, w_ssnp_wbinv, w_ssnp_ack;
+   wire [`PA_WIDTH-1:0] w_ssnp_addr;
    wire                 w_snoop_full;
 
    /* ================= ARM-requested whole-cache flush =================
@@ -531,6 +539,8 @@ module henry_soc
       .snoop_req_valid(w_snoop_valid),
       .snoop_req_addr(w_snoop_addr),
       .snoop_req_ack(w_snoop_ack),
+      .snoop_req_wbinv(w_snoop_wbinv),   /* r9999 inclusive L2: 1 = WBINV (probe L1D, write back); 0 = DROP */
+      .snoop_done(w_snoop_done),
       .took_irq(took_irq), .cp0_count(cp0_count),
       .dbg_head_pc(dbg_head_pc), .dbg_head_status(dbg_head_status), .dbg_head_fetch_cycle(), .dbg_head_alloc_cycle(),
       .dbg_serialize_cycle(), .dbg_cycle(), .dbg_oldest_first_pending(),
@@ -577,12 +587,20 @@ module henry_soc
    wire [127:0]         w_eng_req_store_data;
    wire [4:0]           w_eng_req_opcode;
    wire [15:0]          w_eng_req_mask;
+   /* the SCSI engine's side of its dma_snoop_shim (coherent-DMA build) */
+   wire                 w_sdn_req_valid;
+   wire [`PA_WIDTH-1:0] w_sdn_req_addr;
+   wire [127:0]         w_sdn_req_store_data;
+   wire [4:0]           w_sdn_req_opcode;
+   wire [15:0]          w_sdn_req_mask;
+   wire                 w_seng_rsp_valid;
+   wire [127:0]         w_seng_rsp_load_data;
 `ifdef ENABLE_SCSI_DMA
-   wire                 w_m1_req_valid      = w_eng_req_valid;
-   wire [`PA_WIDTH-1:0] w_m1_req_addr       = w_eng_req_addr;
-   wire [127:0]         w_m1_req_store_data = w_eng_req_store_data;
-   wire [4:0]           w_m1_req_opcode     = w_eng_req_opcode;
-   wire [15:0]          w_m1_req_mask       = w_eng_req_mask;
+   wire                 w_m1_req_valid      = w_sdn_req_valid;
+   wire [`PA_WIDTH-1:0] w_m1_req_addr       = w_sdn_req_addr;
+   wire [127:0]         w_m1_req_store_data = w_sdn_req_store_data;
+   wire [4:0]           w_m1_req_opcode     = w_sdn_req_opcode;
+   wire [15:0]          w_m1_req_mask       = w_sdn_req_mask;
 `else
    wire                 w_m1_req_valid      = w_dma_req_valid;
    wire [`PA_WIDTH-1:0] w_m1_req_addr       = w_dma_req_addr;
@@ -752,21 +770,87 @@ module henry_soc
    assign enet_dma_rx_dropped   = 1'b0;
    assign enet_dma_crbdp        = 32'd0;
    assign enet_dma_tx_done      = 1'b0;
+   assign enet_dma_tx_len       = 14'd0;
    assign w_enet_rx_pop         = 1'b0;
    assign w_enet_tx_beat_en_i   = 1'b0;
    assign w_enet_tx_beat_data_i = '0;
 `else
+   /* inclusive-L2 coherence: the engine's accesses go through dma_snoop_shim, which
+    * WBINV-snoops each line before the access and again after a write (and
+    * owns the core's L2 snoop port).  w_enet_req_* stay the arbiter-side master 3. */
+   wire                 w_enet_up_req_valid;
+   wire [`PA_WIDTH-1:0] w_enet_up_req_addr;
+   wire [4:0]           w_enet_up_req_opcode;
+   wire [127:0]         w_enet_up_req_store_data;
+   wire [15:0]          w_enet_up_req_mask;
+   wire                 w_enet_up_rsp_valid;
+   wire [127:0]         w_enet_up_rsp_load_data;
+`ifdef NO_ENET_SNOOP_SHIM
+   /* A/B knob: the engine straight to the arbiter, no snoops (the pre-shim wiring) */
+   assign w_enet_req_valid = w_enet_up_req_valid;
+   assign w_enet_req_addr = w_enet_up_req_addr;
+   assign w_enet_req_opcode = w_enet_up_req_opcode;
+   assign w_enet_req_store_data = w_enet_up_req_store_data;
+   assign w_enet_req_mask = w_enet_up_req_mask;
+   assign w_enet_up_rsp_valid = w_mem_rsp_enet;
+   assign w_enet_up_rsp_load_data = mem_rsp_load_data;
+   assign w_esnp_valid = 1'b0;
+   assign w_esnp_addr = 'd0;
+   assign w_esnp_wbinv = 1'b0;
+`else
+   dma_snoop_shim u_enet_snoop
+     (.clk(clk), .reset(reset),
+      .up_req_valid(w_enet_up_req_valid), .up_req_addr(w_enet_up_req_addr),
+      .up_req_opcode(w_enet_up_req_opcode), .up_req_store_data(w_enet_up_req_store_data),
+      .up_req_mask(w_enet_up_req_mask),
+      .up_rsp_valid(w_enet_up_rsp_valid), .up_rsp_load_data(w_enet_up_rsp_load_data),
+      .dn_req_valid(w_enet_req_valid), .dn_req_addr(w_enet_req_addr),
+      .dn_req_opcode(w_enet_req_opcode), .dn_req_store_data(w_enet_req_store_data),
+      .dn_req_mask(w_enet_req_mask),
+      .dn_rsp_valid(w_mem_rsp_enet), .dn_rsp_load_data(mem_rsp_load_data),
+      .snp_req_valid(w_esnp_valid), .snp_req_addr(w_esnp_addr), .snp_req_wbinv(w_esnp_wbinv),
+      .snp_req_ack(w_esnp_ack), .snp_done(w_snoop_done));
+`endif
+   /* RX ring position.  The shim's rx_nbdp is the GUEST's register: it only changes
+    * when the driver (re)arms the channel, so feeding it straight to the engine put
+    * every frame in the same descriptor and RX stalled after one frame (the guest
+    * waits on the next descriptor).  Real HPC3 advances NBDP as it walks the ring:
+    * reload on an arm (enet_rx_arm_seq edge), advance to the engine's next
+    * descriptor on each delivered frame.  An arm in the same cycle wins. */
+   logic [31:0] r_enet_rx_arm_seq;
+   logic [31:0] r_enet_rx_pos;
+   wire  [31:0] w_enet_rx_next_nbdp;
+   wire         w_enet_rx_arm = (r_enet_rx_arm_seq != enet_rx_arm_seq);
+   /* bypass: the engine is back in S_IDLE in the rx_done cycle and may start a
+    * latched frame then, before r_enet_rx_pos has advanced */
+   wire  [31:0] w_enet_rx_pos = w_enet_rx_arm ? enet_rx_nbdp :
+				enet_dma_rx_done ? w_enet_rx_next_nbdp :
+				r_enet_rx_pos;
+   always_ff@(posedge clk)
+     begin
+	if(reset)
+	  begin
+	     r_enet_rx_arm_seq <= 32'd0;
+	     r_enet_rx_pos <= 32'd0;
+	  end
+	else
+	  begin
+	     r_enet_rx_arm_seq <= enet_rx_arm_seq;
+	     r_enet_rx_pos <= w_enet_rx_pos;
+	  end
+     end // always_ff
+
    enet_dma u_enet_dma
      (.clk(clk), .reset(reset),
-      .rx_go(enet_rx_frame_go), .rx_nbdp(enet_rx_nbdp), .rx_len(enet_rx_frame_len),
+      .rx_go(enet_rx_frame_go), .rx_nbdp(w_enet_rx_pos), .rx_len(enet_rx_frame_len),
       .rx_busy(), .rx_done(enet_dma_rx_done), .rx_dropped(enet_dma_rx_dropped),
-      .rx_crbdp(enet_dma_crbdp), .rx_next_nbdp(),
+      .rx_crbdp(enet_dma_crbdp), .rx_next_nbdp(w_enet_rx_next_nbdp),
       .tx_go(w_enet_tx_go), .tx_nbdp(enet_tx_nbdp), .tx_busy(),
-      .tx_done(enet_dma_tx_done), .irq(),
-      .dma_req_valid(w_enet_req_valid), .dma_req_addr(w_enet_req_addr),
-      .dma_req_opcode(w_enet_req_opcode), .dma_req_store_data(w_enet_req_store_data),
-      .dma_req_mask(w_enet_req_mask),
-      .dma_rsp_valid(w_mem_rsp_enet), .dma_rsp_load_data(mem_rsp_load_data),
+      .tx_done(enet_dma_tx_done), .tx_len(enet_dma_tx_len), .irq(),
+      .dma_req_valid(w_enet_up_req_valid), .dma_req_addr(w_enet_up_req_addr),
+      .dma_req_opcode(w_enet_up_req_opcode), .dma_req_store_data(w_enet_up_req_store_data),
+      .dma_req_mask(w_enet_up_req_mask),
+      .dma_rsp_valid(w_enet_up_rsp_valid), .dma_rsp_load_data(w_enet_up_rsp_load_data),
       .rx_rd_en(w_enet_rx_pop), .rx_rd_data(w_enet_rx_rdata),
       .rx_rd_valid(~w_enet_rx_empty),
       .tx_wr_en(w_enet_tx_beat_en_i), .tx_wr_data(w_enet_tx_beat_data_i));
@@ -841,7 +925,44 @@ module henry_soc
     * ties its L2 snoop request to 0 (r9999 core_l1d_l1i, task #51), so the L2 never
     * acks: this FIFO filled after 16 DMA line stores and then silently dropped every
     * push -- dead logic.  DMA coherence is the ARM-requested flush's job. */
-`ifdef ENABLE_DMA_SNOOP
+`ifdef ENABLE_ENET_DMA
+   /* The ENET and SCSI dma_snoop_shims share the core's one snoop port.  Each holds
+    * its request until acked; the L2 acks the request it sampled in IDLE one cycle
+    * later, so the selection is LOCKED from the cycle a request is presented until
+    * its ack (else a newly-arriving requester could steal the other's ack).  When
+    * both wait, alternate (r_snp_last).  snoop_done goes to both shims: the L2 acks a
+    * new snoop only after the previous one completed, so only the acked shim waits
+    * for done at any time. */
+   logic r_snp_lock, r_snp_sel, r_snp_last;   /* sel/last: 1 = SCSI */
+   wire  w_snp_sel = r_snp_lock ? r_snp_sel :
+                     (w_ssnp_valid & (~w_esnp_valid | ~r_snp_last));
+   assign w_snoop_valid = w_snp_sel ? w_ssnp_valid : w_esnp_valid;
+   assign w_snoop_addr  = w_snp_sel ? w_ssnp_addr  : w_esnp_addr;
+   assign w_snoop_wbinv = w_snp_sel ? w_ssnp_wbinv : w_esnp_wbinv;
+   assign w_ssnp_ack    = w_snoop_ack &  w_snp_sel;
+   assign w_esnp_ack    = w_snoop_ack & ~w_snp_sel;
+   always_ff@(posedge clk)
+     begin
+	if(reset)
+	  begin
+	     r_snp_lock <= 1'b0;
+	     r_snp_sel <= 1'b0;
+	     r_snp_last <= 1'b0;
+	  end
+	else if(w_snoop_ack)
+	  begin
+	     r_snp_lock <= 1'b0;
+	     r_snp_last <= w_snp_sel;
+	  end
+	else if(w_snoop_valid)
+	  begin
+	     r_snp_lock <= 1'b1;
+	     r_snp_sel <= w_snp_sel;
+	  end
+     end // always_ff
+   assign w_snoop_full  = 1'b0;
+`elsif ENABLE_DMA_SNOOP
+   assign w_snoop_wbinv = 1'b0;   /* the FIFO's snoops are discards */
    snoop_fifo #(.LG_DEPTH(4)) u_snoop
      (.clk(clk), .reset(reset),
       .push_valid(w_snoop_push),
@@ -853,6 +974,7 @@ module henry_soc
 `else
    assign w_snoop_valid = 1'b0;
    assign w_snoop_addr  = 'd0;
+   assign w_snoop_wbinv = 1'b0;
    assign w_snoop_full  = 1'b0;
 `endif
 
@@ -982,11 +1104,43 @@ module henry_soc
       .dma_req_valid(w_eng_req_valid), .dma_req_addr(w_eng_req_addr),
       .dma_req_opcode(w_eng_req_opcode), .dma_req_store_data(w_eng_req_store_data),
       .dma_req_mask(w_eng_req_mask),
-      .dma_rsp_valid(w_mem_rsp_dma), .dma_rsp_load_data(mem_rsp_load_data),
+      .dma_rsp_valid(w_seng_rsp_valid), .dma_rsp_load_data(w_seng_rsp_load_data),
       .disk_rd_en(w_fifo_pop), .disk_rd_data(w_fifo_rdata), .disk_rd_valid(~w_fifo_empty),
       .cancel(w_sdma_abort),
       .disk_wr_en(scsi_disk_wr_en), .disk_wr_data(scsi_disk_wr_data));
    assign scsi_dma_done = w_eng_done;
+`ifdef ENABLE_ENET_DMA
+`ifndef NO_SCSI_SNOOP_SHIM
+   /* inclusive-L2 coherence for SCSI DMA: the same PRE-WBINV / access / POST-WBINV
+    * wrapper as ENET (dma_snoop_shim), so disk data never meets a stale cached line */
+   dma_snoop_shim u_scsi_snoop
+     (.clk(clk), .reset(reset),
+      .up_req_valid(w_eng_req_valid), .up_req_addr(w_eng_req_addr),
+      .up_req_opcode(w_eng_req_opcode), .up_req_store_data(w_eng_req_store_data),
+      .up_req_mask(w_eng_req_mask),
+      .up_rsp_valid(w_seng_rsp_valid), .up_rsp_load_data(w_seng_rsp_load_data),
+      .dn_req_valid(w_sdn_req_valid), .dn_req_addr(w_sdn_req_addr),
+      .dn_req_opcode(w_sdn_req_opcode), .dn_req_store_data(w_sdn_req_store_data),
+      .dn_req_mask(w_sdn_req_mask),
+      .dn_rsp_valid(w_mem_rsp_dma), .dn_rsp_load_data(mem_rsp_load_data),
+      .snp_req_valid(w_ssnp_valid), .snp_req_addr(w_ssnp_addr), .snp_req_wbinv(w_ssnp_wbinv),
+      .snp_req_ack(w_ssnp_ack), .snp_done(w_snoop_done));
+`else
+   /* no SCSI snoop shim: the engine talks to master 1 directly */
+   assign w_sdn_req_valid = w_eng_req_valid, w_sdn_req_addr = w_eng_req_addr,
+          w_sdn_req_store_data = w_eng_req_store_data, w_sdn_req_opcode = w_eng_req_opcode,
+          w_sdn_req_mask = w_eng_req_mask;
+   assign w_seng_rsp_valid = w_mem_rsp_dma, w_seng_rsp_load_data = mem_rsp_load_data;
+   assign w_ssnp_valid = 1'b0, w_ssnp_addr = 'd0, w_ssnp_wbinv = 1'b0;
+`endif
+`else
+   /* no SCSI snoop shim: the engine talks to master 1 directly */
+   assign w_sdn_req_valid = w_eng_req_valid, w_sdn_req_addr = w_eng_req_addr,
+          w_sdn_req_store_data = w_eng_req_store_data, w_sdn_req_opcode = w_eng_req_opcode,
+          w_sdn_req_mask = w_eng_req_mask;
+   assign w_seng_rsp_valid = w_mem_rsp_dma, w_seng_rsp_load_data = mem_rsp_load_data;
+   assign w_ssnp_valid = 1'b0, w_ssnp_addr = 'd0, w_ssnp_wbinv = 1'b0;
+`endif
 `else
    assign w_eng_req_valid = 1'b0, w_eng_req_addr = '0, w_eng_req_store_data = '0,
           w_eng_req_opcode = 5'd0, w_eng_req_mask = 16'd0, w_eng_done = 1'b0,
