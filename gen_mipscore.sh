@@ -17,10 +17,15 @@ ROOT="$(cd "$(dirname "$0")" && pwd)"
 # submodule pointer once silently shipped an OLD core to the FPGA (an l2.sv
 # missing the UNCACHE_WB_TURNAROUND AXI fix -> Linux boot hang) while the sim
 # used a newer tree -- a textbook sim/synth divergence that took a day to find.
-# So: fast-forward the submodule to origin/main before building. If it has local
-# modifications, warn and use as-is (never clobber WIP). Override with
-# HENRY_NO_SUBMODULE_UPDATE=1. The submodule SHA is always echoed into the build.
+# So: fast-forward the submodule to origin/<branch> before building, where <branch>
+# is .gitmodules submodule.r9999.branch (default main; a henry feature branch can pin
+# an r9999 feature branch, e.g. device-snoop -> inclusive-l2-v2-rebase). Only a TRUE
+# fast-forward is taken: a pinned commit that is not an ancestor of origin/<branch>
+# is used as-is, never replaced. If it has local modifications, warn and use as-is
+# (never clobber WIP). Override with HENRY_NO_SUBMODULE_UPDATE=1. The submodule SHA
+# is always echoed into the build.
 SUB="$ROOT/r9999"
+SUB_BRANCH="$(git -C "$ROOT" config -f .gitmodules submodule.r9999.branch 2>/dev/null || echo main)"
 if [ -e "$SUB/.git" ]; then
   if [ "${HENRY_NO_SUBMODULE_UPDATE:-0}" = "1" ]; then
     echo "[gen_mipscore] submodule update SKIPPED (HENRY_NO_SUBMODULE_UPDATE=1)"
@@ -28,9 +33,13 @@ if [ -e "$SUB/.git" ]; then
     echo "[gen_mipscore] WARNING: r9999 submodule has LOCAL changes -- using as-is, NOT updating" >&2
   else
     git -C "$SUB" fetch -q origin 2>/dev/null || echo "[gen_mipscore] WARNING: submodule fetch failed (offline?) -- using current checkout" >&2
-    if [ -n "$(git -C "$SUB" rev-list -n1 HEAD..origin/main 2>/dev/null)" ]; then
-      echo "[gen_mipscore] r9999 submodule was BEHIND origin/main -- fast-forwarding"
-      git -C "$SUB" checkout -q origin/main
+    if [ -n "$(git -C "$SUB" rev-list -n1 HEAD..origin/$SUB_BRANCH 2>/dev/null)" ]; then
+      if git -C "$SUB" merge-base --is-ancestor HEAD "origin/$SUB_BRANCH" 2>/dev/null; then
+        echo "[gen_mipscore] r9999 submodule was BEHIND origin/$SUB_BRANCH -- fast-forwarding"
+        git -C "$SUB" checkout -q "origin/$SUB_BRANCH"
+      else
+        echo "[gen_mipscore] WARNING: r9999 submodule is NOT an ancestor of origin/$SUB_BRANCH -- using the pinned commit as-is" >&2
+      fi
     fi
   fi
   echo "[gen_mipscore] r9999 submodule @ $(git -C "$SUB" rev-parse --short HEAD 2>/dev/null) -- $(git -C "$SUB" log -1 --format=%s 2>/dev/null | cut -c1-60)"
