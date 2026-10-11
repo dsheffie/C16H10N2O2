@@ -10,6 +10,10 @@ status: draft / future-work
 > description of the SGI hardware, (b) Henry's implementation status (none), and (c) the future-work
 > path for a Henry graphics console.
 
+> **Software side:** what IRIX's Xsgi, `ng1` kernel driver and GL libraries actually do to this
+> hardware (store widths, polling, pixel DMA, context switch) is in
+> [How IRIX drives Newport](irix-software.md).
+
 > **The Indy had two graphics options.** This page covers **XL / Newport** (host geometry, raster-only).
 > The other was **Express / XZ** — a hardware-geometry pipeline (SIMD Geometry Engines + a hyper-pipelined
 > Raster Engine); see [Express / XZ](express-xz.md). For a Henry graphics path, Newport is the far smaller

@@ -70,6 +70,7 @@ nav:
       - XMAP9 (colormap): graphics/xmap9.md
       - RB2 & RO1 (framebuffer/output): graphics/rb2-ro1.md
       - Express / XZ (hardware geometry): graphics/express-xz.md
+      - How IRIX drives Newport (Xsgi, ng1, GL): graphics/irix-software.md
   - IRIX boot flow (annotated): irix-boot-flow.md
   - Methodology (MAME oracle): methodology.md
   - FPGA build stats: fpga_stats.md
