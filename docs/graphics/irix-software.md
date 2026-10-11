@@ -169,7 +169,7 @@ Large image transfers do **not** use PIO; they go through MC graphics DMA via a 
    | `0x164` | DMA_CAUSE | 0 (clear) |
    | `0x16c` | DMA_CTL | `|= 0x110` (interrupt on), or set `0x100` and clear `0x10` when polling |
    | `0x2004` | DMA_MEMADR | user virtual address |
-   | `0x2034` | DMA_MODE | `0x50` draw (memory→GIO), `0x52` read (GIO→memory); bit 1 = direction |
+   | `0x2034` | DMA_MODE | `0x50` draw (memory→GIO), `0x52` read (GIO→memory); bit 1 = to-host, see the bit table below |
    | `0x2014` | DMA_SIZE | `rows << 16 \| bytes per line` |
    | `0x201c` | DMA_STRIDE | `zoom << 16 \| stride` |
    | `0x202c` | DMA_GIO_ADRS | GIO address; **this write starts the transfer** |
@@ -180,10 +180,80 @@ Large image transfers do **not** use PIO; they go through MC graphics DMA via a 
    - with `ng1intrena` = 0: `MCdma` clears the interrupt enable and waits synchronously (polls the DMA run bit)
 7. Strides `≥ 0x8000` take a separate `fakePICdma` path.
 
+### The MC graphics DMA engine (behavioral spec for a model)
+
+Sources, in order of authority:
+- **`mc.pdf`** (MC Chip Specification, `~/Desktop/indy_docs/`): the register map, and the statement that the
+  master does virtual DMA "using a TLB in MC and the UNIX page tables". It gives **no bit fields**: it defers to a
+  separate *Virtual DMA Programmer's Guide*, which we do not have.
+- **`ioc.pdf`**: interrupt wiring.
+- **IRIX `vdma_set_tlb`** (`kern/io/vdma.c`, `0x880dab5c` in `unix.clean`): the TLB entry format, from
+  disassembly.
+- **MAME** `src/mame/sgi/mc.cpp` (`~/code/mame`, last touched 2023-07, `adc3349c1ce`): bit meanings
+  (`perform_dma`, `dma_translate`). It agrees with the IRIX code wherever the two can be compared.
+
+**Registers** (physical `0x1fa0xxxx`; the 32-bit value is the low word, at `+4` from the doubleword address
+given in `mc.pdf`):
+
+| Register | Address | Meaning |
+|---|---|---|
+| DMA_GIO_MASK / DMA_GIO_SUB | `0x150` / `0x158` | GIO address translation; IRIX's pixel path does not use them, and MAME ignores them |
+| DMA_CAUSE | `0x160` | bit 3 = DMA done (MAME). Writing 0 clears it and drops the interrupt |
+| DMA_CTL | `0x168` | bit 4 = interrupt enable. IRIX writes `0x110`; bit 8 is not identified |
+| DMA_TLB_HI_n / DMA_TLB_LO_n, n = 0..3 | `0x180 + 0x10*n` / `0x188 + 0x10*n` | 4-entry DMA TLB, below |
+| DMA_MEMADR | `0x2000` | memory **virtual** address; `0x2008` also loads default parameters |
+| DMA_SIZE | `0x2010` | `[31:16]` line count, `[15:0]` line width in bytes; also loads COUNT's byte count |
+| DMA_STRIDE | `0x2018` | `[25:16]` line zoom, `[15:0]` **signed** stride, added to the address after each line |
+| DMA_GIO_ADR | `0x2020` | GIO address, no start |
+| DMA_GIO_ADRS | `0x2028` | GIO address **and start** (IRIX's path) |
+| DMA_MODE | `0x2030` | bit 1 TO_HOST (GIO→memory), bit 2 SYNC, bit 3 FILL, bit 4 DIR (1 = increment), bit 5 SNOOP; bit 6 (set in IRIX's `0x50`/`0x52`) is not identified |
+| DMA_COUNT | `0x2038` | `[25:16]` zoom count, `[15:0]` byte count (working counters) |
+| DMA_STDMA | `0x2040` | write bit 0 = start |
+| DMA_RUN | `0x2048` | read-only: bit 6 = running, bit 3 = done |
+| DMA_MEMADRDS | `0x2070` | GIO address + default parameters + start |
+
+**Address translation (the "MMU"):** two levels, reusing the process's own MIPS page table.
+- Each TLB entry maps one **4 MB** VA region, so 4 entries cover 16 MB of buffer.
+- `TLB_HI` = VA & `0xffc00000`.
+- `TLB_LO` = (PA of a 4 KB page of PTEs >> 12) << 6 | 2. Bit 1 is valid. That page holds the 1024 PTEs for the
+  region; IRIX points it at its own page table for the user VA.
+- To translate:
+  1. Match VA[31:22] against `TLB_HI`.
+  2. Read the PTE (32 bits) from `((TLB_LO & 0x003fffc0) << 6) + VA[21:12]*4`.
+  3. PA = ((PTE & `0x03ffffc0`) << 6) | VA[11:0]. This is the EntryLo PFN layout.
+- So **the engine does one memory read per page crossed**. A model has to do that read from memory as well.
+- **Before loading the TLB, the kernel writes the PTE page back from its cache** (`cache_operation`), because the
+  walk reads memory directly.
+- MAME returns PA 0 on a miss and does not check the valid bit. Real-hardware fault behaviour is unknown.
+
+**Transfer:** for each line, `zoom` times, for `width` bytes:
+- **Memory→GIO** (IRIX draw, mode `0x50`): pack up to 8 bytes **big-endian** and do one 64-bit GIO write to
+  `GIO_ADR`. The address does not advance: `0x1f0f0a30` is REX3 HOSTRW0+GO, so one write is two 32-bit pixels.
+- **GIO→memory** (IRIX read, mode `0x52`): one 64-bit GIO read per 8 bytes, scattered big-endian into memory.
+- **FILL** writes the GIO address value itself into memory.
+- Address steps:
+  - between zoom passes over the same line, rewind by `width`;
+  - after each line, add the signed `stride`.
+
+**Completion:**
+- set DMA_RUN bit 3 and clear bit 6;
+- if DMA_CTL bit 4 is set, set DMA_CAUSE bit 3 and raise the MC `int_dma_done` pin;
+- `int_dma_done` → IOC/INT3 **Local0 status bit 4, "MC DMA Done"** (`0x1fbd9880`, mask `0x1fbd9884` bit 4,
+  masked by default). That is IRIX's `setlclvector(4, ng1_dma_intr)`;
+- IRIX then clears DMA_CAUSE, which drops the line.
+
+For comparison, the other Newport interrupts on the IOC:
+- FIFO full = Local0 bit 0;
+- graphics (REX3) = Local0 bit 6;
+- vertical retrace = **Local1 bit 7**.
+
 ### Why `xwd` hung under QEMU
 
-QEMU's IP22 model never raises the MC DMA-complete interrupt (local vector 4), so Xsgi sleeps forever on
-`ng1dmaintr` the first time a GetImage reaches 7000 pixels.
+QEMU's IP22 model never raises the MC DMA-complete interrupt (Local0 bit 4), so Xsgi sleeps forever on
+`ng1dmaintr` the first time a GetImage reaches 7000 pixels. To fix it at the source, implement the engine above.
+Raising the interrupt alone only turns the hang into empty images. The pieces are the two-level TLB walk, a
+64-bit big-endian GIO access per 8 bytes to HOSTRW0+GO, and on completion DMA_RUN/DMA_CAUSE plus Local0 bit 4.
+MAME's `perform_dma` is a working reference (about 100 lines).
 
 ### Ways around it
 
@@ -228,8 +298,8 @@ QEMU's IP22 model never raises the MC DMA-complete interrupt (local vector 4), s
 | GFXBUSY / BACKBUSY that really reflect pending work | finish, ReadImage, DCB and init spin on them |
 | HOSTRW readback (PIO GetImage) | one read per word, round-trip bound |
 | Readback of ~48 registers | lazy context switch |
-| **MC graphics DMA** (registers above) **and its completion interrupt** (local vector 4), or the Xsgi PIO patch | Xsgi/GL GetImage ≥ 7000 px and PutImage ≥ 16384 px; no fallback |
-| Vertical-retrace interrupt (~60 Hz, STATUS VRINT `0x20`) | buffer swaps, cursor, gamma run from `newportRetraceHandler` |
+| **MC graphics DMA** (registers + TLB walk above) **and its completion interrupt** (IOC Local0 bit 4), or the Xsgi PIO patch | Xsgi/GL GetImage ≥ 7000 px and PutImage ≥ 16384 px; no fallback |
+| Vertical-retrace interrupt (~60 Hz: IOC Local1 bit 7; the handler also checks REX3 STATUS VRINT `0x20`) | buffer swaps, cursor, gamma run from `newportRetraceHandler` |
 | FIFO-full interrupt | optional if the queue never overflows |
 
 The measured access rates (QEMU, icount-stamped) and the ARM-hybrid recommendation are in
