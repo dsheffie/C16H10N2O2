@@ -70,6 +70,7 @@ int main(int argc, char** argv){
         d->disk_rd_data[i] = w;
       }
       d->disk_rd_valid = 1;   // unit test: a beat is always ready (matches the old assumed-ready behavior)
+      d->disk_wr_full = 0;
 
       d->clk = 0; d->eval();                 // comb settle (engine sees rsp + disk data)
       int rd = d->disk_rd_en, wr = d->disk_wr_en, rv = d->dma_req_valid;

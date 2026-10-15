@@ -91,6 +91,9 @@ static void ckpt_copy(const char *from, const char *to) {
 #include <sys/mman.h>
 #include "scsi_service.h"   // host-side SCSI disk service (henry_scsi.h contract)
 #include "enet_service.h"   // host-side ethernet tap service (enet_shim.sv contract)
+#if defined(ENET_RINGS) || defined(SCSI_RINGS)
+#include "ring_service.h"   // staging-ring servicer, SAME source as the board driver
+#endif
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -828,6 +831,24 @@ static uint8_t *scsi_mem(void * /*ctx*/, uint32_t phys, uint32_t len) {
 // the frame from the {BP,BC,DP} chain -> tap; RX free-run -> poll tap -> inject into the
 // guest RX ring.  Reuses scsi_mem (same FPGA address map as the descriptor walk).
 static enet_tap g_enet_tap;
+#if defined(ENET_RINGS) || defined(SCSI_RINGS)
+static enet_ring_t g_ering;
+static scsi_ring_t g_sring;
+static bool        g_sring_wait = false;        /* a data chain's completion is outstanding */
+static uint32_t    g_sring_seq = 0;
+static void tb_ring_doorbell(void *ctx, uint32_t reg, uint32_t v) {
+  Vhenry_soc *t = static_cast<Vhenry_soc*>(ctx);
+  switch(reg)
+    {
+    case RING_DB_TX_CONS:  t->ring_tx_cons = v;  break;
+    case RING_DB_RX_PROD:  t->ring_rx_prod = v;  break;
+    case RING_DB_SCSI_CQ_CONS:  t->ring_scsi_cq_cons = v;  break;
+    case RING_DB_SCSI_RD_BEATS: t->ring_scsi_rd_beats = v; break;
+    case RING_DB_SCSI_RD_SEQ:   t->ring_scsi_rd_seq = v;   break;
+    default: break;
+    }
+}
+#endif
 static uint32_t g_last_enet_tx_req_seq = 0, g_last_enet_rx_arm_seq = 0;
 static uint32_t g_enet_rx_nbdp = 0;          // (legacy) service's RX ring position
 static uint32_t g_enet_rx_rsp_seq = 0, g_enet_rx_crbdp = 0;
@@ -1970,6 +1991,16 @@ int main(int argc, char **argv) {
 
   Verilated::commandArgs(argc, argv);
   Vhenry_soc *tb = new Vhenry_soc;
+#if defined(ENET_RINGS) || defined(SCSI_RINGS)
+  {
+    ring_io_t io;
+    io.stg = g_mem + RING_STG_PA;      /* staging PA maps one-to-one into the window */
+    io.doorbell = tb_ring_doorbell;
+    io.ctx = tb;
+    enet_ring_init(&g_ering, io);
+    scsi_ring_init(&g_sring, io);
+  }
+#endif
   /* L2NOCACHE=1: l2_nocache is a SET-BEFORE-GO input -- the L2 stops caching data ops
    * entirely (pass-through to DRAM), so it holds no lines and cannot be a stale reservoir.
    * Pairs with ENABLE_L1_TINY to reproduce the FPGA config that reportedly still fails,
@@ -2753,6 +2784,17 @@ int main(int argc, char **argv) {
     static uint32_t   g_chunk = 0;
     static bool       g_active = false;
 #endif
+    /* ARMSCSI=1 (FAITHFUL_SCSI): service SCSI the way the silicon driver does
+     * (axilite-mips scsi_arm.h, EXTFLUSH=1): pulse the ARM whole-cache flush, copy the
+     * data straight between the disk and DRAM with scsi_move (no beats to the engine;
+     * the engine stalls and the shim aborts it at the response, as on the board), flush
+     * again, then post the response.  The point: reproduce the 64KB-L1D IRIX failure,
+     * which silicon shows and the engine path does not. */
+    static const bool g_armscsi = getenv("ARMSCSI") != nullptr;
+    static int      g_arm_st = 0;            /* 0 idle, 1 pre-flush, 2 move, 3 post-flush */
+    static uint32_t g_arm_nbdp = 0, g_arm_fc0 = 0;
+    static uint64_t g_arm_pulse_cyc = 0;     /* cycle ext_flush_ctl was raised: drop it one cycle later */
+    static uint64_t g_arm_n = 0, g_arm_flushes = 0;
     auto post_rsp = [&](void){
       tb->scsi_rsp_residual    = g_pending_rsp.residual;
       tb->scsi_rsp_scsi_status = g_pending_rsp.scsi_status;
@@ -2762,7 +2804,38 @@ int main(int argc, char **argv) {
     // ---- ENET tap service (enet_shim.sv contract) --------------------------------
     tb->enet_rx_frame_go  = 0;
     tb->enet_rx_beat_push = 0;
+#ifdef ENET_RINGS
+    /* staging rings: the servicer never touches guest memory; the engine completes
+     * descriptors and raises the IRQ itself.  ENET_LOOPBACK=1 wires TX back to RX
+     * through a datagram socketpair (frame boundaries kept) -- no tap needed. */
+    static const bool g_enet_lb = getenv("ENET_LOOPBACK") != nullptr;
+    static int g_lb[2] = {-1, -1};
+    if(g_enet_lb && g_lb[0] < 0) {
+      if(socketpair(AF_UNIX, SOCK_DGRAM | SOCK_NONBLOCK, 0, g_lb) != 0) {
+        fprintf(stderr, "[ering] socketpair failed\n");
+        exit(1);
+      }
+    }
+    const int tx_fd = g_enet_lb ? g_lb[0] : (g_enet_tap.ok() ? g_enet_tap.fd : -1);
+    const int rx_fd = g_enet_lb ? g_lb[1] : (g_enet_tap.ok() ? g_enet_tap.fd : -1);
+    if((cyc & 0x3f) == 0) {
+      enet_ring_tx_poll(&g_ering, tx_fd);
+    }
+    if(rx_fd >= 0 && (cyc & 0x3ff) == 0) {
+      uint8_t fr[ENET_FRAME_MAX];
+      ssize_t n = ::read(rx_fd, fr, sizeof(fr));
+      if(n >= 14) {
+        uint8_t sta[6];
+        for(int j = 0; j < 6; j++) { sta[j] = (uint8_t)(tb->enet_station >> (8*(5-j))); }
+        if(g_enet_lb || enet_addr_filter((uint8_t)tb->enet_rx_cmd, sta, fr, (uint32_t)n)) {
+          enet_ring_rx_push(&g_ering, fr, (uint32_t)n);
+        }
+      }
+    }
+    if(false) {
+#else
     if(g_enet_tap.ok()) {
+#endif
       // ---- TX: the ENGINE walks the chain and reads memory; we just collect the
       //      beats it emits and write the tap when it says the chain is done.
       tb->enet_tx_beat_pop = 0;
@@ -2903,11 +2976,33 @@ int main(int argc, char **argv) {
                 "nbdp=%08x xfer=%u pos=%zu/%zu dir=%d\n", (unsigned long long)cyc,
                 resume?"RESUME":"NEW", req.cdb[0],req.cdb[1],req.cdb[2],req.cdb[3],req.cdb[4],
                 req.cdb[5], req.dest, req.lun, req.nbdp, req.xfer_len, g_pos, g_total, (int)g_to_dev);
+#ifdef SCSI_RINGS
+      /* staging rings: READ data goes to staging, never guest memory; the chain's
+       * completion (scsi_ring_poll below) says how much it took */
       if(g_active) {
+        if(!g_to_dev) {
+          scsi_ring_stage_read(&g_sring, g_buf.data() + g_pos, (uint32_t)(g_total - g_pos), req.seq);
+        }
+        g_sring_wait = true;
+        g_sring_seq  = req.seq;
+      }
+      else {
+        post_rsp();                                    // timeout / no data (shim aborts)
+      }
+      if(true) {                                       // the old stream/capture paths are skipped
+#else
+      if(false) {
+#endif
+      } else if(g_active && g_armscsi) {
+        g_arm_st = 1; g_arm_nbdp = req.nbdp; g_arm_n++;
+        g_arm_fc0 = tb->ext_flush_stat >> 16;
+        tb->ext_flush_ctl = 1;                         // pre-flush edge
+        g_arm_pulse_cyc = cyc;
+      } else if(g_active) {
         uint32_t rem = (uint32_t)(g_total - g_pos);    // chunk = WD33C93 count (== chain)
         g_chunk = (req.xfer_len && req.xfer_len < rem) ? req.xfer_len : rem;
         if(!g_to_dev) { g_streaming = true; g_chunk_nbdp = req.nbdp; }  // READ: feed the engine this chunk
-        else          { if(!resume) g_buf.clear(); g_capturing = true; }  // WRITE: drain
+        else          { if(!resume) g_buf.clear(); g_capturing = true; g_chunk_nbdp = req.nbdp; }  // WRITE: drain
       } else {
         post_rsp();                                    // timeout / no data (shim aborts)
       }
@@ -2928,6 +3023,79 @@ int main(int argc, char **argv) {
         post_rsp();                                    // timeout / no data: status now (shim aborts)
       }
 #endif
+    }
+#ifdef SCSI_RINGS
+    if(g_sring_wait && (cyc & 0xf) == 0) {
+      scsi_cqe_t e;
+      if(scsi_ring_poll(&g_sring, g_sring_seq, &e)) {
+        g_sring_wait = false;
+        uint32_t moved = e.bytes;
+        if(moved > g_total - g_pos) {
+          moved = (uint32_t)(g_total - g_pos);
+        }
+        if(!g_to_dev) {                                // READ: TB-only oracle (the ARM never does this)
+          scsi_read_check(g_buf, g_pos, moved, e.nbdp);
+        }
+        if(g_to_dev) {                                 // WRITE: the engine's gather, from staging
+          scsi_ring_read_wr(&g_sring, g_buf.data() + g_pos, moved);
+          for(size_t b = 0; b < moved / 512; b++) {
+            g_scsi_disk.block_write(g_wr_lba + g_pos/512 + b, g_buf.data() + g_pos + b*512);
+          }
+        }
+        g_pos += moved;
+        if(g_pos < g_total) {
+          g_pending_rsp.completion = SCSI_DONE_PAUSE; g_pending_rsp.scsi_status = g_to_dev ? 0x48 : 0x49;
+        } else {
+          g_pending_rsp.completion = SCSI_DONE_COMPLETE;
+          g_pending_rsp.scsi_status = ST_SELECT_TRANSFER_SUCCESS; g_active = false;
+        }
+        g_pending_rsp.residual = 0;
+        post_rsp();
+        if(getenv("SCSIDBG")) {
+          fprintf(stderr, "[sring] cyc=%llu seq=%u bytes=%u flags=%x pos=%zu/%zu skipped=%llu\n",
+                  (unsigned long long)cyc, e.seq, e.bytes, e.flags, g_pos, g_total,
+                  (unsigned long long)g_sring.skipped);
+        }
+      }
+    }
+#endif
+    if(g_armscsi && g_arm_st) {
+      bool fdone = ((tb->ext_flush_stat >> 16) != g_arm_fc0) && !(tb->ext_flush_stat & 1);
+      if((g_arm_st == 1 || g_arm_st == 3) && cyc > g_arm_pulse_cyc) {
+        tb->ext_flush_ctl = 0;                         // held for one full cycle, then dropped
+      }
+      if(g_arm_st == 1 && fdone) {
+        g_arm_flushes++;
+        g_arm_st = 2;
+      }
+      if(g_arm_st == 2) {                              // the ARM's scsi_move, then commit a WRITE
+        uint32_t moved = scsi_move(scsi_mem, nullptr, g_arm_nbdp, g_buf.data() + g_pos,
+                                   (uint32_t)(g_total - g_pos), g_to_dev);
+        if(g_to_dev) {
+          for(size_t b = 0; b < moved / 512; b++)
+            g_scsi_disk.block_write(g_wr_lba + g_pos/512 + b, g_buf.data() + g_pos + b*512);
+        }
+        g_pos += moved;
+        if(g_pos < g_total) {
+          g_pending_rsp.completion = SCSI_DONE_PAUSE; g_pending_rsp.scsi_status = g_to_dev ? 0x48 : 0x49;
+        } else {
+          g_pending_rsp.completion = SCSI_DONE_COMPLETE;
+          g_pending_rsp.scsi_status = ST_SELECT_TRANSFER_SUCCESS; g_active = false;
+        }
+        g_pending_rsp.residual = 0;
+        g_arm_fc0 = tb->ext_flush_stat >> 16;
+        tb->ext_flush_ctl = 1;                         // post-flush edge
+        g_arm_pulse_cyc = cyc;
+        g_arm_st = 3;
+      } else if(g_arm_st == 3 && fdone) {
+        g_arm_flushes++;
+        post_rsp();
+        g_arm_st = 0;
+        if((g_arm_n & 255) == 0) {
+          fprintf(stderr, "[armscsi] cyc=%llu commands=%llu flushes=%llu\n", (unsigned long long)cyc,
+                  (unsigned long long)g_arm_n, (unsigned long long)g_arm_flushes);
+        }
+      }
     }
     // READ: push one 16-byte beat/cycle into the conduit (engine stalls when empty),
     // respecting full; post status once the whole buffer is in flight.
@@ -3053,6 +3221,27 @@ int main(int argc, char **argv) {
       if(tb->scsi_dma_done) {
         g_capturing = false;
 #ifdef FAITHFUL_SCSI
+        { /* [scsi-wrchk]: what the ARM's SCSIENGINE write path would read -- DRAM via the
+           * chain, AFTER the engine walked it through the snoop shim -- must equal the
+           * beats the engine itself produced.  Equal => reading DRAM after dma_done is
+           * coherent (no ARM flush needed for disk writes). */
+          static long wr_chunks = 0, wr_bad_chunks = 0, wr_bad_bytes = 0;
+          std::vector<uint8_t> dram(g_buf.size());
+          uint32_t got = scsi_move(scsi_mem, nullptr, g_chunk_nbdp, dram.data(), (uint32_t)dram.size(), true);
+          long bad = 0; size_t first = 0;
+          for(size_t z = 0; z < got && z < g_buf.size(); z++) {
+            if(dram[z] != g_buf[z]) { if(bad == 0) first = z; bad++; }
+          }
+          wr_chunks++;
+          if(bad) {
+            wr_bad_chunks++; wr_bad_bytes += bad;
+            if(wr_bad_chunks <= 20)
+              fprintf(stderr, "[scsi-wrchk] MISMATCH lba=%llu chunk@%zu: %ld/%u bytes differ, first at +%zu (dram %02x engine %02x)\n",
+                      (unsigned long long)g_wr_lba, g_pos, bad, got, first, dram[first], g_buf[first]);
+          }
+          if((wr_chunks & 63) == 0 || bad)
+            fprintf(stderr, "[scsi-wrchk] %ld WRITE chunks checked, %ld bad (%ld bytes)\n", wr_chunks, wr_bad_chunks, wr_bad_bytes);
+        }
         // commit this chunk's blocks at the running LBA offset, then advance / pause
         for(size_t b = 0; b*512 + 512 <= g_buf.size(); b++)
           g_scsi_disk.block_write(g_wr_lba + g_pos/512 + b, g_buf.data() + b*512);

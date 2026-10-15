@@ -51,6 +51,14 @@ VFLAGS += $(VFLAGS_EXTRA)
 ifdef BIG_L2
 VFLAGS += +define+BIG_SIM_L2
 endif
+# `make ENET_RINGS=1` -> ENET DMA through the staging rings (docs/arm-device-protocol.md)
+ifdef ENET_RINGS
+VFLAGS += +define+ENABLE_ENET_DMA +define+ENET_RINGS -CFLAGS -DENET_RINGS
+endif
+# `make SCSI_RINGS=1` -> SCSI data through the staging rings (scsi_stage)
+ifdef SCSI_RINGS
+VFLAGS += +define+SCSI_RINGS -CFLAGS -DSCSI_RINGS
+endif
 # `make TRACE_ALL_PC=1` -> dram_trace captures ALL retires (kernel+user) so the codec
 # can be validated on boot code (env TRACE_VALIDATE=1) without booting to userspace.
 ifdef TRACE_ALL_PC

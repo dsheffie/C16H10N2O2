@@ -29,8 +29,8 @@
 // to the residual, which is the handshake that gives the buffer to the CPU.
 // TX: gather COUNT bytes from each BP, set ETXD in BC, stop at EOX.
 //
-// Phase-1 scope (matches scsi_dma): 16-byte-aligned NBDP and BP.  A non-multiple
-// -of-16 length is handled by masking the final partial beat.
+// NBDP must be 16-byte aligned; BP may start at any byte in both directions (IRIX
+// RX buffers sit at BP mod 16 = 8).  Lengths need not be multiples of 16.
 // -----------------------------------------------------------------------------
 module enet_dma
    (input  logic         clk,
@@ -64,7 +64,8 @@ module enet_dma
     input  logic [127:0] rx_rd_data,     // RX: host -> mem beat
     input  logic         rx_rd_valid,    // RX: a beat is available; else stall
     output logic         tx_wr_en,       // TX: pulse, tx_wr_data valid this cycle
-    output logic [127:0] tx_wr_data);    // TX: mem -> host beat
+    output logic [127:0] tx_wr_data,     // TX: mem -> host beat
+    input  logic         tx_wr_full);    // TX: host FIFO full -> hold the beat
 
    typedef enum logic [3:0] {
       S_IDLE     = 4'd0,
@@ -79,7 +80,8 @@ module enet_dma
       S_NEXT     = 4'd9,   // advance to dp or finish
       S_DONE     = 4'd10,
       S_DROP     = 4'd11,  // RX: ring full / buffer unusable
-      S_TX_FLUSH = 4'd12   // TX: push the final partial beat, then done
+      S_TX_FLUSH = 4'd12,  // TX: push the final partial beat, then done
+      S_RX_DRAIN = 4'd13   // RX: pop the frame's unused host beats (drop/clamp)
    } state_t;
 
    state_t        r_state, n_state;
@@ -91,7 +93,6 @@ module enet_dma
    logic [13:0]   r_bufsz, n_bufsz;     // RX: buffer residual (size - frame bytes)
    logic          r_eox,   n_eox;
    logic          r_xie,   n_xie;
-   logic [127:0]  r_data,  n_data;
    logic          r_done,  n_done;
    logic          r_txdone,n_txdone;
    logic          r_drop,  n_drop;
@@ -111,6 +112,16 @@ module enet_dma
    logic [3:0]    t_tx_off;
    logic [4:0]    t_tx_take;
    logic [127:0]  t_tx_bytes;
+   /* RX unpacker: the mirror image.  Host beats land in the same accumulator; each
+    * store writes min(16 - bp[3:0], cnt) bytes into the aligned line holding bp,
+    * shifted up to bp[3:0] and byte-masked, so nothing outside [BP, BP+len) is
+    * touched.  r_rx_left counts the host beats of this frame still in the FIFO:
+    * all of them are popped even when the frame is dropped or clamped, or they
+    * would become the head of the next frame. */
+   logic [10:0]   r_rx_left, n_rx_left;
+   logic          r_rx_drop, n_rx_drop;
+   logic [3:0]    t_rx_off;
+   logic [4:0]    t_rx_need;
    /* rx_go / tx_go are 1-cycle pulses but are only taken in S_IDLE, with RX first:
     * a kick that arrived while the engine was busy (or in the same cycle as the
     * other one) was DROPPED -- the guest's transmits were lost behind host traffic
@@ -151,12 +162,15 @@ module enet_dma
 	n_bufsz    = r_bufsz;
 	n_eox      = r_eox;
 	n_xie      = r_xie;
-	n_data     = r_data;
 	n_crbdp    = r_crbdp;
 	n_desc_cnt = r_desc_cnt;
 	n_acc      = r_acc;
 	n_acc_n    = r_acc_n;
 	n_txlen    = r_txlen;
+	n_rx_left  = r_rx_left;
+	n_rx_drop  = r_rx_drop;
+	t_rx_off   = r_bp[3:0];
+	t_rx_need  = ({1'b0, r_cnt} < (5'd16 - {1'b0, t_rx_off})) ? r_cnt[4:0] : (5'd16 - {1'b0, t_rx_off});
 	t_tx_off   = r_bp[3:0];
 	t_tx_take  = ({1'b0, r_cnt} < (5'd16 - {1'b0, t_tx_off})) ? r_cnt[4:0] : (5'd16 - {1'b0, t_tx_off});
 	t_tx_bytes = (dma_rsp_load_data >> {t_tx_off, 3'd0}) & ({128{1'b1}} >> {(5'd16 - t_tx_take), 3'd0});
@@ -170,11 +184,11 @@ module enet_dma
 	dma_req_valid      = 1'b0;
 	dma_req_addr       = {{(`PA_WIDTH-32){1'b0}}, r_nbdp};
 	dma_req_opcode     = 5'd4;
-	dma_req_store_data = r_data;
+	dma_req_store_data = 128'd0;
 	dma_req_mask       = 16'hffff;
 	rx_rd_en           = 1'b0;
 	tx_wr_en           = 1'b0;
-	tx_wr_data         = r_data;
+	tx_wr_data         = 128'd0;
 
 	case(r_state)
 	  S_IDLE:
@@ -185,6 +199,10 @@ module enet_dma
 		    n_cnt      = rx_len;
 		    n_desc_cnt = 8'd0;
 		    n_rx_pend  = 1'b0;
+		    n_acc      = 256'd0;
+		    n_acc_n    = 6'd0;
+		    n_rx_left  = 11'((rx_len + 14'd15) >> 4);
+		    n_rx_drop  = 1'b0;
 		    n_state    = S_RX_DESC;
 		 end
 	       else if(r_tx_pend | tx_go)
@@ -217,7 +235,8 @@ module enet_dma
 		     * treated the same (a torn/stale descriptor reads as COUNT=0). */
 		    if(!w_bc[14] || (w_bc[13:0] < 14'd3))
 		      begin
-			 n_state = S_DROP;
+			 n_rx_drop = 1'b1;
+			 n_state   = S_RX_DRAIN;
 		      end
 		    else
 		      begin
@@ -235,28 +254,49 @@ module enet_dma
 		 end
 	    end
 	  S_RX_BEAT:
-	    begin                                   // pull a host beat (stall if none)
-	       if(rx_rd_valid)
+	    begin                                   // enough bytes for the next store? else pull a beat
+	       if(r_acc_n >= {1'b0, t_rx_need})
 		 begin
-		    rx_rd_en = 1'b1;
-		    n_data   = rx_rd_data;
-		    n_state  = S_RX_MEM;
+		    n_state = S_RX_MEM;
+		 end
+	       else if(rx_rd_valid)
+		 begin
+		    rx_rd_en  = 1'b1;
+		    n_acc     = r_acc | ({128'd0, rx_rd_data} << {r_acc_n, 3'd0});
+		    n_acc_n   = r_acc_n + 6'd16;
+		    n_rx_left = r_rx_left - 11'd1;
+		    n_state   = S_RX_MEM;
 		 end
 	    end
 	  S_RX_MEM:
-	    begin                                   // store the beat to mem[bp]
+	    begin                                   // store up to the end of bp's line
 	       dma_req_valid      = 1'b1;
-	       dma_req_addr       = {{(`PA_WIDTH-32){1'b0}}, r_bp};
+	       dma_req_addr       = {{(`PA_WIDTH-32){1'b0}}, r_bp[31:4], 4'd0};
 	       dma_req_opcode     = 5'd7;
-	       dma_req_store_data = r_data;
-	       /* final partial beat: mask so we never write past the frame */
-	       dma_req_mask       = (r_cnt >= 14'd16) ? 16'hffff
-			                              : ((16'd1 << r_cnt[3:0]) - 16'd1);
+	       dma_req_store_data = r_acc[127:0] << {t_rx_off, 3'd0};
+	       dma_req_mask       = 16'(((17'd1 << t_rx_need) - 17'd1) << t_rx_off);
 	       if(dma_rsp_valid)
 		 begin
-		    n_bp    = r_bp + 32'd16;
-		    n_cnt   = (r_cnt > 14'd16) ? (r_cnt - 14'd16) : 14'd0;
-		    n_state = (r_cnt <= 14'd16) ? S_RX_WB : S_RX_BEAT;
+		    n_acc   = r_acc >> {t_rx_need, 3'd0};
+		    n_acc_n = r_acc_n - {1'b0, t_rx_need};
+		    n_bp    = r_bp + {27'd0, t_rx_need};
+		    n_cnt   = r_cnt - {9'd0, t_rx_need};
+		    n_state = (r_cnt == {9'd0, t_rx_need}) ? S_RX_DRAIN : S_RX_BEAT;
+		 end
+	    end
+	  S_RX_DRAIN:
+	    begin                                   // discard what the store did not use
+	       if(r_rx_left != 11'd0)
+		 begin
+		    if(rx_rd_valid)
+		      begin
+			 rx_rd_en  = 1'b1;
+			 n_rx_left = r_rx_left - 11'd1;
+		      end
+		 end
+	       else
+		 begin
+		    n_state = r_rx_drop ? S_DROP : S_RX_WB;
 		 end
 	    end
 	  S_RX_WB:
@@ -307,14 +347,23 @@ module enet_dma
 	    end
 	  S_TX_HOST:
 	    begin                                   // a full beat is ready: push it
+	       /* the host FIFO drops a push when full, so hold the beat until there is
+		* room -- the ARM pops over AXI-Lite, far slower than the DRAM loads */
 	       if(r_acc_n >= 6'd16)
 		 begin
-		    tx_wr_en   = 1'b1;
-		    tx_wr_data = r_acc[127:0];
-		    n_acc      = r_acc >> 128;
-		    n_acc_n    = r_acc_n - 6'd16;
+		    if(!tx_wr_full)
+		      begin
+			 tx_wr_en   = 1'b1;
+			 tx_wr_data = r_acc[127:0];
+			 n_acc      = r_acc >> 128;
+			 n_acc_n    = r_acc_n - 6'd16;
+			 n_state    = (r_cnt == 14'd0) ? S_TX_WB : S_TX_MEM;
+		      end
 		 end
-	       n_state = (r_cnt == 14'd0) ? S_TX_WB : S_TX_MEM;
+	       else
+		 begin
+		    n_state = (r_cnt == 14'd0) ? S_TX_WB : S_TX_MEM;
+		 end
 	    end
 	  S_TX_WB:
 	    begin                                   // mark the buffer transmitted
@@ -351,13 +400,16 @@ module enet_dma
 	      end
 	  S_TX_FLUSH:
 	    begin                                   // the chain's tail: a partial beat
-	       tx_wr_en   = 1'b1;
-	       tx_wr_data = r_acc[127:0];
-	       n_acc      = 256'd0;
-	       n_acc_n    = 6'd0;
-	       n_txdone   = 1'b1;
-	       n_irq      = r_xie;
-	       n_state    = S_IDLE;
+	       if(!tx_wr_full)
+		 begin
+		    tx_wr_en   = 1'b1;
+		    tx_wr_data = r_acc[127:0];
+		    n_acc      = 256'd0;
+		    n_acc_n    = 6'd0;
+		    n_txdone   = 1'b1;
+		    n_irq      = r_xie;
+		    n_state    = S_IDLE;
+		 end
 	    end
 	  S_DONE:                                   // unreachable: RX/TX pulse on exit
 	    begin
@@ -385,7 +437,6 @@ module enet_dma
 	     r_bufsz    <= 14'd0;
 	     r_eox      <= 1'b0;
 	     r_xie      <= 1'b0;
-	     r_data     <= 128'd0;
 	     r_done     <= 1'b0;
 	     r_txdone   <= 1'b0;
 	     r_drop     <= 1'b0;
@@ -395,6 +446,8 @@ module enet_dma
 	     r_acc      <= 256'd0;
 	     r_acc_n    <= 6'd0;
 	     r_txlen    <= 14'd0;
+	     r_rx_left  <= 11'd0;
+	     r_rx_drop  <= 1'b0;
 	     r_rx_pend  <= 1'b0;
 	     r_tx_pend  <= 1'b0;
 	  end
@@ -409,7 +462,6 @@ module enet_dma
 	     r_bufsz    <= n_bufsz;
 	     r_eox      <= n_eox;
 	     r_xie      <= n_xie;
-	     r_data     <= n_data;
 	     r_done     <= n_done;
 	     r_txdone   <= n_txdone;
 	     r_drop     <= n_drop;
@@ -419,6 +471,8 @@ module enet_dma
 	     r_acc      <= n_acc;
 	     r_acc_n    <= n_acc_n;
 	     r_txlen    <= n_txlen;
+	     r_rx_left  <= n_rx_left;
+	     r_rx_drop  <= n_rx_drop;
 	     r_rx_pend  <= n_rx_pend;
 	     r_tx_pend  <= n_tx_pend;
 	  end
@@ -448,7 +502,8 @@ module enet_dma
 `endif
 
    assign rx_busy      = (r_state == S_RX_DESC) | (r_state == S_RX_BEAT) |
-			 (r_state == S_RX_MEM)  | (r_state == S_RX_WB);
+			 (r_state == S_RX_MEM)  | (r_state == S_RX_WB) |
+			 (r_state == S_RX_DRAIN);
    assign tx_busy      = (r_state == S_TX_DESC) | (r_state == S_TX_MEM) |
 			 (r_state == S_TX_HOST) | (r_state == S_TX_WB) |
 			 (r_state == S_NEXT) | (r_state == S_TX_FLUSH);

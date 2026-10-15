@@ -48,7 +48,9 @@ module scsi_dma
     input  logic         disk_rd_valid,  // READ: a beat is available (FIFO non-empty); else stall
     input  logic         cancel,         // force back to IDLE (short/no-data/selection timeout)
     output logic         disk_wr_en,     // WRITE: pulse, disk_wr_data valid this cycle
-    output logic [127:0] disk_wr_data);  // WRITE: mem -> disk beat
+    output logic [127:0] disk_wr_data,   // WRITE: mem -> disk beat
+    input  logic         disk_wr_full,   // WRITE: the disk side cannot take a beat -> hold it
+    output logic [31:0]  xfer_bytes);    // buffer bytes moved in this chain so far
 
    typedef enum logic [3:0] {
       S_IDLE    = 4'd0,
@@ -74,6 +76,7 @@ module scsi_dma
    logic          r_irq,    n_irq;
    logic [7:0]    r_desc_cnt, n_desc_cnt;  // chain-length guard (null/garbage link)
    logic [255:0]  r_acc,    n_acc;      // stream bytes between disk and memory
+   logic [31:0]   r_xfer,   n_xfer;     // buffer bytes moved in this chain
    logic [5:0]    r_acc_n,  n_acc_n;    // valid bytes in r_acc
    logic [3:0]    t_off;                // bp's byte offset in its line
    logic [4:0]    t_take;               // buffer bytes in bp's line: min(16-off, cnt)
@@ -106,6 +109,7 @@ module scsi_dma
       n_desc_cnt = r_desc_cnt;
       n_acc      = r_acc;
       n_acc_n    = r_acc_n;
+      n_xfer     = r_xfer;
 
       dma_req_valid      = 1'b0;
       dma_req_addr       = {{(`PA_WIDTH-32){1'b0}}, r_nbdp};
@@ -124,6 +128,7 @@ module scsi_dma
              n_desc_cnt = 8'd0;
              n_acc      = 256'd0;
              n_acc_n    = 6'd0;
+             n_xfer     = 32'd0;
              n_state    = S_DESC;
           end
         S_DESC: begin                              // read the descriptor line @ r_nbdp
@@ -160,6 +165,7 @@ module scsi_dma
               n_acc_n = r_acc_n - {1'b0, t_take};
               n_bp    = r_bp + {27'd0, t_take};
               n_cnt   = r_cnt - {9'd0, t_take};
+              n_xfer  = r_xfer + {27'd0, t_take};
               n_state = (r_cnt == {9'd0, t_take}) ? S_NEXT : S_R_DISK;
            end
         end
@@ -173,24 +179,32 @@ module scsi_dma
               n_acc_n = r_acc_n + {1'b0, t_take};
               n_bp    = r_bp + {27'd0, t_take};
               n_cnt   = r_cnt - {9'd0, t_take};
+              n_xfer  = r_xfer + {27'd0, t_take};
               n_state = S_W_DISK;
            end
         end
         S_W_DISK: begin                            // WRITE: a full beat is ready -> push it
            if(r_acc_n >= 6'd16) begin
-              disk_wr_en   = 1'b1;
-              disk_wr_data = r_acc[127:0];
-              n_acc        = r_acc >> 128;
-              n_acc_n      = r_acc_n - 6'd16;
+              if(!disk_wr_full) begin              // a full disk side holds the beat
+                 disk_wr_en   = 1'b1;
+                 disk_wr_data = r_acc[127:0];
+                 n_acc        = r_acc >> 128;
+                 n_acc_n      = r_acc_n - 6'd16;
+                 n_state      = (r_cnt == 14'd0) ? S_NEXT : S_W_MEM;
+              end
            end
-           n_state = (r_cnt == 14'd0) ? S_NEXT : S_W_MEM;
+           else begin
+              n_state = (r_cnt == 14'd0) ? S_NEXT : S_W_MEM;
+           end
         end
         S_W_FLUSH: begin                           // WRITE: the stream's tail as a padded beat
-           disk_wr_en   = 1'b1;
-           disk_wr_data = r_acc[127:0];
-           n_acc        = 256'd0;
-           n_acc_n      = 6'd0;
-           n_state      = S_DONE;
+           if(!disk_wr_full) begin
+              disk_wr_en   = 1'b1;
+              disk_wr_data = r_acc[127:0];
+              n_acc        = 256'd0;
+              n_acc_n      = 6'd0;
+              n_state      = S_DONE;
+           end
         end
         S_NEXT:
           // EOX, a null link (stale/garbage descriptor), or a runaway chain -> stop.
@@ -226,6 +240,7 @@ module scsi_dma
          r_desc_cnt <= 8'd0;
          r_acc    <= 256'd0;
          r_acc_n  <= 6'd0;
+         r_xfer   <= 32'd0;
       end
       else begin
          r_state  <= n_state;
@@ -241,6 +256,7 @@ module scsi_dma
          r_desc_cnt <= n_desc_cnt;
          r_acc    <= n_acc;
          r_acc_n  <= n_acc_n;
+         r_xfer   <= n_xfer;
       end
    end
 
@@ -250,6 +266,7 @@ module scsi_dma
    // having posted its rsp) to complete a short/no-data transfer instead of hanging.
    assign rd_stalled = (r_state == S_R_DISK) & (r_acc_n < {1'b0, t_take}) & ~disk_rd_valid;
    assign done = r_done;
+   assign xfer_bytes = r_xfer;
    assign irq  = r_irq;
 
 `ifdef VERILATOR

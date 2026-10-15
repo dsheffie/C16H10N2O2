@@ -65,6 +65,10 @@ module dma_snoop_shim
    logic [127:0]  r_load_data, n_load_data;
 
    wire [`PA_WIDTH-1:0] w_line = {up_req_addr[`PA_WIDTH-1:4], 4'd0};
+   /* ARM<->device staging (docs/arm-device-protocol.md): PA 0x1e000000-0x1effffff is
+    * IP22 reserved GIO space, never mapped by the guest, so the core can never cache
+    * it -- staging accesses skip both snoops */
+   wire w_staging = (up_req_addr[`PA_WIDTH-1:24] == 'h1e);
 
    always_ff@(posedge clk)
      begin
@@ -100,7 +104,7 @@ module dma_snoop_shim
 	    begin
 	       if(up_req_valid)
 		 begin
-		    n_state = S_PRE;
+		    n_state = w_staging ? S_FWD : S_PRE;
 		 end
 	    end
 	  S_PRE:
@@ -124,7 +128,7 @@ module dma_snoop_shim
 	       if(dn_rsp_valid)
 		 begin
 		    n_load_data = dn_rsp_load_data;
-		    n_state = (up_req_opcode == 5'd7) ? S_POST : S_RSP;
+		    n_state = ((up_req_opcode == 5'd7) && !w_staging) ? S_POST : S_RSP;
 		 end
 	    end
 	  S_POST:

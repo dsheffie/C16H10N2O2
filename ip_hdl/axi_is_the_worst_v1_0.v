@@ -368,6 +368,8 @@ module axi_is_the_worst_v1_0 #
    wire         w_enet_tx_beat_valid, w_enet_tx_beat_pop;
    wire [127:0] w_enet_tx_beat_data;
    wire         w_enet_dma_rx_done, w_enet_dma_rx_dropped, w_enet_dma_tx_done;
+   wire [13:0]  w_enet_dma_tx_len;
+   wire [31:0]  w_ring_tx_cons, w_ring_rx_prod, w_ring_scsi_cq_cons, w_ring_scsi_rd_beats, w_ring_scsi_rd_seq;
    wire [31:0]  w_enet_dma_crbdp;
 
    // SCSI beat conduit: S00_AXI (ARM pushes) -> henry_soc engine FIFO
@@ -492,6 +494,12 @@ module axi_is_the_worst_v1_0 #
 				       .enet_dma_rx_dropped(w_enet_dma_rx_dropped),
 				       .enet_dma_crbdp(w_enet_dma_crbdp),
 				       .enet_dma_tx_done(w_enet_dma_tx_done),
+				       .enet_dma_tx_len(w_enet_dma_tx_len),
+				       .ring_tx_cons(w_ring_tx_cons),
+				       .ring_rx_prod(w_ring_rx_prod),
+				       .ring_scsi_cq_cons(w_ring_scsi_cq_cons),
+				       .ring_scsi_rd_beats(w_ring_scsi_rd_beats),
+				       .ring_scsi_rd_seq(w_ring_scsi_rd_seq),
 				       .scsi_beat_push(w_scsi_beat_push),
 				       .scsi_beat_data(w_scsi_beat_data),
 				       .scsi_beat_full(w_scsi_beat_full),
@@ -763,6 +771,12 @@ module axi_is_the_worst_v1_0 #
 	   .enet_dma_rx_dropped(w_enet_dma_rx_dropped),
 	   .enet_dma_crbdp(w_enet_dma_crbdp),
 	   .enet_dma_tx_done(w_enet_dma_tx_done),
+	   .enet_dma_tx_len(w_enet_dma_tx_len),
+	   .ring_tx_cons(w_ring_tx_cons),
+	   .ring_rx_prod(w_ring_rx_prod),
+	   .ring_scsi_cq_cons(w_ring_scsi_cq_cons),
+	   .ring_scsi_rd_beats(w_ring_scsi_rd_beats),
+	   .ring_scsi_rd_seq(w_ring_scsi_rd_seq),
 	   .enet_tx_req_seq(w_enet_tx_req_seq),
 	   .enet_tx_nbdp(w_enet_tx_nbdp),
 	   .enet_tx_rsp_seq(w_enet_tx_rsp_seq),

@@ -136,6 +136,13 @@ module axi_is_the_worst_v1_0_S00_AXI #
     input  wire				      enet_dma_rx_dropped,
     input  wire [31:0]			      enet_dma_crbdp,
     input  wire				      enet_dma_tx_done,
+    input  wire [13:0]			      enet_dma_tx_len,
+    // ---- staging-ring doorbells (docs/arm-device-protocol.md): write-only ----
+    output wire [31:0]			      ring_tx_cons,      // 0x18
+    output wire [31:0]			      ring_rx_prod,      // 0x19
+    output wire [31:0]			      ring_scsi_cq_cons, // 0x1a
+    output wire [31:0]			      ring_scsi_rd_beats,// 0x1b
+    output wire [31:0]			      ring_scsi_rd_seq,  // 0x1c (written after 0x1b)
     output wire				      scsi_beat_push,
     output wire [127:0]			      scsi_beat_data,
     input  wire				      scsi_beat_full,
@@ -506,6 +513,7 @@ module axi_is_the_worst_v1_0_S00_AXI #
    assign enet_rx_frame_len = slv_reg46[13:0];
    reg r_erx_push, r_erx_go, r_etx_pop;
    reg r_erx_done_s, r_erx_drop_s, r_etx_done_s;
+   reg [13:0] r_etx_len;   // exact bytes of the last TX chain, held from tx_done (read 0x05[17:4])
    /* BUGFIX 2026-08-07: this compared against 6'h2b, the status register's ORIGINAL
     * address.  The read map was later reshuffled (0x2b now returns slv_reg43, an RX
     * beat word) and status moved to 0x05, but this clear-trigger was not moved with
@@ -518,6 +526,7 @@ module axi_is_the_worst_v1_0_S00_AXI #
      if(w_reset) begin
         r_erx_push <= 1'b0; r_erx_go <= 1'b0; r_etx_pop <= 1'b0;
         r_erx_done_s <= 1'b0; r_erx_drop_s <= 1'b0; r_etx_done_s <= 1'b0;
+        r_etx_len <= 14'd0;
      end
      else begin
         r_erx_push <= slv_reg_wren &&
@@ -532,7 +541,14 @@ module axi_is_the_worst_v1_0_S00_AXI #
         /* tx_done is a 1-cycle pulse too -- the ARM polls, so it MUST be sticky or
          * every TX completion is missed.  Same read-to-clear as the RX bits. */
         r_etx_done_s <= enet_dma_tx_done    ? 1'b1 : (w_rd_status ? 1'b0 : r_etx_done_s);
+        /* the beats are zero-padded to 16B; the ARM trims the frame to this */
+        r_etx_len    <= enet_dma_tx_done    ? enet_dma_tx_len : r_etx_len;
      end
+   assign ring_tx_cons  = slv_reg24;
+   assign ring_rx_prod  = slv_reg25;
+   assign ring_scsi_cq_cons  = slv_reg26;
+   assign ring_scsi_rd_beats = slv_reg27;
+   assign ring_scsi_rd_seq   = slv_reg28;
    assign enet_rx_beat_push = r_erx_push;
    assign enet_rx_frame_go  = r_erx_go;
    assign enet_tx_beat_pop  = r_etx_pop;
@@ -1425,7 +1441,7 @@ module axi_is_the_worst_v1_0_S00_AXI #
 	  6'h02   : reg_data_out <= {31'd0, enet_rx_beat_full};   // ENET RX beat FIFO full
 	  6'h03   : reg_data_out <= rvstatus;
 	  6'h04   : reg_data_out <= slv_reg4; //control
-	  6'h05   : reg_data_out <= {29'd0, r_etx_done_s, r_erx_drop_s, r_erx_done_s};   // ENET status (read-to-clear) //resume pc
+	  6'h05   : reg_data_out <= {14'd0, r_etx_len, 1'b0, r_etx_done_s, r_erx_drop_s, r_erx_done_s};   // ENET status (read-to-clear) //resume pc
 	  6'h06   : reg_data_out <= enet_dma_crbdp;   // ENET desc just filled //base
 	  6'h07   : reg_data_out <= r_last_pc;
 	  6'h08   : reg_data_out <= 32'h7370696d;
