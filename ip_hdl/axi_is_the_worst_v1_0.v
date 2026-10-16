@@ -361,27 +361,14 @@ module axi_is_the_worst_v1_0 #
    wire [7:0]   w_scsi_req_dest, w_scsi_req_lun, w_scsi_rsp_scsi_status, w_scsi_rsp_tgt_status;
    wire         w_scsi_req_to_device;
    wire [15:0]  w_scsi_sel_delay;
-   // enet_dma conduit: S00_AXI (ARM) <-> henry_soc engine
-   wire         w_enet_rx_frame_go, w_enet_rx_beat_push, w_enet_rx_beat_full;
-   wire [13:0]  w_enet_rx_frame_len;
-   wire [127:0] w_enet_rx_beat_data;
-   wire         w_enet_tx_beat_valid, w_enet_tx_beat_pop;
-   wire [127:0] w_enet_tx_beat_data;
-   wire         w_enet_dma_rx_done, w_enet_dma_rx_dropped, w_enet_dma_tx_done;
-   wire [13:0]  w_enet_dma_tx_len;
+   // staging-ring doorbells: S00_AXI (ARM) -> henry_soc engines
    wire [31:0]  w_ring_tx_cons, w_ring_rx_prod, w_ring_scsi_cq_cons, w_ring_scsi_rd_beats, w_ring_scsi_rd_seq;
-   wire [31:0]  w_enet_dma_crbdp;
-
-   // SCSI beat conduit: S00_AXI (ARM pushes) -> henry_soc engine FIFO
-   wire         w_scsi_beat_push, w_scsi_beat_full;
    // ext flush page list: S00_AXI (ARM writes 0x3C/0x3D) -> henry_soc
    wire         w_ext_pg_push, w_ext_pg_go, w_ext_pg_drop;
    wire [31:0]  w_ext_pg_ppn;
-   wire [127:0] w_scsi_beat_data;
    wire [31:0]  w_scsi_dbg;          // shim debug viz (AXI PMU readback)
-   // ---- ENET mailbox wires: henry_soc publishes tx_req/rx_arm; S00_AXI returns rsp/crbdp ----
+   // ---- ENET shim state: henry_soc publishes tx_req/rx_arm for debug readback ----
    wire [31:0]  w_enet_tx_req_seq, w_enet_tx_nbdp, w_enet_rx_arm_seq, w_enet_rx_nbdp;
-   wire [31:0]  w_enet_tx_rsp_seq, w_enet_rx_rsp_seq, w_enet_rx_crbdp, w_enet_tx_crbdp;
    axi_is_the_worst_v1_0_S00_AXI # ( .C_S_AXI_DATA_WIDTH(C_S00_AXI_DATA_WIDTH), .C_S_AXI_ADDR_WIDTH(C_S00_AXI_ADDR_WIDTH))
    axi_is_the_worst_v1_0_S00_AXI_inst (
 				       .controlreg(w_controlreg),
@@ -482,27 +469,11 @@ module axi_is_the_worst_v1_0 #
 				       .scsi_rsp_scsi_status(w_scsi_rsp_scsi_status),
 				       .scsi_rsp_tgt_status(w_scsi_rsp_tgt_status),
 				       .scsi_sel_delay(w_scsi_sel_delay),
-				       .enet_rx_frame_go(w_enet_rx_frame_go),
-				       .enet_rx_frame_len(w_enet_rx_frame_len),
-				       .enet_rx_beat_push(w_enet_rx_beat_push),
-				       .enet_rx_beat_data(w_enet_rx_beat_data),
-				       .enet_rx_beat_full(w_enet_rx_beat_full),
-				       .enet_tx_beat_valid(w_enet_tx_beat_valid),
-				       .enet_tx_beat_pop(w_enet_tx_beat_pop),
-				       .enet_tx_beat_data(w_enet_tx_beat_data),
-				       .enet_dma_rx_done(w_enet_dma_rx_done),
-				       .enet_dma_rx_dropped(w_enet_dma_rx_dropped),
-				       .enet_dma_crbdp(w_enet_dma_crbdp),
-				       .enet_dma_tx_done(w_enet_dma_tx_done),
-				       .enet_dma_tx_len(w_enet_dma_tx_len),
 				       .ring_tx_cons(w_ring_tx_cons),
 				       .ring_rx_prod(w_ring_rx_prod),
 				       .ring_scsi_cq_cons(w_ring_scsi_cq_cons),
 				       .ring_scsi_rd_beats(w_ring_scsi_rd_beats),
 				       .ring_scsi_rd_seq(w_ring_scsi_rd_seq),
-				       .scsi_beat_push(w_scsi_beat_push),
-				       .scsi_beat_data(w_scsi_beat_data),
-				       .scsi_beat_full(w_scsi_beat_full),
 				       .ext_flush_stat(w_ext_flush_stat),
 				       .ext_flush_cycles(w_ext_flush_cycles),
 				       .ext_pg_push(w_ext_pg_push),
@@ -514,10 +485,6 @@ module axi_is_the_worst_v1_0 #
 				       .enet_tx_nbdp(w_enet_tx_nbdp),
 				       .enet_rx_arm_seq(w_enet_rx_arm_seq),
 				       .enet_rx_nbdp(w_enet_rx_nbdp),
-				       .enet_tx_rsp_seq(w_enet_tx_rsp_seq),
-				       .enet_rx_rsp_seq(w_enet_rx_rsp_seq),
-				       .enet_rx_crbdp(w_enet_rx_crbdp),
-				       .enet_tx_crbdp(w_enet_tx_crbdp),
 
 				       .S_AXI_ACLK(s00_axi_aclk),
 				       .S_AXI_ARESETN(s00_axi_aresetn),
@@ -751,27 +718,7 @@ module axi_is_the_worst_v1_0 #
 	   .scsi_rsp_scsi_status(w_scsi_rsp_scsi_status),
 	   .scsi_rsp_tgt_status(w_scsi_rsp_tgt_status),
 	   .scsi_sel_delay(w_scsi_sel_delay),
-	   .scsi_beat_push(w_scsi_beat_push),
-	   .scsi_beat_data(w_scsi_beat_data),
-	   .scsi_beat_full(w_scsi_beat_full),
 	   .scsi_dbg(w_scsi_dbg),
-	   /* enet_dma host conduit, driven by S00_AXI (regs 0x2a-0x2f / 0x3a-0x3d).
-	    * NOTE the ARM driver (axilite-mips/enet_arm.h) must be rewritten to use it;
-	    * until then it never pushes a beat or pulses rx_frame_go, so the engine
-	    * simply idles and ENET keeps working over the legacy mailbox path. */
-	   .enet_rx_frame_go(w_enet_rx_frame_go),
-	   .enet_rx_frame_len(w_enet_rx_frame_len),
-	   .enet_rx_beat_push(w_enet_rx_beat_push),
-	   .enet_rx_beat_data(w_enet_rx_beat_data),
-	   .enet_rx_beat_full(w_enet_rx_beat_full),
-	   .enet_tx_beat_valid(w_enet_tx_beat_valid),
-	   .enet_tx_beat_pop(w_enet_tx_beat_pop),
-	   .enet_tx_beat_data(w_enet_tx_beat_data),
-	   .enet_dma_rx_done(w_enet_dma_rx_done),
-	   .enet_dma_rx_dropped(w_enet_dma_rx_dropped),
-	   .enet_dma_crbdp(w_enet_dma_crbdp),
-	   .enet_dma_tx_done(w_enet_dma_tx_done),
-	   .enet_dma_tx_len(w_enet_dma_tx_len),
 	   .ring_tx_cons(w_ring_tx_cons),
 	   .ring_rx_prod(w_ring_rx_prod),
 	   .ring_scsi_cq_cons(w_ring_scsi_cq_cons),
@@ -779,12 +726,8 @@ module axi_is_the_worst_v1_0 #
 	   .ring_scsi_rd_seq(w_ring_scsi_rd_seq),
 	   .enet_tx_req_seq(w_enet_tx_req_seq),
 	   .enet_tx_nbdp(w_enet_tx_nbdp),
-	   .enet_tx_rsp_seq(w_enet_tx_rsp_seq),
 	   .enet_rx_arm_seq(w_enet_rx_arm_seq),
 	   .enet_rx_nbdp(w_enet_rx_nbdp),
-	   .enet_rx_rsp_seq(w_enet_rx_rsp_seq),
-	   .enet_rx_crbdp(w_enet_rx_crbdp),
-	   .enet_tx_crbdp(w_enet_tx_crbdp),
 	   .enet_station(),          // not routed to AXI v1 (IRIX filters); leave open
 	   .enet_rx_cmd(),
 	   .enet_dbg(),

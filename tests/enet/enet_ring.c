@@ -1,5 +1,5 @@
 /* enet_ring.c -- bare-metal end-to-end test of ENET over the staging rings
- * (docs/arm-device-protocol.md), run in henry_tb with ENET_RINGS + ENET_LOOPBACK=1.
+ * (docs/arm-device-protocol.md), run in henry_tb with ENET_LOOPBACK=1.
  *
  * Programs the HPC3 ENET channels the way IRIX's ec driver does, but builds every
  * frame and descriptor with CACHED stores and never writes a cache line back: the

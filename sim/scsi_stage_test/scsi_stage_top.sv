@@ -1,5 +1,5 @@
 `include "machine.vh"
-// unit-test top: scsi_dma + scsi_stage wired as henry_soc does under SCSI_RINGS
+// unit-test top: scsi_dma + scsi_stage wired as henry_soc does
 module scsi_stage_top
   (input  logic         clk,
    input  logic         reset,

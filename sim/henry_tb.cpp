@@ -91,9 +91,7 @@ static void ckpt_copy(const char *from, const char *to) {
 #include <sys/mman.h>
 #include "scsi_service.h"   // host-side SCSI disk service (henry_scsi.h contract)
 #include "enet_service.h"   // host-side ethernet tap service (enet_shim.sv contract)
-#if defined(ENET_RINGS) || defined(SCSI_RINGS)
 #include "ring_service.h"   // staging-ring servicer, SAME source as the board driver
-#endif
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -730,17 +728,6 @@ static uint64_t    g_chk_insns = 0;        // instructions checked
 static const uint64_t MEM_SIZE = 0x20000000ull;   // 512 MB physical window
 static const uint64_t MEM_MASK = MEM_SIZE - 1;
 static const uint32_t HALT_PA  = 0x1fd00000u;      // magic-halt register (BFD00000)
-/* Cycles to wait for scsi_dma_done after the last beat is queued, before assuming the
- * engine is stalled on a genuine short read.  Generous: the drain is FIFO-bounded (~100s
- * of cycles) and commands are tens of thousands of cycles apart, so this cannot slow the
- * guest, but it is long enough that a normal transfer always completes via dma_done. */
-/* SCSI_NO_DRAIN_WAIT=1 restores the ORIGINAL (pre-fix) behaviour: complete as soon as the
- * host has queued the last beat, with no wait for scsi_dma_done.  Kept runtime-selectable
- * so one binary can follow BOTH timelines -- the fixed one, and the unfixed one that
- * reproduces the deterministic inode panic at retired 530,378,878. */
-static const int64_t  SCSI_DRAIN_GRACE =
-  getenv("SCSI_NO_DRAIN_WAIT") ? 0 : 20000;
-
 // ---- FPGA address map (bit-exact model of axi_is_the_worst_v1_0_M00_AXI.v sgi_mode) ----
 // The FPGA's AXI DRAM master does NOT use a flat "& MEM_MASK"; it folds the IP22
 // physical map into the 496 MB PS-DRAM and FAULTS (mem_rsp_bad) on anything past
@@ -770,26 +757,20 @@ static inline uint32_t fpga_map(uint32_t cpuaddr, bool *bad) {
 static std::vector<uint64_t> g_timer_irq_cyc;  // cycle of every timer IRQ taken
 extern "C" void log_timer_irq() { g_timer_irq_cyc.push_back(g_cur_cyc); }
 
-// ---- SCSI disk service (scsi_shim.sv mailbox; active only with `ENABLE_SCSI_SHIM + --disk) ----
-// Poll the doorbell (scsi_req_seq change), walk the descriptor chain in g_mem, do
-// the disk I/O, post the completion. The accessor applies the SAME FPGA address
-// map as the AXI master so descriptor BP/nbdp (guest physical) index g_mem right.
+// ---- SCSI disk service (scsi_shim.sv mailbox; active with --disk) ----
+// Poll the doorbell (scsi_req_seq change), do the disk I/O through the staging rings,
+// post the completion. The accessor applies the SAME FPGA address map as the AXI
+// master so descriptor BP/nbdp (guest physical) index g_mem right.
 static scsi_disk g_scsi_disk;
 static uint32_t  g_last_scsi_req_seq = 0;
 static uint32_t  g_cmd_lba = 0;      /* LBA of the in-flight SCSI command */
 static uint8_t   g_cmd_op  = 0;      /* its CDB opcode */
-static uint64_t  g_shortrd_cyc = 0;  /* cycle of the last short-read completion */
-/* Deadline for the short-read fallback.  -1 = not armed.  Armed once every beat has been
- * handed to the conduit; if scsi_dma_done has not pulsed by then, the engine really is
- * stalled (a genuine short read) and the fallback completes the command. */
-static int64_t   g_drain_deadline = -1;
-static long      g_done_normal = 0;  /* completions via scsi_dma_done (correct path) */
-/* SCSI READ data check: on each READ chunk's dma_done, walk its descriptor chain in
- * DRAM and compare every destination byte with the disk bytes this TB streamed.
+/* SCSI READ data check: on each READ chain's completion, walk its descriptor chain in
+ * DRAM and compare every destination byte with the disk bytes this TB staged.
  * Catches a DMA engine that lands data at the wrong place (e.g. an unaligned BP). */
-static uint32_t  g_chunk_nbdp = 0;
 static long      g_rdchk_reads = 0, g_rdchk_bytes = 0, g_rdchk_bad_reads = 0, g_rdchk_bad_bytes = 0;
 static void scsi_read_check(const std::vector<uint8_t> &buf, size_t pos, size_t len, uint32_t nbdp) {
+  const uint32_t nbdp0 = nbdp;
   size_t off = 0; long bad = 0; uint32_t first_pa = 0; size_t first_off = 0;
   for(int guard = 0; guard < 256 && off < len; guard++) {
     bool b0 = false, b1 = false, b2 = false;
@@ -815,11 +796,10 @@ static void scsi_read_check(const std::vector<uint8_t> &buf, size_t pos, size_t 
     g_rdchk_bad_reads++; g_rdchk_bad_bytes += bad;
     if(g_rdchk_bad_reads <= 20) {
       fprintf(stderr, "[scsi-rdchk] MISMATCH %ld/%zu bytes, first at pa=%08x (stream off %zu), chain nbdp=%08x\n",
-              bad, off, first_pa, first_off, g_chunk_nbdp);
+              bad, off, first_pa, first_off, nbdp0);
     }
   }
 }
-static long      g_shortrd_n = 0;
 static uint8_t *scsi_mem(void * /*ctx*/, uint32_t phys, uint32_t len) {
   bool bad = false;
   uint32_t off = FPGA_ADDRESS_MAP ? fpga_map(phys, &bad) : (uint32_t)(phys & MEM_MASK);
@@ -827,11 +807,10 @@ static uint8_t *scsi_mem(void * /*ctx*/, uint32_t phys, uint32_t len) {
   return g_mem + off;
 }
 
-// ENET tap service (enet_shim.sv contract): TX doorbell (enet_tx_req_seq) -> assemble
-// the frame from the {BP,BC,DP} chain -> tap; RX free-run -> poll tap -> inject into the
-// guest RX ring.  Reuses scsi_mem (same FPGA address map as the descriptor walk).
+// ENET tap service through the staging rings (docs/arm-device-protocol.md): the RTL
+// engine walks the guest descriptor chains; the TB only moves frames between the
+// staging slots and the tap (or the ENET_LOOPBACK socketpair).
 static enet_tap g_enet_tap;
-#if defined(ENET_RINGS) || defined(SCSI_RINGS)
 static enet_ring_t g_ering;
 static scsi_ring_t g_sring;
 static bool        g_sring_wait = false;        /* a data chain's completion is outstanding */
@@ -848,34 +827,6 @@ static void tb_ring_doorbell(void *ctx, uint32_t reg, uint32_t v) {
     default: break;
     }
 }
-#endif
-static uint32_t g_last_enet_tx_req_seq = 0, g_last_enet_rx_arm_seq = 0;
-static uint32_t g_enet_rx_nbdp = 0;          // (legacy) service's RX ring position
-static uint32_t g_enet_rx_rsp_seq = 0, g_enet_rx_crbdp = 0;
-
-/* ---- enet_dma host side -------------------------------------------------------
- * The RTL engine now owns the ring walk and every memory access; the host is just
- * the media, exactly like the disk.  Previously enet_rx_inject() wrote the guest's
- * buffers DIRECTLY through a memory callback, so ENET traffic was invisible to the
- * L1/L2 and coherence rested entirely on the sgiseeq driver remembering to call
- * dma_cache_inv.  Now: host formats [2 pad][frame][1 status], streams it as 16-byte
- * beats, and the engine does descriptor check + write + BC write-back.
- *
- * Beats must be fed INCREMENTALLY -- a 1514-byte frame does not fit any sane FIFO,
- * so `go` is pulsed first and the engine stalls in S_RX_BEAT until beats arrive. */
-enum enet_rx_state_t { ERX_IDLE = 0, ERX_PUSH, ERX_WAIT };
-static enet_rx_state_t g_erx_state = ERX_IDLE;
-static uint8_t  g_erx_buf[ENET_FRAME_MAX + 32];
-static uint32_t g_erx_len = 0, g_erx_beat = 0, g_erx_nbeats = 0;
-/* TX: the engine emits beats as it walks the chain; collect them and write the tap
- * when it reports the chain complete. */
-static uint8_t  g_etx_buf[ENET_FRAME_MAX + 32];
-static uint32_t g_etx_len = 0;
-/* ENET TX service trace: ETX_TRACE=1 (read once) */
-static const bool g_etx_trace = getenv("ETX_TRACE") != nullptr;
-static uint32_t g_etx_seen_seq = 0;
-static uint32_t g_etx_watch_nbdp = 0, g_etx_watch_last = 0xffffffff;
-static uint64_t g_etx_watch_until = 0;
 
 // ---- core instrumentation/co-sim DPI hooks: stubbed (RTL-only run) ----
 // Declared extern "C" via Vhenry_soc__Dpi.h above, so these definitions get C
@@ -1140,8 +1091,10 @@ static uint32_t g_ds_pc     = 0;
 /* CTRACE=<path>: chunked columnar zstd retire trace.  CTRACE_CHUNK=<recs> (default 1M),
  * CTRACE_LEVEL=<n> (default 3 -- measured 72-111x at 2600 MB/s on real streams, i.e. free
  * against henry_tb's ~3 MB/s).  Write it to /mnt/ssd, NOT the 93%-full root fs. */
-static uint64_t g_wh = 0, g_wh_bytes = 0;
-static std::vector<uint8_t> g_wdump;   /* SCSIDUMP: full write payload across chunks */   /* running swap-out hash across chunks */
+static uint64_t g_wh = 0, g_wh_bytes = 0;   /* SCSIHASH: running swap-out hash across chunks */
+static std::vector<uint8_t> g_wdump;   /* SCSIDUMP: full write payload across chunks */
+static const bool  g_scsihash = getenv("SCSIHASH") != nullptr;
+static const char *g_scsidump = getenv("SCSIDUMP");
 static uint64_t g_chk_kdrift = 0;   // k0/k1 trust-sync events (measured, not hidden)
 static int      g_settle    = 0;       // suppress compares while ISS state re-converges after a resync
 
@@ -1991,7 +1944,6 @@ int main(int argc, char **argv) {
 
   Verilated::commandArgs(argc, argv);
   Vhenry_soc *tb = new Vhenry_soc;
-#if defined(ENET_RINGS) || defined(SCSI_RINGS)
   {
     ring_io_t io;
     io.stg = g_mem + RING_STG_PA;      /* staging PA maps one-to-one into the window */
@@ -2000,7 +1952,6 @@ int main(int argc, char **argv) {
     enet_ring_init(&g_ering, io);
     scsi_ring_init(&g_sring, io);
   }
-#endif
   /* L2NOCACHE=1: l2_nocache is a SET-BEFORE-GO input -- the L2 stops caching data ops
    * entirely (pass-through to DRAM), so it holds no lines and cannot be a stale reservoir.
    * Pairs with ENABLE_L1_TINY to reproduce the FPGA config that reportedly still fails,
@@ -2759,42 +2710,24 @@ int main(int argc, char **argv) {
     // the scsi_dma RTL engine is the ONLY agent that touches MIPS memory -- it walks
     // the {BP,BC,DP} descriptor chain and writes mem[BP] via M00, in the same domain
     // the CPU reads from.  The TB NEVER touches g_mem for the payload; it only sources
-    // /sinks disk bytes across the beat conduit (the FPGA's ordered S00 slave-reg leg):
-    //   READ : pread the disk -> stream 16B beats into scsi_beat_* (engine -> mem[BP]).
-    //   WRITE: capture the engine's disk_wr beats (engine reads mem[BP]) -> block_write.
+    // /sinks disk bytes through the staging rings (docs/arm-device-protocol.md):
+    //   READ : pread the disk -> stage it (scsi_stage feeds the engine -> mem[BP]).
+    //   WRITE: the engine gathers mem[BP] into staging -> block_write.
     // Byte count is derived from the CDB by scsi_service_run (sizes g_buf); the engine
-    // independently uses the descriptor BC.  Completion: the engine pulses dma_done
-    // (data has landed); we post scsi_rsp_* for the SCSI-level status (GOOD, or
-    // selection-timeout 0x42 which makes the shim abort the otherwise-stalled engine).
+    // independently uses the descriptor BC.  Completion: each chain posts a completion
+    // ring entry (data has landed); we post scsi_rsp_* for the SCSI-level status (GOOD,
+    // or selection-timeout 0x42 which makes the shim abort the otherwise-stalled engine).
     static std::vector<uint8_t> g_buf;
     static bool       g_to_dev = false;
     static uint64_t   g_wr_lba = 0;
-    static bool       g_streaming = false;     // READ:  feeding beats into the FIFO
-    static size_t     g_stream_pos = 0;
-    static bool       g_capturing = false;     // WRITE: draining engine disk_wr beats
     static scsi_rsp_t g_pending_rsp;
-#ifdef FAITHFUL_SCSI
     // Faithful chunked DMA (Stage A): carry {buf,pos,total} across HPC3 descriptor-
     // chain EOX chunk boundaries.  chunk = min(WD33C93 xfer count, remaining) == the
-    // chain the engine walks per doorbell; on dma_done pos+=chunk and, if pos<total,
+    // chain the engine walks per doorbell; on its completion pos+=bytes and, if pos<total,
     // post a PAUSE (0x48/0x49) so IRIX reprograms + re-issues SEL_ATN_XFER.  A doorbell
-    // arriving mid-transfer is a RESUME (same buf; beats stream continuously across
-    // chunks).  Mirrors interp_mips select_and_transfer()/pause_transfer().
+    // arriving mid-transfer is a RESUME (same buf, new chain).  Mirrors interp_mips select_and_transfer()/pause_transfer().
     static size_t     g_pos = 0, g_total = 0;
-    static uint32_t   g_chunk = 0;
     static bool       g_active = false;
-#endif
-    /* ARMSCSI=1 (FAITHFUL_SCSI): service SCSI the way the silicon driver does
-     * (axilite-mips scsi_arm.h, EXTFLUSH=1): pulse the ARM whole-cache flush, copy the
-     * data straight between the disk and DRAM with scsi_move (no beats to the engine;
-     * the engine stalls and the shim aborts it at the response, as on the board), flush
-     * again, then post the response.  The point: reproduce the 64KB-L1D IRIX failure,
-     * which silicon shows and the engine path does not. */
-    static const bool g_armscsi = getenv("ARMSCSI") != nullptr;
-    static int      g_arm_st = 0;            /* 0 idle, 1 pre-flush, 2 move, 3 post-flush */
-    static uint32_t g_arm_nbdp = 0, g_arm_fc0 = 0;
-    static uint64_t g_arm_pulse_cyc = 0;     /* cycle ext_flush_ctl was raised: drop it one cycle later */
-    static uint64_t g_arm_n = 0, g_arm_flushes = 0;
     auto post_rsp = [&](void){
       tb->scsi_rsp_residual    = g_pending_rsp.residual;
       tb->scsi_rsp_scsi_status = g_pending_rsp.scsi_status;
@@ -2802,9 +2735,6 @@ int main(int argc, char **argv) {
       tb->scsi_rsp_seq         = g_pending_rsp.seq;
     };
     // ---- ENET tap service (enet_shim.sv contract) --------------------------------
-    tb->enet_rx_frame_go  = 0;
-    tb->enet_rx_beat_push = 0;
-#ifdef ENET_RINGS
     /* staging rings: the servicer never touches guest memory; the engine completes
      * descriptors and raises the IRQ itself.  ENET_LOOPBACK=1 wires TX back to RX
      * through a datagram socketpair (frame boundaries kept) -- no tap needed. */
@@ -2832,123 +2762,6 @@ int main(int argc, char **argv) {
         }
       }
     }
-    if(false) {
-#else
-    if(g_enet_tap.ok()) {
-#endif
-      // ---- TX: the ENGINE walks the chain and reads memory; we just collect the
-      //      beats it emits and write the tap when it says the chain is done.
-      tb->enet_tx_beat_pop = 0;
-      if(g_etx_trace && tb->enet_tx_req_seq != g_etx_seen_seq) {
-        fprintf(stderr, "[etx] cyc %llu kick req_seq %u\n", (unsigned long long)cyc, (unsigned)tb->enet_tx_req_seq);
-        g_etx_seen_seq = tb->enet_tx_req_seq;
-      }
-      if(g_etx_trace && cyc < g_etx_watch_until) {
-        /* post-done watch: the guest-visible descriptor cntinfo and shim IRQ/ACTIVE */
-        bool wbad = false;
-        uint64_t a = FPGA_ADDRESS_MAP ? fpga_map(g_etx_watch_nbdp + 4, &wbad) : ((g_etx_watch_nbdp + 4) & MEM_MASK);
-        uint32_t ci = ((uint32_t)g_mem[a] << 24) | ((uint32_t)g_mem[a+1] << 16) | ((uint32_t)g_mem[a+2] << 8) | g_mem[a+3];
-        uint32_t st = (uint32_t)(tb->enet_dbg & 0xf) | (ci << 4);
-        if(st != g_etx_watch_last) {
-          fprintf(stderr, "[etx] cyc %llu watch cntinfo@pa %08x %08x dbg(txact,rxact,txirq,rxirq) %x\n",
-                  (unsigned long long)cyc, g_etx_watch_nbdp + 4, ci, (unsigned)(tb->enet_dbg & 0xf));
-          g_etx_watch_last = st;
-        }
-      }
-      if(tb->enet_tx_beat_valid && g_etx_len + 16 <= sizeof(g_etx_buf)) {
-        tb->enet_tx_beat_pop = 1;
-        /* beats arrive as a 128-bit word, memory byte b in bits [8b+7:8b] */
-        for(int b = 0; b < 16; b++) {
-          g_etx_buf[g_etx_len + b] = (uint8_t)(tb->enet_tx_beat_data[b / 4] >> (8 * (b & 3)));
-        }
-        g_etx_len += 16;
-      }
-      if(tb->enet_dma_tx_done) {
-        /* the engine packs the frame from any byte offset; trim the zero-padded tail
-         * of the last beat to the exact length it reports */
-        if(tb->enet_dma_tx_len <= g_etx_len) {
-          g_etx_len = tb->enet_dma_tx_len;
-        }
-        if(g_etx_trace) {
-          fprintf(stderr, "[etx] cyc %llu tx_done len %u req_seq %u fifo_valid %d head", (unsigned long long)cyc,
-                  g_etx_len, (unsigned)tb->enet_tx_req_seq, (int)tb->enet_tx_beat_valid);
-          for(uint32_t b = 0; b < 16 && b < g_etx_len; b++) { fprintf(stderr, " %02x", g_etx_buf[b]); }
-          fprintf(stderr, "\n");
-        }
-        if(g_etx_len >= 14) {
-          ssize_t n = ::write(g_enet_tap.fd, g_etx_buf, g_etx_len);
-          if(g_etx_trace) { fprintf(stderr, "[etx] tap write %zd/%u errno %d\n", n, g_etx_len, n < 0 ? errno : 0); }
-        }
-        g_etx_len = 0;
-        tb->enet_tx_rsp_seq = tb->enet_tx_req_seq;   // echo -> shim clears ACTIVE + TX IRQ
-        if(g_etx_trace) { g_etx_watch_nbdp = tb->enet_tx_nbdp; g_etx_watch_until = cyc + 2000000; }
-        g_last_enet_tx_req_seq = tb->enet_tx_req_seq;
-      }
-
-      // ---- RX: format a tap frame, then stream it to the engine as beats.
-      switch(g_erx_state) {
-      case ERX_IDLE: {
-        if((cyc & 0x3ff) != 0) { break; }             // throttle the tap read
-        uint8_t fr[ENET_FRAME_MAX];
-        ssize_t n = ::read(g_enet_tap.fd, fr, sizeof(fr));
-        if(n < 14) { break; }
-        uint8_t sta[6];
-        for(int j = 0; j < 6; j++) { sta[j] = (uint8_t)(tb->enet_station >> (8*(5-j))); }
-        bool pass = enet_addr_filter((uint8_t)tb->enet_rx_cmd, sta, fr, (uint32_t)n);
-        if(g_etx_trace) {
-          fprintf(stderr, "[erx] cyc %llu tap read %zd rx_cmd %02x sta %012llx dst %02x:%02x:%02x:%02x:%02x:%02x type %02x%02x %s\n",
-                  (unsigned long long)cyc, n, (unsigned)(uint8_t)tb->enet_rx_cmd, (unsigned long long)tb->enet_station,
-                  fr[0], fr[1], fr[2], fr[3], fr[4], fr[5], fr[12], fr[13], pass ? "PASS" : "filtered");
-        }
-        if(!pass) { break; }
-        /* the layout the driver expects; the engine writes these bytes verbatim */
-        memset(g_erx_buf, 0, sizeof(g_erx_buf));
-        g_erx_buf[0] = 0; g_erx_buf[1] = 0;                       // 2-byte pad
-        memcpy(g_erx_buf + 2, fr, (size_t)n);
-        g_erx_buf[2 + n] = ENET_RX_STATUS_GOOD;                   // appended Seeq status
-        g_erx_len    = (uint32_t)n + 3;
-        g_erx_nbeats = (g_erx_len + 15) / 16;
-        g_erx_beat   = 0;
-        tb->enet_rx_frame_go  = 1;                                // engine: start the ring walk
-        tb->enet_rx_frame_len = g_erx_len;
-        g_erx_state  = ERX_PUSH;
-        break;
-      }
-      case ERX_PUSH:
-        /* feed while there is room; the engine stalls in S_RX_BEAT when we lag */
-        if(!tb->enet_rx_beat_full && g_erx_beat < g_erx_nbeats) {
-          uint32_t off = g_erx_beat * 16;
-          for(int w = 0; w < 4; w++) {
-            uint32_t v = 0;
-            /* memory byte b lands in bits [8b+7:8b] (the DRAM/engine convention) */
-            for(int b = 3; b >= 0; b--) { v = (v << 8) | g_erx_buf[off + w * 4 + b]; }
-            tb->enet_rx_beat_data[w] = v;
-          }
-          tb->enet_rx_beat_push = 1;
-          g_erx_beat++;
-        }
-        if(g_erx_beat >= g_erx_nbeats) { g_erx_state = ERX_WAIT; }
-        break;
-      case ERX_WAIT:
-        if(tb->enet_dma_rx_done) {
-          g_enet_rx_crbdp = tb->enet_dma_crbdp;
-          g_enet_rx_rsp_seq++;                        // -> shim raises RX IRQ
-          g_erx_state = ERX_IDLE;
-        } else if(tb->enet_dma_rx_dropped) {
-          g_erx_state = ERX_IDLE;                     // ring full: frame dropped, like HW
-        }
-        break;
-      }
-      // RX arm: kept for visibility; the engine reads enet_rx_nbdp from the shim directly.
-      if(tb->enet_rx_arm_seq != g_last_enet_rx_arm_seq) {
-        g_last_enet_rx_arm_seq = tb->enet_rx_arm_seq;
-        g_enet_rx_nbdp = tb->enet_rx_nbdp;
-      }
-    }
-    tb->enet_rx_rsp_seq = g_enet_rx_rsp_seq;
-    tb->enet_rx_crbdp   = g_enet_rx_crbdp;
-
-    tb->scsi_beat_push = 0;
     if(g_scsi_disk.ok() && tb->scsi_req_seq != g_last_scsi_req_seq) {
       g_last_scsi_req_seq = tb->scsi_req_seq;
       scsi_req_t req; req.seq = tb->scsi_req_seq; req.channel = CH_SCSI0;
@@ -2956,7 +2769,6 @@ int main(int argc, char **argv) {
       for(int i = 0; i < 4; i++) ((uint32_t*)req.cdb)[i] = tb->scsi_req_cdb[i];
       req.dest = (uint8_t)tb->scsi_req_dest; req.lun = (uint8_t)tb->scsi_req_lun;
       req.to_device = (uint8_t)tb->scsi_req_to_device;
-#ifdef FAITHFUL_SCSI
       /* capture the CDB LBA so the short-read instrumentation below can name which
        * transfer completed without a dma_done. */
       g_cmd_lba = ((uint32_t)req.cdb[2] << 24) | ((uint32_t)req.cdb[3] << 16) |
@@ -2965,7 +2777,7 @@ int main(int argc, char **argv) {
       bool resume = g_active && g_pos < g_total;       // mid-transfer doorbell = resume
       if(!resume) {                                    // NEW command: decode + read disk
         scsi_service_run(&req, &g_pending_rsp, &g_scsi_disk, g_buf, g_to_dev, g_wr_lba);
-        g_total = g_buf.size(); g_pos = 0; g_stream_pos = 0; g_drain_deadline = -1;
+        g_total = g_buf.size(); g_pos = 0;
         g_active = (g_pending_rsp.scsi_status == ST_SELECT_TRANSFER_SUCCESS) && !g_buf.empty();
       } else {                                         // RESUME: same buf, new chain
         g_pending_rsp.scsi_status = ST_SELECT_TRANSFER_SUCCESS; g_pending_rsp.tgt_status = TGT_GOOD;
@@ -2976,7 +2788,6 @@ int main(int argc, char **argv) {
                 "nbdp=%08x xfer=%u pos=%zu/%zu dir=%d\n", (unsigned long long)cyc,
                 resume?"RESUME":"NEW", req.cdb[0],req.cdb[1],req.cdb[2],req.cdb[3],req.cdb[4],
                 req.cdb[5], req.dest, req.lun, req.nbdp, req.xfer_len, g_pos, g_total, (int)g_to_dev);
-#ifdef SCSI_RINGS
       /* staging rings: READ data goes to staging, never guest memory; the chain's
        * completion (scsi_ring_poll below) says how much it took */
       if(g_active) {
@@ -2989,42 +2800,7 @@ int main(int argc, char **argv) {
       else {
         post_rsp();                                    // timeout / no data (shim aborts)
       }
-      if(true) {                                       // the old stream/capture paths are skipped
-#else
-      if(false) {
-#endif
-      } else if(g_active && g_armscsi) {
-        g_arm_st = 1; g_arm_nbdp = req.nbdp; g_arm_n++;
-        g_arm_fc0 = tb->ext_flush_stat >> 16;
-        tb->ext_flush_ctl = 1;                         // pre-flush edge
-        g_arm_pulse_cyc = cyc;
-      } else if(g_active) {
-        uint32_t rem = (uint32_t)(g_total - g_pos);    // chunk = WD33C93 count (== chain)
-        g_chunk = (req.xfer_len && req.xfer_len < rem) ? req.xfer_len : rem;
-        if(!g_to_dev) { g_streaming = true; g_chunk_nbdp = req.nbdp; }  // READ: feed the engine this chunk
-        else          { if(!resume) g_buf.clear(); g_capturing = true; g_chunk_nbdp = req.nbdp; }  // WRITE: drain
-      } else {
-        post_rsp();                                    // timeout / no data (shim aborts)
-      }
-#else
-      scsi_service_run(&req, &g_pending_rsp, &g_scsi_disk, g_buf, g_to_dev, g_wr_lba);
-      g_pending_rsp.seq = tb->scsi_req_seq;
-      if(getenv("SCSIDBG"))
-        fprintf(stderr, "[scsi] cyc=%llu CDB %02x %02x %02x %02x %02x %02x dest=%u lun=%u "
-                "nbdp=%08x -> st=%02x tgt=%02x bufsz=%zu dir=%d\n",
-                (unsigned long long)cyc, req.cdb[0],req.cdb[1],req.cdb[2],req.cdb[3],req.cdb[4],
-                req.cdb[5], req.dest, req.lun, req.nbdp, g_pending_rsp.scsi_status,
-                g_pending_rsp.tgt_status, g_buf.size(), (int)g_to_dev);
-      if(g_pending_rsp.scsi_status == ST_SELECT_TRANSFER_SUCCESS && !g_to_dev && !g_buf.empty()) {
-        g_stream_pos = 0; g_streaming = true;          // READ: feed the engine
-      } else if(g_pending_rsp.scsi_status == ST_SELECT_TRANSFER_SUCCESS && g_to_dev) {
-        g_buf.clear(); g_capturing = true;             // WRITE: drain the engine
-      } else {
-        post_rsp();                                    // timeout / no data: status now (shim aborts)
-      }
-#endif
     }
-#ifdef SCSI_RINGS
     if(g_sring_wait && (cyc & 0xf) == 0) {
       scsi_cqe_t e;
       if(scsi_ring_poll(&g_sring, g_sring_seq, &e)) {
@@ -3041,6 +2817,23 @@ int main(int argc, char **argv) {
           for(size_t b = 0; b < moved / 512; b++) {
             g_scsi_disk.block_write(g_wr_lba + g_pos/512 + b, g_buf.data() + g_pos + b*512);
           }
+          if(g_scsihash) {
+            /* FNV-1a is ORDER-DEPENDENT: golden (interp_mips sgi_scsi.cc) folds the
+             * (lba,count) key FIRST and the payload after it. Seeding the key here --
+             * rather than folding it in at completion -- makes the two hashes directly
+             * comparable. Getting this backwards made all 131 writes mismatch on
+             * byte-identical data. */
+            if(g_pos == 0) {
+              g_wh = 1469598103934665603ULL; g_wh_bytes = 0;
+              uint64_t kk = ((uint64_t)g_wr_lba << 16) ^ (uint64_t)(g_total/512);
+              for(int b2 = 0; b2 < 8; b2++) { g_wh ^= (kk >> (8*b2)) & 0xff; g_wh *= 1099511628211ULL; }
+            }
+            for(size_t z = 0; z < moved; z++) { g_wh ^= g_buf[g_pos + z]; g_wh *= 1099511628211ULL; }
+            g_wh_bytes += moved;
+            if(g_scsidump) {
+              g_wdump.insert(g_wdump.end(), g_buf.begin() + g_pos, g_buf.begin() + g_pos + moved);
+            }
+          }
         }
         g_pos += moved;
         if(g_pos < g_total) {
@@ -3048,6 +2841,26 @@ int main(int argc, char **argv) {
         } else {
           g_pending_rsp.completion = SCSI_DONE_COMPLETE;
           g_pending_rsp.scsi_status = ST_SELECT_TRANSFER_SUCCESS; g_active = false;
+          if(g_to_dev && g_scsihash) {   /* whole WRITE command delivered -> one record, like golden */
+            fprintf(stderr, "[scsiwhash] op=2a lba=%llu nblk=%llu bytes=%llu hash=%016llx\n",
+                    (unsigned long long)g_wr_lba, (unsigned long long)(g_wh_bytes/512),
+                    (unsigned long long)g_wh_bytes, (unsigned long long)g_wh);
+            if(g_scsidump) {
+              static int nd = 0;
+              if(nd < 4) {
+                char fn[512];
+                snprintf(fn, sizeof(fn), "%s/rtl_wr%d_lba%llu.bin", g_scsidump, nd,
+                         (unsigned long long)g_wr_lba);
+                FILE *df = fopen(fn, "wb");
+                if(df) {
+                  fwrite(g_wdump.data(), 1, g_wdump.size(), df);
+                  fclose(df);
+                }
+                nd++;
+              }
+              g_wdump.clear();
+            }
+          }
         }
         g_pending_rsp.residual = 0;
         post_rsp();
@@ -3058,128 +2871,15 @@ int main(int argc, char **argv) {
         }
       }
     }
-#endif
-    if(g_armscsi && g_arm_st) {
-      bool fdone = ((tb->ext_flush_stat >> 16) != g_arm_fc0) && !(tb->ext_flush_stat & 1);
-      if((g_arm_st == 1 || g_arm_st == 3) && cyc > g_arm_pulse_cyc) {
-        tb->ext_flush_ctl = 0;                         // held for one full cycle, then dropped
-      }
-      if(g_arm_st == 1 && fdone) {
-        g_arm_flushes++;
-        g_arm_st = 2;
-      }
-      if(g_arm_st == 2) {                              // the ARM's scsi_move, then commit a WRITE
-        uint32_t moved = scsi_move(scsi_mem, nullptr, g_arm_nbdp, g_buf.data() + g_pos,
-                                   (uint32_t)(g_total - g_pos), g_to_dev);
-        if(g_to_dev) {
-          for(size_t b = 0; b < moved / 512; b++)
-            g_scsi_disk.block_write(g_wr_lba + g_pos/512 + b, g_buf.data() + g_pos + b*512);
-        }
-        g_pos += moved;
-        if(g_pos < g_total) {
-          g_pending_rsp.completion = SCSI_DONE_PAUSE; g_pending_rsp.scsi_status = g_to_dev ? 0x48 : 0x49;
-        } else {
-          g_pending_rsp.completion = SCSI_DONE_COMPLETE;
-          g_pending_rsp.scsi_status = ST_SELECT_TRANSFER_SUCCESS; g_active = false;
-        }
-        g_pending_rsp.residual = 0;
-        g_arm_fc0 = tb->ext_flush_stat >> 16;
-        tb->ext_flush_ctl = 1;                         // post-flush edge
-        g_arm_pulse_cyc = cyc;
-        g_arm_st = 3;
-      } else if(g_arm_st == 3 && fdone) {
-        g_arm_flushes++;
-        post_rsp();
-        g_arm_st = 0;
-        if((g_arm_n & 255) == 0) {
-          fprintf(stderr, "[armscsi] cyc=%llu commands=%llu flushes=%llu\n", (unsigned long long)cyc,
-                  (unsigned long long)g_arm_n, (unsigned long long)g_arm_flushes);
-        }
-      }
-    }
-    // READ: push one 16-byte beat/cycle into the conduit (engine stalls when empty),
-    // respecting full; post status once the whole buffer is in flight.
-    if(g_streaming) {
-#ifdef FAITHFUL_SCSI
-      // Stream beats continuously across chunks (the engine consumes one chain per
-      // doorbell); the chunk boundary is dma_done, not the stream pointer.
-      if(g_stream_pos < g_total && !tb->scsi_beat_full) {
-        for(int i = 0; i < 4; i++) { uint32_t w = 0;
-          for(int j = 0; j < 4; j++) { size_t idx = g_stream_pos + 4*i + j;
-            if(idx < g_total) w |= (uint32_t)g_buf[idx] << (8*j); }
-          tb->scsi_beat_data[i] = w; }
-        tb->scsi_beat_push = 1;
-        g_stream_pos += 16;
-      }
-      /* All beats handed over but no dma_done yet -> start the drain grace period.  The
-       * engine still has to push its FIFO into DRAM; completing here (as this code did
-       * unconditionally) posts COMPLETE from the HOST stream pointer with no confirmation
-       * the data landed, and clears g_active so a real dma_done is then discarded.  It fired
-       * on 1587 of 1618 ordinary 4KB READ(10)s -- i.e. it had become the normal completion
-       * path, not the INQUIRY corner case its comment describes. */
-      if(g_streaming && g_stream_pos >= g_total && (g_pos + g_chunk >= g_total)
-         && !tb->scsi_dma_done && g_drain_deadline < 0) {
-        g_drain_deadline = (int64_t)cyc + SCSI_DRAIN_GRACE;
-      }
-      if(tb->scsi_dma_done) {                          // engine finished this chunk's chain
-        g_drain_deadline = -1; g_done_normal++;        // engine confirmed the drain
-        scsi_read_check(g_buf, g_pos, g_chunk, g_chunk_nbdp);
-        g_pos += g_chunk; g_streaming = false;
-        if(g_pos < g_total) {                          // chunk PAUSE: IRIX will resume
-          g_pending_rsp.completion = SCSI_DONE_PAUSE; g_pending_rsp.scsi_status = 0x49;
-        } else {                                       // whole command delivered
-          g_pending_rsp.completion = SCSI_DONE_COMPLETE;
-          g_pending_rsp.scsi_status = ST_SELECT_TRANSFER_SUCCESS; g_active = false;
-        }
-        g_pending_rsp.residual = 0; post_rsp();
-      }
-      else if(g_stream_pos >= g_total && (g_pos + g_chunk >= g_total)
-              && (g_drain_deadline >= 0 && (int64_t)cyc >= g_drain_deadline)) {
-        // SHORT READ: all data streamed on the final chunk, but the descriptor
-        // byte-count exceeds it (e.g. INQUIRY: 36 bytes into a 64-byte BC), so the
-        // engine stalls in S_R_DISK and never pulses dma_done.  Post the completion
-        // now so the shim's ((scsi_rsp_seq==r_req_seq) & dma_rd_stalled) branch aborts
-        // the stalled engine -- otherwise CIP|BSY stay set (aux=0x30) and the driver
-        // hangs forever (later wedging wd93reset's CIP-wait poll).  Matches the
-        // non-FAITHFUL path's post-on-drain, which this rewrite dropped.
-        /* INSTRUMENTED: this path posts COMPLETE from the HOST-side stream pointer only --
-         * scsi_dma_done never pulsed, so there is NO confirmation the RTL engine drained
-         * the beats into DRAM.  If the guest takes the completion interrupt and reads the
-         * buffer while beats are still in flight, it sees stale memory.  Log every firing
-         * with the cycle so it can be ordered against the [memwr] DRAM-write timestamps. */
-        g_shortrd_cyc = cyc; g_shortrd_n++;
-        scsi_read_check(g_buf, g_pos, std::min<size_t>(g_chunk, g_buf.size() - g_pos), g_chunk_nbdp);  /* else a stalled engine is never checked */
-        if(g_shortrd_n <= 3000)
-          fprintf(stderr, "[shortrd] cyc=%llu op=%02x lba=%u streamed=%zu/%zu pos=%zu chunk=%u"
-                  "  <-- COMPLETE posted WITHOUT scsi_dma_done\n",
-                  (unsigned long long)cyc, (unsigned)g_cmd_op, (unsigned)g_cmd_lba,
-                  g_stream_pos, g_total, g_pos, (unsigned)g_chunk);
-        g_pos = g_total; g_streaming = false; g_active = false;
-        g_pending_rsp.completion = SCSI_DONE_COMPLETE;
-        g_pending_rsp.scsi_status = ST_SELECT_TRANSFER_SUCCESS;
-        g_pending_rsp.residual = 0; post_rsp();
-      }
-#else
-      if(g_stream_pos >= g_buf.size()) { g_streaming = false; post_rsp(); }
-      else if(!tb->scsi_beat_full) {
-        for(int i = 0; i < 4; i++) { uint32_t w = 0;
-          for(int j = 0; j < 4; j++) { size_t idx = g_stream_pos + 4*i + j;
-            if(idx < g_buf.size()) w |= (uint32_t)g_buf[idx] << (8*j); }
-          tb->scsi_beat_data[i] = w; }
-        tb->scsi_beat_push = 1;
-        g_stream_pos += 16;
-      }
-#endif
-    }
     /* publish shim quiescence for the checkpoint hook: with no command in flight the
      * transfer statics above are all at their defaults, so a restore need not carry them. */
     /* NOT g_buf.empty(): for a READ, scsi_service_run fills g_buf and only the next WRITE
      * clears it, so requiring emptiness made the gate timeline-dependent -- one run saved
      * instantly, another blew 18M instructions past the target and never fired.  With no
-     * transfer in flight (!active/!streaming/!capturing) a resume is impossible (resume
+     * transfer in flight (!active / no chain outstanding) a resume is impossible (resume
      * requires g_active) and the next command refills or clears g_buf, so its stale
      * contents cannot affect a restore. */
-    g_scsi_quiescent = !g_active && !g_streaming && !g_capturing;
+    g_scsi_quiescent = !g_active && !g_sring_wait;
     /* Also require NO in-flight DRAM transaction: reply_cyc/prev_mem_req_valid and the
      * req_* latches model an outstanding memory request, and Verilator's --savable only
      * covers the MODEL -- an outstanding transaction would be dropped on restore and the
@@ -3212,85 +2912,6 @@ int main(int argc, char **argv) {
       fprintf(stderr, "### checkpoint saved: %s at cyc=%llu retired=%llu\n",
               sf, (unsigned long long)cyc, (unsigned long long)retired);
       break;   /* stop here: the checkpoint IS the deliverable */
-    }
-    // WRITE: capture each beat the engine pushes out (mem[BP] -> disk), commit at done.
-    if(g_capturing) {
-      if(tb->scsi_disk_wr_en)
-        for(int b = 0; b < 16; b++)
-          g_buf.push_back((tb->scsi_disk_wr_data[b>>2] >> (8*(b&3))) & 0xff);
-      if(tb->scsi_dma_done) {
-        g_capturing = false;
-#ifdef FAITHFUL_SCSI
-        { /* [scsi-wrchk]: what the ARM's SCSIENGINE write path would read -- DRAM via the
-           * chain, AFTER the engine walked it through the snoop shim -- must equal the
-           * beats the engine itself produced.  Equal => reading DRAM after dma_done is
-           * coherent (no ARM flush needed for disk writes). */
-          static long wr_chunks = 0, wr_bad_chunks = 0, wr_bad_bytes = 0;
-          std::vector<uint8_t> dram(g_buf.size());
-          uint32_t got = scsi_move(scsi_mem, nullptr, g_chunk_nbdp, dram.data(), (uint32_t)dram.size(), true);
-          long bad = 0; size_t first = 0;
-          for(size_t z = 0; z < got && z < g_buf.size(); z++) {
-            if(dram[z] != g_buf[z]) { if(bad == 0) first = z; bad++; }
-          }
-          wr_chunks++;
-          if(bad) {
-            wr_bad_chunks++; wr_bad_bytes += bad;
-            if(wr_bad_chunks <= 20)
-              fprintf(stderr, "[scsi-wrchk] MISMATCH lba=%llu chunk@%zu: %ld/%u bytes differ, first at +%zu (dram %02x engine %02x)\n",
-                      (unsigned long long)g_wr_lba, g_pos, bad, got, first, dram[first], g_buf[first]);
-          }
-          if((wr_chunks & 63) == 0 || bad)
-            fprintf(stderr, "[scsi-wrchk] %ld WRITE chunks checked, %ld bad (%ld bytes)\n", wr_chunks, wr_bad_chunks, wr_bad_bytes);
-        }
-        // commit this chunk's blocks at the running LBA offset, then advance / pause
-        for(size_t b = 0; b*512 + 512 <= g_buf.size(); b++)
-          g_scsi_disk.block_write(g_wr_lba + g_pos/512 + b, g_buf.data() + b*512);
-        if(getenv("SCSIHASH")) {   /* fold THIS chunk in before g_buf is cleared */
-          /* FNV-1a is ORDER-DEPENDENT: golden (interp_mips sgi_scsi.cc) folds the
-           * (lba,count) key FIRST and the payload after it. Seeding the key here --
-           * rather than folding it in at completion -- makes the two hashes directly
-           * comparable. Getting this backwards made all 131 writes mismatch on
-           * byte-identical data. */
-          if(g_pos == 0) {
-            g_wh = 1469598103934665603ULL; g_wh_bytes = 0;
-            uint64_t kk = ((uint64_t)g_wr_lba << 16) ^ (uint64_t)(g_total/512);
-            for(int b2 = 0; b2 < 8; b2++) { g_wh ^= (kk >> (8*b2)) & 0xff; g_wh *= 1099511628211ULL; }
-          }
-          for(size_t z = 0; z < g_buf.size(); z++) { g_wh ^= g_buf[z]; g_wh *= 1099511628211ULL; }
-          g_wh_bytes += g_buf.size();
-          if(getenv("SCSIDUMP")) g_wdump.insert(g_wdump.end(), g_buf.begin(), g_buf.end());
-        }
-        g_pos += g_chunk; g_buf.clear();
-        if(g_pos < g_total) {                          // chunk PAUSE: IRIX will resume
-          g_pending_rsp.completion = SCSI_DONE_PAUSE; g_pending_rsp.scsi_status = 0x48;
-        } else {                                       // whole command delivered
-          g_pending_rsp.completion = SCSI_DONE_COMPLETE;
-          g_pending_rsp.scsi_status = ST_SELECT_TRANSFER_SUCCESS; g_active = false;
-          if(getenv("SCSIHASH")) {   /* whole WRITE command delivered -> one record, like golden */
-            uint64_t h = g_wh;   /* key already folded in at g_pos==0, golden's order */
-            fprintf(stderr, "[scsiwhash] op=2a lba=%llu nblk=%zu bytes=%zu hash=%016llx\n",
-                    (unsigned long long)g_wr_lba, g_wh_bytes/512, g_wh_bytes, (unsigned long long)h);
-          }
-          if(getenv("SCSIDUMP")) {
-            static int nd = 0;
-            if(nd < 4) {
-              char fn[512];
-              snprintf(fn, sizeof(fn), "%s/rtl_wr%d_lba%llu.bin", getenv("SCSIDUMP"), nd,
-                       (unsigned long long)g_wr_lba);
-              FILE *df = fopen(fn, "wb");
-              if(df) { fwrite(g_wdump.data(), 1, g_wdump.size(), df); fclose(df); }
-              nd++;
-            }
-            g_wdump.clear();
-          }
-        }
-        g_pending_rsp.residual = 0; post_rsp();
-#else
-        for(size_t b = 0; b*512 + 512 <= g_buf.size(); b++)
-          g_scsi_disk.block_write(g_wr_lba + b, g_buf.data() + b*512);
-        post_rsp();
-#endif
-      }
     }
     // programmable shim select->data delay (on the FPGA this is an AXI reg the ARM
     // sets; in sim drive a fixed value -- must be >= the SVC_DELAY service deferral).
@@ -3440,9 +3061,7 @@ int main(int argc, char **argv) {
                     "d=%08x %08x %08x %08x%s\n",
                     (unsigned long long)cyc, (unsigned long long)(req_addr & MEM_MASK),
                     (unsigned)req_phys, (unsigned)req_mask,
-                    req_sd[0], req_sd[1], req_sd[2], req_sd[3],
-                    (g_shortrd_cyc && cyc > g_shortrd_cyc)
-                      ? "   <-- AFTER a short-read COMPLETE" : "");
+                    req_sd[0], req_sd[1], req_sd[2], req_sd[3], "");
           }
         }
         for(int i = 0; i < 16; i++) {
@@ -3521,9 +3140,6 @@ int main(int argc, char **argv) {
             (unsigned long long)g_chk_copsupp, (unsigned long long)g_chk_mapped, (unsigned long long)g_chk_resync);
   printf("\n[tb] %s\n", deadlock ? "NO-RETIRE WATCHDOG tripped (wedged)"
                         : halted ? "halted (magic-halt store)" : "reached max cycles");
-  if(getenv("SCSIDBG") || g_shortrd_n)
-    fprintf(stderr, "[scsi-completions] via dma_done=%ld  via short-read fallback=%ld\n",
-            g_done_normal, g_shortrd_n);
   if(g_ct) { g_ct->close();
     fprintf(stderr, "### CTRACE: %llu recs, %llu bytes out\n",
             (unsigned long long)g_ct->records(), (unsigned long long)g_ct->bytes_out()); }

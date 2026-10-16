@@ -31,7 +31,7 @@ VFLAGS = -cc --exe -O3 --savable \
          -Wno-fatal -Wno-WIDTH -Wno-CASEINCOMPLETE \
          -Wno-UNUSED -Wno-BLKANDNBLK -Wno-PINMISSING \
          -y $(RTL) -y $(R9999) +incdir+$(R9999) +define+ENABLE_STORE_CHECK +define+INSN_PACED_COUNT +define+ENABLE_DEBUG_WATCHPOINT $(if $(TIMER_RARE),+define+TIMER_RARE=$(TIMER_RARE),) --top-module $(TOP) -Mdir obj_dir \
-         -CFLAGS "-I$(R9999) -DFAITHFUL_SCSI -DSTORE_CHECK" \
+         -CFLAGS "-I$(R9999) -DSTORE_CHECK" \
          -o henry_tb
 # `make BIG_L2=1` -> 1MB sim-only L2 (LG_L2_NUM_SETS=16) to shake out bugs the tiny
 # 16KB direct-mapped L2 was masking; leaves the FPGA build at 16KB.
@@ -50,14 +50,6 @@ VFLAGS += $(VFLAGS_EXTRA)
 
 ifdef BIG_L2
 VFLAGS += +define+BIG_SIM_L2
-endif
-# `make ENET_RINGS=1` -> ENET DMA through the staging rings (docs/arm-device-protocol.md)
-ifdef ENET_RINGS
-VFLAGS += +define+ENABLE_ENET_DMA +define+ENET_RINGS -CFLAGS -DENET_RINGS
-endif
-# `make SCSI_RINGS=1` -> SCSI data through the staging rings (scsi_stage)
-ifdef SCSI_RINGS
-VFLAGS += +define+SCSI_RINGS -CFLAGS -DSCSI_RINGS
 endif
 # `make TRACE_ALL_PC=1` -> dram_trace captures ALL retires (kernel+user) so the codec
 # can be validated on boot code (env TRACE_VALIDATE=1) without booting to userspace.

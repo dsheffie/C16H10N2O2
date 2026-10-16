@@ -121,31 +121,12 @@ module axi_is_the_worst_v1_0_S00_AXI #
     output wire [7:0]			      scsi_rsp_scsi_status,
     output wire [7:0]			      scsi_rsp_tgt_status,
     output wire [15:0]			      scsi_sel_delay,
-    // ---- SCSI beat conduit (ARM -> engine FIFO): write the 16B beat words to
-    //      regs 0x20..0x23 (push on the 0x23 write); read 0x25 for FIFO-full. ----
-    // ---- enet_dma host conduit (mirrors the SCSI beat conduit) ----
-    output wire				      enet_rx_frame_go,
-    output wire [13:0]			      enet_rx_frame_len,
-    output wire				      enet_rx_beat_push,
-    output wire [127:0]			      enet_rx_beat_data,
-    input  wire				      enet_rx_beat_full,
-    input  wire				      enet_tx_beat_valid,
-    output wire				      enet_tx_beat_pop,
-    input  wire [127:0]			      enet_tx_beat_data,
-    input  wire				      enet_dma_rx_done,
-    input  wire				      enet_dma_rx_dropped,
-    input  wire [31:0]			      enet_dma_crbdp,
-    input  wire				      enet_dma_tx_done,
-    input  wire [13:0]			      enet_dma_tx_len,
     // ---- staging-ring doorbells (docs/arm-device-protocol.md): write-only ----
     output wire [31:0]			      ring_tx_cons,      // 0x18
     output wire [31:0]			      ring_rx_prod,      // 0x19
     output wire [31:0]			      ring_scsi_cq_cons, // 0x1a
     output wire [31:0]			      ring_scsi_rd_beats,// 0x1b
     output wire [31:0]			      ring_scsi_rd_seq,  // 0x1c (written after 0x1b)
-    output wire				      scsi_beat_push,
-    output wire [127:0]			      scsi_beat_data,
-    input  wire				      scsi_beat_full,
     input  wire [31:0]			      ext_flush_stat,    // {completed[15:0], dirty[13:0], 1'b0, busy}
     input  wire [31:0]			      ext_flush_cycles,  // cycles the last flush / page list took
     // page list: write 0x3C = push a physical page number, write 0x3D = go (bit0 = drop)
@@ -154,18 +135,12 @@ module axi_is_the_worst_v1_0_S00_AXI #
     output wire				      ext_pg_go,
     output wire				      ext_pg_drop,
 
-    // ---- ENET mailbox (Seeq 8003 + HPC3 ENET DMA; enet_shim.sv).  TX doorbell +
-    //      RX reverse-doorbell.  PS READS req/arm/nbdp (repurposed debug read addrs
-    //      0x39/0x3C/0x3D/0x3E); PS WRITES rsp/crbdp (slv_reg18/19/20 = 0x12/0x13/0x14).
-    //      The PS servicer walks the {BP,BC,DP} chain in DRAM to a host tap. ----
+    // ---- ENET shim state (enet_shim.sv), debug readback only: enet_ring_dma
+    //      completes the chains itself (read addrs 0x39/0x3C/0x3D/0x3E). ----
     input  wire [31:0]			      enet_tx_req_seq,   // TX doorbell (read 0x39)
     input  wire [31:0]			      enet_tx_nbdp,      // TX chain head (read 0x3C)
     input  wire [31:0]			      enet_rx_arm_seq,   // RX arm       (read 0x3D)
     input  wire [31:0]			      enet_rx_nbdp,      // RX ring head (read 0x3E)
-    output wire [31:0]			      enet_tx_rsp_seq,   // PS write 0x12 (echo tx_req_seq)
-    output wire [31:0]			      enet_rx_rsp_seq,   // PS write 0x13 (++ per RX frame)
-    output wire [31:0]			      enet_rx_crbdp,     // PS write 0x14 (current RX desc ptr)
-    output wire [31:0]			      enet_tx_crbdp,     // PS write 0x15 (current TX desc ptr)
 
     // Global Clock Signal
     input wire				      S_AXI_ACLK,
@@ -463,24 +438,9 @@ module axi_is_the_worst_v1_0_S00_AXI #
    assign scsi_rsp_scsi_status = slv_reg16[7:0];   // write 0x10 = {tgt[15:8], scsi[7:0]}
    assign scsi_rsp_tgt_status  = slv_reg16[15:8];
    assign scsi_sel_delay       = slv_reg17[15:0];  // write 0x11 (0 => shim default 8192)
-   assign enet_tx_rsp_seq      = slv_reg18;        // write 0x12 (echo enet_tx_req_seq when sent)
-   assign enet_rx_rsp_seq      = slv_reg19;        // write 0x13 (++ per injected RX frame)
-   assign enet_rx_crbdp        = slv_reg20;        // write 0x14 (service-maintained RX desc ptr)
-   assign enet_tx_crbdp        = slv_reg21;        // write 0x15 (service-maintained TX desc ptr)
 
-   // ---- SCSI beat conduit: assemble the 16B beat from slv_reg32..35 (0x20..0x23)
-   //      and pulse scsi_beat_push the cycle AFTER the 0x23 write (so slv_reg35 has
-   //      settled).  The ARM polls scsi_beat_full (read 0x25) before each beat. ----
-   assign scsi_beat_data = {slv_reg35, slv_reg34, slv_reg33, slv_reg32};
-   reg r_beat_push;
-   always @( posedge S_AXI_ACLK )
-     if(w_reset) r_beat_push <= 1'b0;
-     else        r_beat_push <= slv_reg_wren &&
-                  (axi_awaddr[ADDR_LSB+OPT_MEM_ADDR_BITS:ADDR_LSB] == 6'h23);
-   assign scsi_beat_push = r_beat_push;
-
-   // ---- ext flush page list: pulse the cycle AFTER the write (register settled),
-   //      same as the SCSI beat push.  0x3C = page number, 0x3D = go, bit0 = drop. ----
+   // ---- ext flush page list: pulse the cycle AFTER the write (register settled).
+   //      0x3C = page number, 0x3D = go, bit0 = drop. ----
    reg r_pg_push, r_pg_go;
    always @( posedge S_AXI_ACLK )
      if(w_reset)
@@ -500,58 +460,12 @@ module axi_is_the_worst_v1_0_S00_AXI #
    assign ext_pg_go   = r_pg_go;
    assign ext_pg_drop = slv_reg61[0];
 
-   // ---- enet_dma conduit ------------------------------------------------------
-   //  RX beat  : slv_reg42..45 (0x2a..0x2d); writing 0x2d pushes (same 1-cycle-late
-   //             trick as SCSI so the last word has settled).
-   //  RX frame : write 0x2e = start the ring walk, data[13:0] = formatted length
-   //             ([2 pad][frame][1 status]).
-   //  TX beat  : read 0x20..0x23 for the data, write 0x2f to pop.
-   //  Status   : rx_done / rx_dropped / tx_done are 1-CYCLE PULSES from the engine, so
-   //             latch them sticky -- the ARM polls and would otherwise miss every one.
-   //             Reading 0x05 returns and CLEARS them (read-to-clear).
-   assign enet_rx_beat_data = {slv_reg45, slv_reg44, slv_reg43, slv_reg42};
-   assign enet_rx_frame_len = slv_reg46[13:0];
-   reg r_erx_push, r_erx_go, r_etx_pop;
-   reg r_erx_done_s, r_erx_drop_s, r_etx_done_s;
-   reg [13:0] r_etx_len;   // exact bytes of the last TX chain, held from tx_done (read 0x05[17:4])
-   /* BUGFIX 2026-08-07: this compared against 6'h2b, the status register's ORIGINAL
-    * address.  The read map was later reshuffled (0x2b now returns slv_reg43, an RX
-    * beat word) and status moved to 0x05, but this clear-trigger was not moved with
-    * it.  Net effect: polling 0x05 returned the sticky bits but NEVER cleared them, so
-    * after the first frame every poll reported done -- silently defeating the sticky
-    * latch.  Keep this address in sync with the 6'h05 case in the read mux below. */
-   wire w_rd_status = slv_reg_rden &&
-        (axi_araddr[ADDR_LSB+OPT_MEM_ADDR_BITS:ADDR_LSB] == 6'h05);
-   always @( posedge S_AXI_ACLK )
-     if(w_reset) begin
-        r_erx_push <= 1'b0; r_erx_go <= 1'b0; r_etx_pop <= 1'b0;
-        r_erx_done_s <= 1'b0; r_erx_drop_s <= 1'b0; r_etx_done_s <= 1'b0;
-        r_etx_len <= 14'd0;
-     end
-     else begin
-        r_erx_push <= slv_reg_wren &&
-             (axi_awaddr[ADDR_LSB+OPT_MEM_ADDR_BITS:ADDR_LSB] == 6'h2d);
-        r_erx_go   <= slv_reg_wren &&
-             (axi_awaddr[ADDR_LSB+OPT_MEM_ADDR_BITS:ADDR_LSB] == 6'h2e);
-        r_etx_pop  <= slv_reg_wren &&
-             (axi_awaddr[ADDR_LSB+OPT_MEM_ADDR_BITS:ADDR_LSB] == 6'h2f);
-        /* set on the engine pulse, clear when the ARM reads the status word */
-        r_erx_done_s <= enet_dma_rx_done    ? 1'b1 : (w_rd_status ? 1'b0 : r_erx_done_s);
-        r_erx_drop_s <= enet_dma_rx_dropped ? 1'b1 : (w_rd_status ? 1'b0 : r_erx_drop_s);
-        /* tx_done is a 1-cycle pulse too -- the ARM polls, so it MUST be sticky or
-         * every TX completion is missed.  Same read-to-clear as the RX bits. */
-        r_etx_done_s <= enet_dma_tx_done    ? 1'b1 : (w_rd_status ? 1'b0 : r_etx_done_s);
-        /* the beats are zero-padded to 16B; the ARM trims the frame to this */
-        r_etx_len    <= enet_dma_tx_done    ? enet_dma_tx_len : r_etx_len;
-     end
+   // ---- staging-ring doorbells (docs/arm-device-protocol.md) ----
    assign ring_tx_cons  = slv_reg24;
    assign ring_rx_prod  = slv_reg25;
    assign ring_scsi_cq_cons  = slv_reg26;
    assign ring_scsi_rd_beats = slv_reg27;
    assign ring_scsi_rd_seq   = slv_reg28;
-   assign enet_rx_beat_push = r_erx_push;
-   assign enet_rx_frame_go  = r_erx_go;
-   assign enet_tx_beat_pop  = r_etx_pop;
 
    
    assign S_AXI_AWREADY	= axi_awready;
@@ -1438,11 +1352,11 @@ module axi_is_the_worst_v1_0_S00_AXI #
 	case ( axi_araddr[ADDR_LSB+OPT_MEM_ADDR_BITS:ADDR_LSB] )
 	  6'h00   : reg_data_out <= r_insn_cnt[31:0];
 	  6'h01   : reg_data_out <= status;
-	  6'h02   : reg_data_out <= {31'd0, enet_rx_beat_full};   // ENET RX beat FIFO full
+	  6'h02   : reg_data_out <= 32'd0;
 	  6'h03   : reg_data_out <= rvstatus;
 	  6'h04   : reg_data_out <= slv_reg4; //control
-	  6'h05   : reg_data_out <= {14'd0, r_etx_len, 1'b0, r_etx_done_s, r_erx_drop_s, r_erx_done_s};   // ENET status (read-to-clear) //resume pc
-	  6'h06   : reg_data_out <= enet_dma_crbdp;   // ENET desc just filled //base
+	  6'h05   : reg_data_out <= 32'd0;
+	  6'h06   : reg_data_out <= 32'd0;
 	  6'h07   : reg_data_out <= r_last_pc;
 	  6'h08   : reg_data_out <= 32'h7370696d;
 	  6'h09   : reg_data_out <= last_addr; 
@@ -1468,15 +1382,15 @@ module axi_is_the_worst_v1_0_S00_AXI #
 	  6'h1D   : reg_data_out <= wf_epc;  // wild-fault EPC (poison deref site)
 	  6'h1E   : reg_data_out <= wf_badv;  // wild-fault BadVaddr = poison pointer P
 	  6'h1F   : reg_data_out <= wf_stat;  // {wild-fault count[15:0],11'd0,cause[4:0]}
-	  6'h20   : reg_data_out <= enet_tx_beat_data[31:0];   // ENET TX beat word0
-	  6'h21   : reg_data_out <= enet_tx_beat_data[63:32];   // ENET TX beat word1
-	  6'h22   : reg_data_out <= enet_tx_beat_data[95:64];   // ENET TX beat word2
-	  6'h23   : reg_data_out <= enet_tx_beat_data[127:96];   // ENET TX beat word3
-	  /* bit 0 keeps its old meaning in both; readers MUST mask it (& 1).  The upper
-	   * bits carry the ARM-requested whole-cache flush: 0x24[31:1] = cycles the last
-	   * flush took, 0x25[31:16] = flushes completed, 0x25[1] = a flush is running. */
-	  6'h24   : reg_data_out <= {ext_flush_cycles[30:0], enet_tx_beat_valid};   // ENET TX beat queued
-	  6'h25   : reg_data_out <= {ext_flush_stat[31:16], ext_flush_stat[15:2], ext_flush_stat[0], scsi_beat_full};   // {flushes done, page-drop dirty lines, flush busy, SCSI beat FIFO full}
+	  6'h20   : reg_data_out <= 32'd0;
+	  6'h21   : reg_data_out <= 32'd0;
+	  6'h22   : reg_data_out <= 32'd0;
+	  6'h23   : reg_data_out <= 32'd0;
+	  /* the ARM-requested whole-cache flush (debug): 0x24[31:1] = cycles the last
+	   * flush took, 0x25[31:16] = flushes completed, 0x25[1] = a flush is running.
+	   * Bit 0 of both was a beat-FIFO flag (retired); it reads 0. */
+	  6'h24   : reg_data_out <= {ext_flush_cycles[30:0], 1'b0};
+	  6'h25   : reg_data_out <= {ext_flush_stat[31:16], ext_flush_stat[15:2], ext_flush_stat[0], 1'b0};   // {flushes done, page-drop dirty lines, flush busy, 0}
 	  6'h26   : reg_data_out <= {12'd0, cur_asid, trace_overflow, dbg_frozen, l2_flush_done, l1i_flush_done, l1d_flush_done, cause};  // bit11=deep-trace overflow, [19:12]=cur_asid
 	  6'h27   : reg_data_out <= dbg_wp_data;  /* was r_last_retire; overloaded for store-value capture */
 	  6'h28   : reg_data_out <= r_insn_cnt[31:0];
@@ -1529,7 +1443,7 @@ module axi_is_the_worst_v1_0_S00_AXI #
 	  //              ~0.3 B/rec (~5x), fits the 64MB ring, ~5x less DRAM slowdown.
 	  // 0x2026072a = codec packer PIPELINED (2-stage, WNS margin) + ring 64MB->112MB
 	  //              (whole GIO region, compare wrap) so be's crash-time trace fits, no wrap.
-	  6'h3F   : reg_data_out <= 32'h2026072b;
+	  6'h3F   : reg_data_out <= 32'h20261014;   // RTL revision: staging rings only
 	  default : reg_data_out <= 0;
 	endcase
      end

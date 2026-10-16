@@ -31,8 +31,8 @@ hands every access in it to three register slaves at once. Their read data is OR
 | Module | Offsets it owns | What it is |
 |--------|-----------------|------------|
 | `rtl/hpc3.sv` | `0x30000` intstat, `0x30004` gio.misc, `0x30008` EEPROM, `0x11010/0x11014` SCSI0 dma/pio cfg, `0x5c000` PBUS DMA cfg (8 × stride 0x200), `0x5d000` PBUS PIO cfg (16 × stride 0x100), ds1386 clock + MAC bytes @`0x60000` | storage + constants |
-| `rtl/scsi_shim.sv` (`ENABLE_SCSI_SHIM`, on) | HD0 channel `0x10000` cbp/nbdp, `0x11000` bc/ctrl; WD33C93 across `0x40000–0x47fff` | WD33C93A + HPC3 SCSI0 channel register model; disk served by the host |
-| `rtl/enet_shim.sv` (`ENABLE_ENET_SHIM`, on) | ENET RX `0x14000/0x15000`, TX `0x16000/0x17000`, reset/CLRIRQ `0x15014`/`0x17014`, CRBDP `0x18000`/`0x1a000`; Seeq 8003 `0x54000–0x5401f` | Seeq + HPC3 ENET channel register model; frames served by the host |
+| `rtl/scsi_shim.sv` | HD0 channel `0x10000` cbp/nbdp, `0x11000` bc/ctrl; WD33C93 across `0x40000–0x47fff` | WD33C93A + HPC3 SCSI0 channel register model; disk served by the host |
+| `rtl/enet_shim.sv` | ENET RX `0x14000/0x15000`, TX `0x16000/0x17000`, reset/CLRIRQ `0x15014`/`0x17014`, CRBDP `0x18000`/`0x1a000`; Seeq 8003 `0x54000–0x5401f` | Seeq + HPC3 ENET channel register model; frames moved by `enet_ring_dma` + the ARM's staging rings |
 
 Everything else in the window **reads 0 and swallows writes**. That covers the PBUS DMA channels, the HD1
 (SCSI1) channel, the FIFO ports, `bus_error`, the PROM, the rest of the bbRAM/NVRAM, and the `0x3000c` half of
@@ -46,9 +46,9 @@ Where henry departs from the reference text below:
   moves **16-byte beats**, not single bytes on DRQ. It needs **16-byte-aligned** descriptors and buffers.
   It stops on `EOX`, on a null `DP`, or after 255 descriptors (`rtl/scsi_dma.sv:160-168`). A zero-count
   descriptor is simply skipped (`scsi_dma.sv:120`). The SCSI-rx last-byte-stuck bug is **not** modelled.
-- **ENET.** This is a host-served tap. `enet_shim.sv` owns the Seeq/HPC3 registers. The ARM (`driver/enet_arm.h`)
-  or `henry_tb` walks the descriptor rings and moves the frames. The RTL `enet_dma` engine exists but is
-  **opt-in** (`ifndef ENABLE_ENET_DMA` ties it off, `henry_soc.sv:733`). By default it is out of the build.
+- **ENET.** `enet_shim.sv` owns the Seeq/HPC3 registers. `enet_ring_dma.sv` walks the guest descriptor
+  rings, writes back BC/CRBDP and raises the IRQ; the ARM (or `henry_tb`) only moves frames between the
+  staging slots and the tap. See [the ARM ↔ device protocol](../arm-device-protocol.md).
 - **Interrupts.** Only two HPC3-side sources are wired. WD33C93 INTRQ goes to IOC2 local0 bit1, and the ENET
   channel IRQ goes to local0 bit3 (`henry_soc.sv:1020`). Both reach CPU IP2. `dma_complete_int` (local1
   HPC-DMA), `bus_error_int`, and SCSI1 are not driven.
@@ -480,11 +480,10 @@ The host holds the disk image and the tap device.
 
 **AXI side** (`axi_is_the_worst_v1_0_S00_AXI.v`):
 
-- Reads: `0x39` TX doorbell, `0x3C` TX chain head, `0x3D` RX arm, `0x3E` RX ring head.
-- Writes: `0x12` TX echo, `0x13` RX sequence, `0x14`/`0x15` RX/TX CRBDP.
+- Reads (debug): `0x39` TX doorbell, `0x3C` TX chain head, `0x3D` RX arm, `0x3E` RX ring head.
+- Writes: the staging-ring doorbells `0x18`–`0x1c` ([protocol](../arm-device-protocol.md)).
 
-The RTL `enet_dma` engine (with its own RX/TX beat FIFOs) is compiled out unless `ENABLE_ENET_DMA` is defined
-(`henry_soc.sv:733`). In the default build the host writes and reads guest DRAM directly.
+`enet_ring_dma` completes the chains itself; the ARM never reads or writes guest DRAM.
 
 ## Interrupts
 
@@ -557,8 +556,7 @@ drivers boot regardless.
 - DMA/PIO config-register fields at 0x5c000/0x5d000 (PBUS access timing) — PROM writes them; treat as R/W
   storage until a real PBUS device cares.
 - Ethernet `IPG`/`TXD`/`EOXP` semantics and the enet-rx byte-count write-back. In henry these are handled
-  by the host tap service. The opt-in `enet_dma` engine instead implements ROWN (bit 14) and ETXD (bit 15) in
-  `BC`.
+  by `enet_ring_dma`, which implements ROWN (bit 14) and ETXD (bit 15) in `BC`.
 - HAL2 audio, parallel port, floppy (PC8477) — out of scope for first boot.
 
 ## Sources
@@ -570,7 +568,7 @@ drivers boot regardless.
   (0x40000/0x48000), bbRAM window 0x60000–0x7ffff, ds1386 byte-per-word ×4, EEPROM bit-bang, coherence finding.
 - MAME IP22/Indy driver — golden reference for FIFO-port offsets, ds1386, WD33C93 and Seeq device models.
 - henry RTL (ground truth for what is built): `rtl/hpc3.sv`, `rtl/scsi_shim.sv`, `rtl/scsi_dma.sv`,
-  `rtl/enet_shim.sv`, `rtl/enet_dma.sv` (opt-in), `rtl/henry_soc.sv`; AXI side
+  `rtl/enet_shim.sv`, `rtl/enet_ring_dma.sv`, `rtl/henry_soc.sv`; AXI side
   `ip_hdl/axi_is_the_worst_v1_0_S00_AXI.v`; host services `driver/scsi_arm.h`, `driver/enet_arm.h`.
 - [SCSI disk theory of operation](scsi_disk_theory_of_operation.md): the end-to-end SCSI path and the henry
   shim, engine and host split.

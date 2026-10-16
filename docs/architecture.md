@@ -34,8 +34,8 @@ else through to DRAM:
 | `ioc.sv` | IOC2 @ `0x1fbd9800` | Z8530 SCC console (Tx + Rx FIFO), i8254 |
 | `int3.sv` | INT3 interrupt mux (IOC2 `+0x80`) | separate module, instantiated in `henry_soc.sv` |
 | `scsi_shim.sv` | WD33C93 + HPC3 SCSI channel | the **ARM (Zynq PS) services the disk**: it walks the `{BP,BC,DP}` chain in shared DRAM and moves the data itself |
-| `enet_shim.sv` | Seeq 8003 + HPC3 ENET | ARM-serviced through a host tap; the RTL ENET DMA engine (`enet_dma.sv`) is opt-in (`ENABLE_ENET_DMA`) and off by default |
-| `mem_arbiter.sv` | DRAM arbitration | weighted round-robin, one request outstanding: CPU + the SoC DMA master ports (SCSI engine, opt-in ENET DMA, opt-in DRAM deep trace) |
+| `enet_shim.sv` | Seeq 8003 + HPC3 ENET | register model; `enet_ring_dma.sv` walks the descriptor chains and the ARM moves frames through the staging rings ([protocol](arm-device-protocol.md)) |
+| `mem_arbiter.sv` | DRAM arbitration | weighted round-robin, one request outstanding: CPU + the SoC DMA master ports (SCSI engine, ENET ring engine, opt-in DRAM deep trace) |
 | `ip_hdl/axi_is_the_worst_*.v` | AXI4 master to PS DRAM + AXI-Lite control/debug registers | packaged as the Vivado user IP |
 
 The IP22 512 KB **System Memory Alias** (physical `0x0–0x7ffff` → `0x08000000`) is applied in `henry_soc.sv`

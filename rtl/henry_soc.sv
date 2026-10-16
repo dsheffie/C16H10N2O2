@@ -25,32 +25,14 @@
 // WD33C93 + HPC3 SCSI control shim (scsi_shim.sv) for the host-served disk path.
 // MUTUALLY EXCLUSIVE with hpc3.sv `ENABLE_HPC3_DMA -- both claim the HPC3 DMA
 // channel window @0x10000.  Uncomment here AND comment ENABLE_HPC3_DMA in hpc3.sv.
-`define ENABLE_SCSI_SHIM 1
-// Seeq 8003 + HPC3 ENET DMA control shim (enet_shim.sv) for the host-served tap
-// ethernet path.  Shares the HPC3 window with scsi_shim (disjoint offsets);
-// ENET IRQ -> IOC2 local0 bit3.  Serviced by henry_tb (sim) / the ARM PS (FPGA).
-`define ENABLE_ENET_SHIM 1
-// Lower-level SCSI: the scsi_dma engine (a real ordered DRAM master) walks the
-// descriptor chain + moves data, replacing the host-service "offload the whole
-// transaction" backdoor.  Occupies arbiter master 1 (mutually exclusive with the
-// mem-to-mem hpc3 DMA).  Requires ENABLE_SCSI_SHIM.
-//
-// RETIRED (2026-06-28): the disk is now serviced by the host/PS through the
-// scsi_req_*/scsi_rsp_* mailbox -- the ARM (FPGA) / henry_tb (sim) reads the CDB +
-// descriptor pointer, walks the {BP,BC,DP} chain in shared DRAM, and does the disk
-// I/O straight into the guest's buffers (see scsi_service.h / scsi_move).  The
-// per-beat engine is no longer instantiated; the shim completes on scsi_rsp_seq.
-// scsi_dma.sv is kept for its standalone unit test (sim/scsi_dma_test).
-`define ENABLE_SCSI_DMA 1
-// DEVICE_SNOOP: DMA masters reach memory through dma_snoop_shims (PRE-WBINV / access /
-// POST-WBINV on the core's inclusive-L2 snoop port).  Needs an r9999 with the WBINV
-// snoop port (inclusive-l2).  The ENET engine has no other coherence path, so
-// ENABLE_ENET_DMA implies it; it can also be set on its own (SCSI shim only).
-`ifdef ENABLE_ENET_DMA
-`ifndef DEVICE_SNOOP
-`define DEVICE_SNOOP 1
-`endif
-`endif
+// Seeq 8003 + HPC3 ENET DMA control shim (enet_shim.sv).  Shares the HPC3 window
+// with scsi_shim (disjoint offsets); ENET IRQ -> IOC2 local0 bit3.
+// Device data moves through the staging rings (docs/arm-device-protocol.md): the
+// ARM never touches guest memory.  enet_ring_dma walks the ENET descriptor chains;
+// scsi_dma walks the SCSI chain, with scsi_stage serving its disk side.  Both reach
+// memory through dma_snoop_shims (PRE-WBINV / access / POST-WBINV on the core's
+// inclusive-L2 snoop port), so an r9999 with the WBINV snoop port is required.
+// The SCSI command itself still goes through the scsi_req_*/scsi_rsp_* mailbox.
 
 module henry_soc
   #(// MC MEMCFG0 (bank0 cfg) as STORED: BE lw -> bswap.  0x0000203f -> 0x3f200000
@@ -172,7 +154,6 @@ module henry_soc
    output logic [7:0]            cur_asid,          // current EntryHi ASID (readback for be-ASID discovery)
    // ---- SCSI shim mailbox (scsi_shim.sv): request out / completion in ----
    // FPGA: map to AXI-lite slv_regs; sim: henry_tb reads req_* / drives rsp_*.
-   // (Tied off unless `ENABLE_SCSI_SHIM.)
    output logic [31:0]           scsi_req_seq,
    output logic [31:0]           scsi_req_nbdp,
    output logic [31:0]           scsi_req_xfer_len,
@@ -185,44 +166,15 @@ module henry_soc
    input  logic [7:0]            scsi_rsp_scsi_status,
    input  logic [7:0]            scsi_rsp_tgt_status,
    input  logic [15:0]           scsi_sel_delay,      // programmable shim select->data delay (AXI reg)
-   // ---- scsi_dma engine disk side: the ARM (PS / sim TB) feeds 16B beats across
-   //      the ordered S00 slave-reg leg into a FIFO; the engine (the ONLY agent that
-   //      touches MIPS memory) drains it and writes mem[BP] via M00.  READ direction:
-   input  logic                  scsi_beat_push,     // 1-cycle: ARM enqueues scsi_beat_data
-   input  logic [127:0]          scsi_beat_data,     // the 16-byte beat to enqueue
-   output logic                  scsi_beat_full,     // flow control: ARM must not push when set
-   output logic                  scsi_disk_wr_en,    // WRITE: engine produces a beat (v1: unused)
-   output logic [127:0]          scsi_disk_wr_data,  // WRITE: mem -> disk beat
+   // ---- scsi_dma engine: disk data moves through the staging rings (scsi_stage) ----
    output logic                  scsi_dma_done,      // engine finished the chain (TB sync)
    output logic [31:0]           scsi_dbg,           // shim debug viz (AXI PMU readback)
-   // ---- enet_dma engine host side: the tap servicer (ARM/TB) pushes 16B beats of
-   //      an ALREADY-FORMATTED rx frame ([2 pad][frame][1 status]); the engine is the
-   //      ONLY agent that touches MIPS memory, so ENET writes become visible to the
-   //      L2 (and the snoop FIFO) instead of bypassing the RTL entirely.
-   input  logic                  enet_rx_frame_go,   // 1-cycle: a formatted frame is queued
-   input  logic [13:0]           enet_rx_frame_len,  // its length in bytes (2+frame+1)
-   input  logic                  enet_rx_beat_push,  // 1-cycle: enqueue enet_rx_beat_data
-   input  logic [127:0]          enet_rx_beat_data,
-   output logic                  enet_rx_beat_full,  // flow control
-   output logic                  enet_tx_beat_valid, // TX: a beat is queued for the host
-   input  logic                  enet_tx_beat_pop,   // host consumed it (1-cycle)
-   output logic [127:0]          enet_tx_beat_data,
-   output logic                  enet_dma_rx_done,   // frame delivered + descriptor released
-   output logic                  enet_dma_rx_dropped,// ring full / buffer unusable
-   output logic [31:0]           enet_dma_crbdp,     // descriptor just filled
-   output logic                  enet_dma_tx_done,   // TX chain complete (host writes the tap)
-   output logic [13:0]           enet_dma_tx_len,    // exact frame bytes of that chain
    // ---- ENET shim mailbox (enet_shim.sv): Seeq 8003 + HPC3 ENET DMA channels ----
-   // FPGA: map to AXI-lite slv_regs; sim: henry_tb tap servicer.  (Tied off unless
-   // `ENABLE_ENET_SHIM.)  TX = guest-initiated doorbell; RX = service free-runs.
+   // Completions come from enet_ring_dma; these are exported for AXI debug readback.
    output logic [31:0]           enet_tx_req_seq,    // TX doorbell (++ per transmit)
    output logic [31:0]           enet_tx_nbdp,       // TX descriptor-chain head (phys)
-   input  logic [31:0]           enet_tx_rsp_seq,    // echoes enet_tx_req_seq when sent
    output logic [31:0]           enet_rx_arm_seq,    // ++ when guest arms rx_ctrl ACTIVE
    output logic [31:0]           enet_rx_nbdp,       // RX ring head (phys)
-   input  logic [31:0]           enet_rx_rsp_seq,    // ++ by service per injected frame
-   input  logic [31:0]           enet_rx_crbdp,      // service-maintained current RX desc
-   input  logic [31:0]           enet_tx_crbdp,      // service-maintained current TX desc
    // ---- staging-ring doorbells from the ARM (docs/arm-device-protocol.md) ----
    input  logic [31:0]           ring_tx_cons,       // ENET TX completions consumed
    input  logic [31:0]           ring_rx_prod,       // ENET RX frames staged
@@ -316,7 +268,7 @@ module henry_soc
    wire                 w_snoop_ack;
    wire                 w_snoop_done;   /* the L2 finished the snoop (inclusive-L2 core) */
    wire                 w_snoop_wbinv;  /* snoop op: 1 = WBINV, 0 = DROP/discard */
-   /* DEVICE_SNOOP: two dma_snoop_shims (ENET, SCSI) share the snoop port */
+   /* two dma_snoop_shims (ENET, SCSI) share the snoop port */
    wire                 w_esnp_valid, w_esnp_wbinv, w_esnp_ack;
    wire [`PA_WIDTH-1:0] w_esnp_addr;
    wire                 w_ssnp_valid, w_ssnp_wbinv, w_ssnp_ack;
@@ -592,7 +544,7 @@ module henry_soc
    // shim phase SM -> engine control (data-phase trigger)
    wire        w_sdma_go, w_sdma_to_dev, w_sdma_abort;
    wire [31:0] w_sdma_nbdp;
-   // arbiter master 1 select: SCSI DMA engine (ENABLE_SCSI_DMA) vs mem-to-mem hpc3.
+   // arbiter master 1: the SCSI DMA engine.
    /* were dangling: the engine already computes ch_active (busy) and the XIE pulse,
     * which is exactly what hd0.cntl needs -- nothing consumed them before. */
    wire                 w_eng_busy, w_eng_irq;
@@ -610,19 +562,11 @@ module henry_soc
    wire [15:0]          w_sdn_req_mask;
    wire                 w_seng_rsp_valid;
    wire [127:0]         w_seng_rsp_load_data;
-`ifdef ENABLE_SCSI_DMA
    wire                 w_m1_req_valid      = w_sdn_req_valid;
    wire [`PA_WIDTH-1:0] w_m1_req_addr       = w_sdn_req_addr;
    wire [127:0]         w_m1_req_store_data = w_sdn_req_store_data;
    wire [4:0]           w_m1_req_opcode     = w_sdn_req_opcode;
    wire [15:0]          w_m1_req_mask       = w_sdn_req_mask;
-`else
-   wire                 w_m1_req_valid      = w_dma_req_valid;
-   wire [`PA_WIDTH-1:0] w_m1_req_addr       = w_dma_req_addr;
-   wire [127:0]         w_m1_req_store_data = w_dma_req_store_data;
-   wire [4:0]           w_m1_req_opcode     = w_dma_req_opcode;
-   wire [15:0]          w_m1_req_mask       = w_dma_req_mask;
-`endif
 
    // CPU master address: apply the IP22 System Memory Alias before arbitration.
    wire [`PA_WIDTH-1:0] w_cpu_req_addr = w_sysmem_alias
@@ -732,9 +676,7 @@ module henry_soc
    wire [127:0]         w_enet_req_store_data;
    wire [4:0]           w_enet_req_opcode;
    wire [15:0]          w_enet_req_mask;
-   wire                 w_enet_rx_pop, w_enet_rx_empty;
-   wire [127:0]         w_enet_rx_rdata;
-   /* enet_shim completion inputs: from the ARM mailbox, or from the ring engine */
+   /* enet_shim completion inputs, driven by the ring engine */
    wire [31:0]          w_shim_tx_rsp_seq, w_shim_rx_rsp_seq, w_shim_rx_crbdp, w_shim_tx_crbdp;
 
    /* TX doorbell: enet_shim bumps enet_tx_req_seq when the guest kicks a transmit.
@@ -747,58 +689,6 @@ module henry_soc
 	r_enet_tx_seq <= reset ? 32'd0 : enet_tx_req_seq;
      end
 
-   /* TX beats leave the engine as a 1-cycle pulse; the ARM/TB polls over AXI and
-    * cannot catch pulses, so buffer them.  Consumer pops via enet_tx_beat_pop. */
-   wire         w_enet_tx_fifo_full, w_enet_tx_fifo_empty;
-   wire [127:0] w_enet_tx_fifo_rdata;
-   wire         w_enet_tx_beat_en_i;
-   wire [127:0] w_enet_tx_beat_data_i;
-   scsi_beat_fifo u_enet_tx_fifo
-     (.clk(clk), .reset(reset),
-      .push(w_enet_tx_beat_en_i), .wdata(w_enet_tx_beat_data_i), .full(w_enet_tx_fifo_full),
-      .pop(enet_tx_beat_pop), .rdata(w_enet_tx_fifo_rdata), .empty(w_enet_tx_fifo_empty));
-   assign enet_tx_beat_data  = w_enet_tx_fifo_rdata;
-   assign enet_tx_beat_valid = ~w_enet_tx_fifo_empty;
-
-   scsi_beat_fifo u_enet_rx_fifo
-     (.clk(clk), .reset(reset),
-      .push(enet_rx_beat_push), .wdata(enet_rx_beat_data), .full(enet_rx_beat_full),
-      .pop(w_enet_rx_pop), .rdata(w_enet_rx_rdata), .empty(w_enet_rx_empty));
-
-`ifndef ENABLE_ENET_DMA   /* engine is OPT-IN: default build ties it off */
-   /* ENET RTL DMA engine OFF BY DEFAULT (2026-09-14; made default 2026-09-22).  The engine and the HOST servicer
-    * (axi.cc enet_arm.h) both walk the guest's {BP,BC,DP} descriptor chain, so with
-    * the engine live there are TWO owners and neither completes a frame: the guest
-    * counts Opkts with Oerrs=0 while tap0 never sees the bytes.  The engine-aware
-    * host driver (enet_arm.h.engine) was written 2026-08-07 but could never be
-    * exercised -- the engine was livelocked by the w_arb_rsp_valid[3] truncation --
-    * and on first real use its RX framing errors 2 frames in 3 (guest ec0 Ierrs=28
-    * vs Ipkts=14).  The pure-SOFTWARE path has worked for months, and a real Indy
-    * did DMA incoherently anyway, so removing the engine restores the known-good
-    * configuration.  It ALSO keeps the 1.9x speedup: a removed engine cannot
-    * head-of-line block the one-outstanding mem_arbiter the way the livelocked one
-    * did.  See [[project_enet_dma_livelock]]. */
-   assign w_enet_req_valid      = 1'b0;
-   assign w_enet_req_addr       = '0;
-   assign w_enet_req_opcode     = 5'd0;
-   assign w_enet_req_store_data = '0;
-   assign w_enet_req_mask       = 16'd0;
-   assign enet_dma_rx_done      = 1'b0;
-   assign enet_dma_rx_dropped   = 1'b0;
-   assign enet_dma_crbdp        = 32'd0;
-   assign enet_dma_tx_done      = 1'b0;
-   assign enet_dma_tx_len       = 14'd0;
-   assign w_enet_rx_pop         = 1'b0;
-   assign w_enet_tx_beat_en_i   = 1'b0;
-   assign w_enet_tx_beat_data_i = '0;
-   assign w_esnp_valid = 1'b0;
-   assign w_esnp_addr = 'd0;
-   assign w_esnp_wbinv = 1'b0;
-   assign w_shim_tx_rsp_seq = enet_tx_rsp_seq;
-   assign w_shim_rx_rsp_seq = enet_rx_rsp_seq;
-   assign w_shim_rx_crbdp   = enet_rx_crbdp;
-   assign w_shim_tx_crbdp   = enet_tx_crbdp;
-`else
    /* inclusive-L2 coherence: the engine's accesses go through dma_snoop_shim, which
     * WBINV-snoops each line before the access and again after a write (and
     * owns the core's L2 snoop port).  w_enet_req_* stay the arbiter-side master 3. */
@@ -809,19 +699,6 @@ module henry_soc
    wire [15:0]          w_enet_up_req_mask;
    wire                 w_enet_up_rsp_valid;
    wire [127:0]         w_enet_up_rsp_load_data;
-`ifdef NO_ENET_SNOOP_SHIM
-   /* A/B knob: the engine straight to the arbiter, no snoops (the pre-shim wiring) */
-   assign w_enet_req_valid = w_enet_up_req_valid;
-   assign w_enet_req_addr = w_enet_up_req_addr;
-   assign w_enet_req_opcode = w_enet_up_req_opcode;
-   assign w_enet_req_store_data = w_enet_up_req_store_data;
-   assign w_enet_req_mask = w_enet_up_req_mask;
-   assign w_enet_up_rsp_valid = w_mem_rsp_enet;
-   assign w_enet_up_rsp_load_data = mem_rsp_load_data;
-   assign w_esnp_valid = 1'b0;
-   assign w_esnp_addr = 'd0;
-   assign w_esnp_wbinv = 1'b0;
-`else
    dma_snoop_shim u_enet_snoop
      (.clk(clk), .reset(reset),
       .up_req_valid(w_enet_up_req_valid), .up_req_addr(w_enet_up_req_addr),
@@ -834,7 +711,6 @@ module henry_soc
       .dn_rsp_valid(w_mem_rsp_enet), .dn_rsp_load_data(mem_rsp_load_data),
       .snp_req_valid(w_esnp_valid), .snp_req_addr(w_esnp_addr), .snp_req_wbinv(w_esnp_wbinv),
       .snp_req_ack(w_esnp_ack), .snp_done(w_snoop_done));
-`endif
    /* RX ring position.  The shim's rx_nbdp is the GUEST's register: it only changes
     * when the driver (re)arms the channel, so feeding it straight to the engine put
     * every frame in the same descriptor and RX stalled after one frame (the guest
@@ -864,13 +740,10 @@ module henry_soc
 	  end
      end // always_ff
 
-`ifdef ENET_RINGS
    /* staging rings: the ARM never touches guest memory; the engine owns the walk,
-    * BC write-back, CRBDP and completion.  The beat FIFOs are unused. */
-   assign w_enet_rx_pop         = 1'b0;
-   assign w_enet_tx_beat_en_i   = 1'b0;
-   assign w_enet_tx_beat_data_i = '0;
-   assign enet_dma_tx_len       = 14'd0;
+    * BC write-back, CRBDP and completion. */
+   wire        enet_dma_rx_done, enet_dma_tx_done;
+   wire [31:0] enet_dma_crbdp;
    wire [31:0] w_ering_tx_crbdp;
    enet_ring_dma u_enet_dma
      (.clk(clk), .reset(reset),
@@ -878,7 +751,7 @@ module henry_soc
       .tx_go(w_enet_tx_go), .tx_nbdp(enet_tx_nbdp),
       .tx_done(enet_dma_tx_done), .tx_crbdp(w_ering_tx_crbdp),
       .rx_armed(w_enet_rx_pos != 32'd0), .rx_nbdp(w_enet_rx_pos),
-      .rx_done(enet_dma_rx_done), .rx_dropped(enet_dma_rx_dropped),
+      .rx_done(enet_dma_rx_done), .rx_dropped(),
       .rx_crbdp(enet_dma_crbdp), .rx_next_nbdp(w_enet_rx_next_nbdp),
       .dma_req_valid(w_enet_up_req_valid), .dma_req_addr(w_enet_up_req_addr),
       .dma_req_opcode(w_enet_up_req_opcode), .dma_req_store_data(w_enet_up_req_store_data),
@@ -906,28 +779,6 @@ module henry_soc
    assign w_shim_rx_rsp_seq = r_ering_rx_seq;
    assign w_shim_rx_crbdp   = enet_dma_crbdp;
    assign w_shim_tx_crbdp   = w_ering_tx_crbdp;
-`else
-   assign w_shim_tx_rsp_seq = enet_tx_rsp_seq;
-   assign w_shim_rx_rsp_seq = enet_rx_rsp_seq;
-   assign w_shim_rx_crbdp   = enet_rx_crbdp;
-   assign w_shim_tx_crbdp   = enet_tx_crbdp;
-   enet_dma u_enet_dma
-     (.clk(clk), .reset(reset),
-      .rx_go(enet_rx_frame_go), .rx_nbdp(w_enet_rx_pos), .rx_len(enet_rx_frame_len),
-      .rx_busy(), .rx_done(enet_dma_rx_done), .rx_dropped(enet_dma_rx_dropped),
-      .rx_crbdp(enet_dma_crbdp), .rx_next_nbdp(w_enet_rx_next_nbdp),
-      .tx_go(w_enet_tx_go), .tx_nbdp(enet_tx_nbdp), .tx_busy(),
-      .tx_done(enet_dma_tx_done), .tx_len(enet_dma_tx_len), .irq(),
-      .dma_req_valid(w_enet_up_req_valid), .dma_req_addr(w_enet_up_req_addr),
-      .dma_req_opcode(w_enet_up_req_opcode), .dma_req_store_data(w_enet_up_req_store_data),
-      .dma_req_mask(w_enet_up_req_mask),
-      .dma_rsp_valid(w_enet_up_rsp_valid), .dma_rsp_load_data(w_enet_up_rsp_load_data),
-      .rx_rd_en(w_enet_rx_pop), .rx_rd_data(w_enet_rx_rdata),
-      .rx_rd_valid(~w_enet_rx_empty),
-      .tx_wr_en(w_enet_tx_beat_en_i), .tx_wr_data(w_enet_tx_beat_data_i),
-      .tx_wr_full(w_enet_tx_fifo_full));
-`endif // ENET_RINGS
-`endif
 
    // ---- DMA-coherence snoop: SCSI + ENET producers -------------------------
    // Push the line address of every DMA *store* that DRAM actually completed.
@@ -998,7 +849,6 @@ module henry_soc
     * ties its L2 snoop request to 0 (r9999 core_l1d_l1i, task #51), so the L2 never
     * acks: this FIFO filled after 16 DMA line stores and then silently dropped every
     * push -- dead logic.  DMA coherence is the ARM-requested flush's job. */
-`ifdef DEVICE_SNOOP
    /* The ENET and SCSI dma_snoop_shims share the core's one snoop port.  Each holds
     * its request until acked; the L2 acks the request it sampled in IDLE one cycle
     * later, so the selection is LOCKED from the cycle a request is presented until
@@ -1034,22 +884,6 @@ module henry_soc
 	  end
      end // always_ff
    assign w_snoop_full  = 1'b0;
-`elsif ENABLE_DMA_SNOOP
-   assign w_snoop_wbinv = 1'b0;   /* the FIFO's snoops are discards */
-   snoop_fifo #(.LG_DEPTH(4)) u_snoop
-     (.clk(clk), .reset(reset),
-      .push_valid(w_snoop_push),
-      .push_addr(w_snoop_push_addr),
-      .full(w_snoop_full),
-      .snoop_req_valid(w_snoop_valid),
-      .snoop_req_addr(w_snoop_addr),
-      .snoop_req_ack(w_snoop_ack));
-`else
-   assign w_snoop_valid = 1'b0;
-   assign w_snoop_addr  = 'd0;
-   assign w_snoop_wbinv = 1'b0;
-   assign w_snoop_full  = 1'b0;
-`endif
 
    // =====================================================================
    //  Device request FSM: one outstanding at a time (matches the core bus).
@@ -1095,7 +929,6 @@ module henry_soc
    // ---- SCSI control shim (WD33C93 + HPC3 SCSI DMA channel); host-served disk ----
    // Shares the HPC3 window sel; its rdata ORs into w_rd_hpc3 (disjoint offsets).
    // INTRQ -> IOC2 local0 bit1 (SCSI0) -> IP2.
-`ifdef ENABLE_SCSI_SHIM
    wire [127:0] w_rd_scsi;
    wire         w_scsi_intrq;
    scsi_shim u_scsi
@@ -1116,25 +949,10 @@ module henry_soc
       .dma_done(w_eng_done), .dma_rd_stalled(w_eng_rd_stalled), .dma_abort(w_sdma_abort),
       .scsi_intrq(w_scsi_intrq),
       .dbg(scsi_dbg));
-`else
-   wire [127:0] w_rd_scsi     = 128'd0;
-   wire         w_scsi_intrq  = 1'b0;
-   assign scsi_dbg            = 32'd0;
-   assign scsi_req_seq        = 32'd0;
-   assign scsi_req_nbdp       = 32'd0;
-   assign scsi_req_xfer_len   = 32'd0;
-   assign scsi_req_cdb        = 128'd0;
-   assign scsi_req_dest       = 8'd0;
-   assign scsi_req_lun        = 8'd0;
-   assign scsi_req_to_device  = 1'b0;
-   assign w_sdma_go = 1'b0; assign w_sdma_nbdp = 32'd0; assign w_sdma_to_dev = 1'b0;
-   assign w_sdma_abort = 1'b0;
-`endif
 
    // ---- ENET control shim (Seeq 8003 + HPC3 ENET DMA channels); host-served tap ----
    // Shares the HPC3 window sel; its rdata ORs into the HPC3 mux (disjoint offsets).
    // ENET RX/TX channel IRQ -> IOC2 local0 bit3 (ENET) -> IP2.
-`ifdef ENABLE_ENET_SHIM
    wire [127:0] w_rd_enet;
    wire         w_enet_intrq;
    enet_shim u_enet
@@ -1148,29 +966,13 @@ module henry_soc
       .enet_rx_rsp_seq(w_shim_rx_rsp_seq), .enet_rx_crbdp(w_shim_rx_crbdp), .enet_tx_crbdp(w_shim_tx_crbdp),
       .enet_station(enet_station), .enet_rx_cmd(enet_rx_cmd),
       .enet_intrq(w_enet_intrq), .dbg(enet_dbg));
-`else
-   wire [127:0] w_rd_enet     = 128'd0;
-   wire         w_enet_intrq  = 1'b0;
-   assign enet_dbg            = 32'd0;
-   assign enet_tx_req_seq     = 32'd0;
-   assign enet_tx_nbdp        = 32'd0;
-   assign enet_rx_arm_seq     = 32'd0;
-   assign enet_rx_nbdp        = 32'd0;
-   assign enet_station        = 48'd0;
-   assign enet_rx_cmd         = 8'd0;
-`endif
 
    // ---- SCSI DMA engine: the ordered DRAM agent that walks the descriptor chain
-   //      and moves data; disk side streams 16B beats to the TB/ARM disk media. ----
-`ifdef ENABLE_SCSI_DMA
-`ifdef SCSI_RINGS
+   //      and moves data. ----
    /* staging rings (docs/arm-device-protocol.md): the disk side is served from the
     * staging region by scsi_stage, which shares the engine's port into the snoop
     * shim (w_eng_* is now scsi_stage's downstream).  The ARM never touches guest
     * memory and no longer sizes chains: each chain posts a completion. */
-   assign scsi_beat_full    = 1'b0;
-   assign scsi_disk_wr_en   = 1'b0;
-   assign scsi_disk_wr_data = 128'd0;
    wire                 w_sdm_req_valid, w_sdm_rsp_valid;
    wire [`PA_WIDTH-1:0] w_sdm_req_addr;
    wire [4:0]           w_sdm_req_opcode;
@@ -1206,30 +1008,7 @@ module henry_soc
       .dn_req_valid(w_eng_req_valid), .dn_req_addr(w_eng_req_addr), .dn_req_opcode(w_eng_req_opcode),
       .dn_req_store_data(w_eng_req_store_data), .dn_req_mask(w_eng_req_mask),
       .dn_rsp_valid(w_seng_rsp_valid), .dn_rsp_load_data(w_seng_rsp_load_data));
-`else
-   // ARM-fed beat FIFO -> engine disk-read port (the engine stalls when empty).
-   wire         w_fifo_pop, w_fifo_empty;
-   wire [127:0] w_fifo_rdata;
-   scsi_beat_fifo u_scsi_beat_fifo
-     (.clk(clk), .reset(reset),
-      .push(scsi_beat_push), .wdata(scsi_beat_data), .full(scsi_beat_full),
-      .pop(w_fifo_pop), .rdata(w_fifo_rdata), .empty(w_fifo_empty));
-   scsi_dma u_scsi_dma
-     (.clk(clk), .reset(reset),
-      .go(w_sdma_go), .nbdp(w_sdma_nbdp), .to_device(w_sdma_to_dev),
-      .busy(w_eng_busy), .done(w_eng_done), .irq(w_eng_irq), .rd_stalled(w_eng_rd_stalled),
-      .dma_req_valid(w_eng_req_valid), .dma_req_addr(w_eng_req_addr),
-      .dma_req_opcode(w_eng_req_opcode), .dma_req_store_data(w_eng_req_store_data),
-      .dma_req_mask(w_eng_req_mask),
-      .dma_rsp_valid(w_seng_rsp_valid), .dma_rsp_load_data(w_seng_rsp_load_data),
-      .disk_rd_en(w_fifo_pop), .disk_rd_data(w_fifo_rdata), .disk_rd_valid(~w_fifo_empty),
-      .cancel(w_sdma_abort),
-      .disk_wr_en(scsi_disk_wr_en), .disk_wr_data(scsi_disk_wr_data),
-      .disk_wr_full(1'b0), .xfer_bytes());
-`endif // SCSI_RINGS
    assign scsi_dma_done = w_eng_done;
-`ifdef DEVICE_SNOOP
-`ifndef NO_SCSI_SNOOP_SHIM
    /* inclusive-L2 coherence for SCSI DMA: the same PRE-WBINV / access / POST-WBINV
     * wrapper as ENET (dma_snoop_shim), so disk data never meets a stale cached line */
    dma_snoop_shim u_scsi_snoop
@@ -1244,29 +1023,6 @@ module henry_soc
       .dn_rsp_valid(w_mem_rsp_dma), .dn_rsp_load_data(mem_rsp_load_data),
       .snp_req_valid(w_ssnp_valid), .snp_req_addr(w_ssnp_addr), .snp_req_wbinv(w_ssnp_wbinv),
       .snp_req_ack(w_ssnp_ack), .snp_done(w_snoop_done));
-`else
-   /* no SCSI snoop shim: the engine talks to master 1 directly */
-   assign w_sdn_req_valid = w_eng_req_valid, w_sdn_req_addr = w_eng_req_addr,
-          w_sdn_req_store_data = w_eng_req_store_data, w_sdn_req_opcode = w_eng_req_opcode,
-          w_sdn_req_mask = w_eng_req_mask;
-   assign w_seng_rsp_valid = w_mem_rsp_dma, w_seng_rsp_load_data = mem_rsp_load_data;
-   assign w_ssnp_valid = 1'b0, w_ssnp_addr = 'd0, w_ssnp_wbinv = 1'b0;
-`endif
-`else
-   /* no SCSI snoop shim: the engine talks to master 1 directly */
-   assign w_sdn_req_valid = w_eng_req_valid, w_sdn_req_addr = w_eng_req_addr,
-          w_sdn_req_store_data = w_eng_req_store_data, w_sdn_req_opcode = w_eng_req_opcode,
-          w_sdn_req_mask = w_eng_req_mask;
-   assign w_seng_rsp_valid = w_mem_rsp_dma, w_seng_rsp_load_data = mem_rsp_load_data;
-   assign w_ssnp_valid = 1'b0, w_ssnp_addr = 'd0, w_ssnp_wbinv = 1'b0;
-`endif
-`else
-   assign w_eng_req_valid = 1'b0, w_eng_req_addr = '0, w_eng_req_store_data = '0,
-          w_eng_req_opcode = 5'd0, w_eng_req_mask = 16'd0, w_eng_done = 1'b0,
-          w_eng_rd_stalled = 1'b0;
-   assign scsi_beat_full = 1'b0, scsi_disk_wr_en = 1'b0, scsi_disk_wr_data = '0,
-          scsi_dma_done = 1'b0;
-`endif
 
    ioc u_ioc
      (.clk(clk), .reset(reset),

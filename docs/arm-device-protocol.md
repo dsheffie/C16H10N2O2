@@ -1,7 +1,9 @@
 # ARM ↔ device protocol (staging rings)
 
-Status: DESIGN, not implemented (2026-10-13). Replaces the host-served / beat-FIFO
-protocol for ENET and SCSI now that device DMA is snooped (`DEVICE_SNOOP`).
+Status: IMPLEMENTED, and the only device path (2026-10-14). Replaces the host-served /
+beat-FIFO protocol for ENET and SCSI now that device DMA is snooped. The rings are not
+build options: henry_soc always instantiates `enet_ring_dma` and `scsi_stage`, and the
+RTL revision (AXI-Lite read `0x3F`) is `0x20261014` so a driver can refuse an older bit.
 
 ## Why
 
@@ -219,7 +221,9 @@ and that waits for the completion. The tag is defensive and has its own unit tes
 ## Deleted
 
 - Beat FIFOs (`scsi_beat_fifo` instances for ENET RX/TX and SCSI data) and their AXI-Lite
-  data registers: writes `0x2a–0x2f`, reads `0x20–0x24`.
+  data registers: writes `0x20–0x23` and `0x2a–0x2f`; reads `0x02`, `0x05`, `0x06` and
+  `0x20–0x23` now return 0, and bit 0 of `0x24`/`0x25` reads 0 (the ext-flush fields in
+  their upper bits are unchanged).
 - The ARM completion handshake for ENET: `tx_rsp_seq`, `rx_rsp_seq`, `rx_crbdp` and
   `tx_crbdp` registers (`0x12–0x15`).
 - Driver: `EXTFLUSH`, `ENETFLUSH`, `XFPAGES`, the host-served ENET/SCSI paths

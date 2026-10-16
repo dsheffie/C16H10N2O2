@@ -1,4 +1,4 @@
-# bare-metal ENET staging-ring test (run in henry_tb built with ENET_RINGS=1)
+# bare-metal ENET staging-ring test (run in henry_tb with ENET_LOOPBACK=1)
 CC = mips-linux-gnu-gcc
 CFLAGS = -march=mips3 -mabi=32 -EB -mno-abicalls -fno-pic -ffreestanding -nostdlib -nostartfiles -O1
 enet_ring.elf: start.S enet_ring.c
