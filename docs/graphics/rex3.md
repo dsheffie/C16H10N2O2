@@ -32,6 +32,14 @@ engine** — the host CPU's FPU does the geometry, and Z-buffering is done in so
 in host memory. REX3's job begins when the host writes primitive coordinates and
 mode bits into its registers; REX3 turns those into screen pixels. (p.5)
 
+![Newport REX3 fragment datapath](img/newport_datapath.svg)
+
+*The per-pixel datapath: host setup → REX3 iterators (span/block, Bresenham, pattern,
+Gouraud) → clip → color select → destination read → logic op / blend → plane enables
+and write mask → VRAM → VC2 / XMAP9 / CMAP / RAMDAC scan-out. Source:
+`img/newport_datapath.dot`, drawn from the interp_mips model (a condensed MAME
+`newport.cpp`); regenerate with `dot -Tsvg newport_datapath.dot -o newport_datapath.svg`.*
+
 **The Newport display pipeline** (rendering → scanout), Figure 1, p.6–8:
 
 ```mermaid
