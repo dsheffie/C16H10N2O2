@@ -252,13 +252,15 @@ module ioc
       end
    end
 
-   // SCC DATA write -> serial console TX byte (combinational, on the accept cycle)
+   // SCC DATA write -> serial console TX byte (combinational, on the accept cycle).
+   // A control-port write with the pointer at WR8 (the Tx buffer) is a transmit too:
+   // the SGI PROM's early putc writes WR0 = point-high, then the char.
    always_comb begin
       scc_tx_valid = 1'b0;
       scc_tx_byte  = 8'h0;
       if(sel & is_store & w_scc)
         for(b = 0; b < 16; b = b + 1)
-          if(mask[b] & (((b>>2)&1) == 1)) begin
+          if(mask[b] & ((((b>>2)&1) == 1) | (r_scc_ptr[(b>>3)&1] == 4'd8))) begin
              scc_tx_valid = 1'b1;
              scc_tx_byte  = wdata[8*b +: 8];
           end

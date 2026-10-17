@@ -76,10 +76,10 @@ endif
 obj_dir/.verilated: $(wildcard $(RTL)/*.sv $(RTL)/*.vh) $(wildcard $(R9999)/*.sv $(R9999)/*.vh) Makefile
 	# Pass the golden-ISS .cc to Verilator's --exe so it compiles them (RTL-agnostic)
 	# alongside henry_tb.cpp into obj_dir/*.o.
-	$(VERILATOR) $(VFLAGS) $(RTL)/henry_soc.sv henry_tb.cpp $(INTERP_CC)
+	$(VERILATOR) $(VFLAGS) $(RTL)/henry_soc.sv henry_tb.cpp newport/sgi_newport.cc newport/sgi_ps2.cc $(INTERP_CC)
 	@touch $@
 
-obj_dir/henry_tb: obj_dir/.verilated henry_tb.cpp $(INTERP_CC) $(wildcard $(R9999)/*.hh)
+obj_dir/henry_tb: obj_dir/.verilated henry_tb.cpp gio_service.h newport/sgi_newport.cc newport/sgi_newport.hh newport/sgi_ps2.cc newport/sgi_ps2.hh $(INTERP_CC) $(wildcard $(R9999)/*.hh)
 	# LTO dropped from the COMPILES (per dsheffie) -- the clang-14/16 mismatch +
 	# ar-archive relink was the whole build headache; clang-16 is forced end-to-end
 	# so a core-only edit reliably lands via a plain `make`.  The LINK, however,

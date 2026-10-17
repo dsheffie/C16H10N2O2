@@ -81,7 +81,7 @@ module scsi_shim
    logic [15:0] r_ph_cnt, n_ph_cnt;
 
    // WD33C93 indirect register indices (the ones modeled)
-   localparam [4:0] WD_OWN_ID=5'h00, WD_CONTROL=5'h01, WD_TARGET_LUN=5'h0f,
+   localparam [4:0] WD_OWN_ID=5'h00, WD_CONTROL=5'h01, WD_TIMEOUT=5'h02, WD_TARGET_LUN=5'h0f,
                     WD_CMD_PHASE=5'h10, WD_XFER_MSB=5'h12, WD_XFER_MID=5'h13,
                     WD_XFER_LSB=5'h14, WD_DEST_ID=5'h15, WD_SCSI_STATUS=5'h17,
                     WD_COMMAND=5'h18;
@@ -94,6 +94,7 @@ module scsi_shim
    // ---- guest-written register state ----
    logic [4:0]  r_sasr;
    logic [7:0]  r_own_id, r_control;
+   logic [7:0]  r_timeout;          // reg 0x02 timeout period: stored for readback (the SGI PROM's path test)
    logic [95:0] r_cdb;             // bytes for indices 0x03..0x0e
    logic [7:0]  r_target_lun;      // guest LUN; OVERWRITTEN with target status at completion
    logic [7:0]  r_cmd_phase, r_scsi_status, r_dest_id;
@@ -149,6 +150,7 @@ module scsi_shim
    always_ff @(posedge clk) begin
       if(reset) begin
          r_sasr <= 5'd0; r_own_id <= 8'd0; r_control <= 8'd0; r_cdb <= 96'd0;
+         r_timeout <= 8'd0;
          r_target_lun <= 8'd0; r_cmd_phase <= 8'd0; r_scsi_status <= 8'd0;
          r_dest_id <= 8'd0; r_xfer_cnt <= 24'd0;
          r_cip <= 1'b0; r_bsy <= 1'b0; r_intrq <= 1'b0;
@@ -188,6 +190,7 @@ module scsi_shim
                case(r_sasr)
                  WD_OWN_ID:      r_own_id      <= w_scmd_wval;
                  WD_CONTROL:     r_control     <= w_scmd_wval;
+                 WD_TIMEOUT:     r_timeout     <= w_scmd_wval;
                  WD_TARGET_LUN:  r_target_lun  <= w_scmd_wval;
                  WD_CMD_PHASE:   r_cmd_phase   <= w_scmd_wval;
                  WD_XFER_MSB:    r_xfer_cnt[23:16] <= w_scmd_wval;
@@ -273,6 +276,7 @@ module scsi_shim
       case(r_sasr)
         WD_OWN_ID:      t_scmd = r_own_id;
         WD_CONTROL:     t_scmd = r_control;
+        WD_TIMEOUT:     t_scmd = r_timeout;
         WD_TARGET_LUN:  t_scmd = r_target_lun;
         WD_CMD_PHASE:   t_scmd = r_cmd_phase;
         WD_XFER_MSB:    t_scmd = r_xfer_cnt[23:16];

@@ -92,6 +92,9 @@ static void ckpt_copy(const char *from, const char *to) {
 #include "scsi_service.h"   // host-side SCSI disk service (henry_scsi.h contract)
 #include "enet_service.h"   // host-side ethernet tap service (enet_shim.sv contract)
 #include "ring_service.h"   // staging-ring servicer, SAME source as the board driver
+#include "gio_service.h"    // ARM-served GIO window servicer, SAME source as the board driver
+#include "newport/sgi_newport.hh"
+#include "newport/sgi_ps2.hh"
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -828,6 +831,42 @@ static void tb_ring_doorbell(void *ctx, uint32_t reg, uint32_t v) {
     }
 }
 
+// Newport behind the ARM-served GIO window (rtl/gio_window.sv, docs/newport-on-henry.md):
+// the TB plays the ARM.  The window always exists in the RTL and a load to it waits for
+// an answer, so the board model is always present.  Knobs (read once):
+//   NEWPORT_VBLANK_CYC=N  vertical retrace every N cycles (default 1M; the ISS's
+//                         NEWPORT_VBLANK_ICNT counts instructions instead)
+//   NEWPORT_PPM=<path>    frame dump at exit; NEWPORT_PPM_EVERY=K also every K-th retrace
+static sgi_newport *g_np = nullptr;
+static sgi_ps2 *g_ps2 = nullptr;      /* the IOC2 8042, ARM-served through the gio ring (space 1) */
+static gio_svc_t    g_gio;
+static const uint64_t g_np_vblank = getenv("NEWPORT_VBLANK_CYC") ? strtoull(getenv("NEWPORT_VBLANK_CYC"), nullptr, 0) : 1000000ull;
+static void tb_gio_doorbell(void *ctx, uint32_t reg, uint32_t v) {
+  Vhenry_soc *t = static_cast<Vhenry_soc*>(ctx);
+  switch(reg)
+    {
+    case GIO_DB_ANS_LO:  t->gio_ans_lo = v;  break;
+    case GIO_DB_ANS_HI:  t->gio_ans_hi = v;  break;
+    case GIO_DB_ANS_SEQ: t->gio_ans_seq = v; break;
+    case GIO_DB_CONS:    t->gio_cons = v;    break;
+    case GIO_DB_IRQ:     t->gio_irq = (uint16_t)v; break;
+    default: break;
+    }
+}
+static void tb_np_write(void *ctx, uint32_t off, uint64_t v, uint32_t sz) {
+  static_cast<sgi_newport*>(ctx)->write(off, v, sz);
+}
+static uint64_t tb_np_read(void *ctx, uint32_t off, uint32_t sz) {
+  return static_cast<sgi_newport*>(ctx)->read(off, sz);
+}
+/* 8042: data at byte +3 (0x1fbd9843), command/status at +7 (0x1fbd9847); one byte each */
+static void tb_ps2_write(void *ctx, uint32_t off, uint64_t v, uint32_t) {
+  static_cast<sgi_ps2*>(ctx)->write(((off >> 2) & 1) != 0, (uint8_t)v);
+}
+static uint64_t tb_ps2_read(void *ctx, uint32_t off, uint32_t) {
+  return static_cast<sgi_ps2*>(ctx)->read(((off >> 2) & 1) != 0);
+}
+
 // ---- core instrumentation/co-sim DPI hooks: stubbed (RTL-only run) ----
 // Declared extern "C" via Vhenry_soc__Dpi.h above, so these definitions get C
 // linkage and satisfy the core's import "DPI-C" references.
@@ -1507,6 +1546,18 @@ static void load_blob(const char *path, uint64_t pa) {
   close(fd);
 }
 
+/* The ds1386 battery-backed RAM (Indy NVRAM) is DRAM the ARM populates (henry_soc.sv
+ * leaves 0x1fbe0040..0x1fbe7fff undecoded).  Seed the station MAC 08:00:69:12:34:56
+ * where IRIX/Linux read it -- byte k at 0x1fbe04e8 + 4k, in the low byte of the BE
+ * word (byte offset +3) -- the value hpc3.sv used to return from its registers. */
+static void seed_bbram_mac() {
+  static const uint8_t mac[6] = {0x08, 0x00, 0x69, 0x12, 0x34, 0x56};
+  for(int k = 0; k < 6; k++) {
+    bool b = false;
+    g_mem[fpga_map(0x1fbe04e8u + 4u*k + 3u, &b)] = mac[k];
+  }
+}
+
 // dump 8 big-endian words from a physical address (post-run page-table inspection)
 static void dump_pa(uint64_t pa) {
   pa &= MEM_MASK;
@@ -1724,7 +1775,7 @@ static void mon_poll(void) {
 }
 
 int main(int argc, char **argv) {
-  std::string kernel, arcs, ckpt_file, cimg_file, iss_seed_file;
+  std::string kernel, arcs, prom, ckpt_file, cimg_file, iss_seed_file;
   std::string disk_path; bool disk_rw = false;
   uint64_t max_cyc = 120000000ull;
   uint64_t max_icnt = 0;   // --maxicnt: stop after this many retired insns (0 = unlimited)
@@ -1749,6 +1800,7 @@ int main(int argc, char **argv) {
     std::string a = argv[i];
     if(a == "--kernel" && i+1 < argc)      kernel = argv[++i];
     else if(a == "--arcs" && i+1 < argc)   arcs   = argv[++i];
+    else if(a == "--prom" && i+1 < argc)   prom   = argv[++i];
     else if(a == "--arcs-addr" && i+1 < argc) arcs_addr = strtoull(argv[++i], nullptr, 0);
     else if(a == "--maxcyc" && i+1 < argc) max_cyc = strtoull(argv[++i], nullptr, 0);
     else if(a == "--extflush" && i+1 < argc) extflush_period = strtoull(argv[++i], nullptr, 0);
@@ -1846,7 +1898,7 @@ int main(int argc, char **argv) {
   size_t   g_rxstep = 0;         /* which step we are waiting on */
   std::string g_rxpend;          /* chars still to type for the current step */
   std::string g_contail;         /* rolling tail of console output for expect-matching */
-  if(kernel.empty() && ckpt_file.empty() && cimg_file.empty()) { fprintf(stderr, "usage: %s {--kernel <elf> | --checkpoint <file> | --cimg <file> --arcs <preamble>} [--maxcyc N]\n", argv[0]); return 1; }
+  if(kernel.empty() && prom.empty() && ckpt_file.empty() && cimg_file.empty()) { fprintf(stderr, "usage: %s {--kernel <elf> | --prom <bin> | --checkpoint <file> | --cimg <file> --arcs <preamble>} [--maxcyc N]\n", argv[0]); return 1; }
 
   g_mem = (uint8_t*)mmap(nullptr, MEM_SIZE, PROT_READ|PROT_WRITE,
                          MAP_PRIVATE|MAP_ANONYMOUS|MAP_NORESERVE, -1, 0);
@@ -1893,7 +1945,14 @@ int main(int argc, char **argv) {
     entry = kentry = start_pc ? start_pc : 0xbfc00000u;
     setup_verify();   // g_ckpt.icnt was set by load_cimg; target offset by the preamble below
     fprintf(stderr, "[cimg] preamble-resume: RTL boots @0x%08x, preamble installs state\n", (uint32_t)entry);
+  } else if(!prom.empty()) {
+    // a real SGI PROM image: loaded as is at the reset vector (no kentry patch, no
+    // kernel) -- it boots sash/the kernel from --disk itself
+    load_blob(prom.c_str(), 0x1fc00000ull);
+    seed_bbram_mac();
+    entry = kentry = 0xbfc00000u;
   } else {
+  seed_bbram_mac();
   entry = load_elf_be32(kernel.c_str());
   kentry = entry;                  // real kernel entry (trace starts here)
   if(!arcs.empty()) {
@@ -1951,6 +2010,19 @@ int main(int argc, char **argv) {
     io.ctx = tb;
     enet_ring_init(&g_ering, io);
     scsi_ring_init(&g_sring, io);
+    np_host_t host;
+    host.now = [](void *) -> uint64_t { return g_cur_cyc; };
+    host.irq = [](void *, uint8_t local1) { gio_set_irq(&g_gio, GIO_IRQ_LOCAL1, local1); };
+    g_np = new sgi_newport(host, g_np_vblank);
+    ps2_host_t phost;
+    phost.now = [](void *) -> uint64_t { return g_cur_cyc; };
+    phost.irq = [](void *, bool level) { gio_set_irq(&g_gio, GIO_IRQ_KBD, level ? GIO_IRQ_KBD : 0); };
+    phost.ppm = [](void *, const char *path) { g_np->dump_ppm(path); };
+    g_ps2 = new sgi_ps2(phost);
+    gio_dev_t dev = { g_np, tb_np_write, tb_np_read };
+    gio_dev_t dev2 = { g_ps2, tb_ps2_write, tb_ps2_read };
+    io.doorbell = tb_gio_doorbell;
+    gio_init(&g_gio, io, dev, dev2);
   }
   /* L2NOCACHE=1: l2_nocache is a SET-BEFORE-GO input -- the L2 stops caching data ops
    * entirely (pass-through to DRAM), so it holds no lines and cannot be a stale reservoir.
@@ -2751,6 +2823,12 @@ int main(int argc, char **argv) {
     if((cyc & 0x3f) == 0) {
       enet_ring_tx_poll(&g_ering, tx_fd);
     }
+    /* GIO window: every cycle -- a held load stalls the core until it is answered */
+    if(cyc >= g_np->next_vblank_at()) {
+      g_np->vblank(cyc);
+      g_ps2->service(cyc);             /* one queued kbd/mouse event per retrace */
+    }
+    gio_poll(&g_gio);
     if(rx_fd >= 0 && (cyc & 0x3ff) == 0) {
       uint8_t fr[ENET_FRAME_MAX];
       ssize_t n = ::read(rx_fd, fr, sizeof(fr));
@@ -3239,6 +3317,10 @@ int main(int argc, char **argv) {
                 rd32(i*16), rd32(i*16+4), rd32(i*16+8), (i == first) ? "  <<< first mismatch" : "");
   }
 
+  fprintf(stderr, "[gio] %llu stores, %llu reads, %llu split, %llu bad recno; cons %u prod %u pend %u\n",
+          (unsigned long long)g_gio.stores, (unsigned long long)g_gio.reads, (unsigned long long)g_gio.split,
+          (unsigned long long)g_gio.bad_recno, g_gio.cons, (uint32_t)tb->gio_prod, (uint32_t)tb->gio_pend);
+  delete g_np;                       /* NEWPORT_PPM: the final frame */
   delete tb;
   return 0;
 }

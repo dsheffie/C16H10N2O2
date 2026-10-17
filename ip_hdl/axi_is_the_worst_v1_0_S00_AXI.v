@@ -127,6 +127,15 @@ module axi_is_the_worst_v1_0_S00_AXI #
     output wire [31:0]			      ring_scsi_cq_cons, // 0x1a
     output wire [31:0]			      ring_scsi_rd_beats,// 0x1b
     output wire [31:0]			      ring_scsi_rd_seq,  // 0x1c (written after 0x1b)
+    // ---- ARM-served GIO window (docs/newport-on-henry.md) ----
+    output wire [31:0]			      gio_ans_lo,        // 0x20 read answer lanes 0-3
+    output wire [31:0]			      gio_ans_hi,        // 0x21 read answer lanes 4-7
+    output wire [31:0]			      gio_ans_seq,       // 0x22 answered recno (write last)
+    output wire [31:0]			      gio_cons,          // 0x23 records consumed
+    output wire [15:0]			      gio_irq,           // 0x2a IRQ levels -> INT3 local1
+    input  wire [31:0]			      gio_prod,          // read 0x20
+    input  wire				      gio_pend,          // read 0x21 [31]
+    input  wire [31:0]			      gio_pend_seq,      // read 0x21 [30:0]
     input  wire [31:0]			      ext_flush_stat,    // {completed[15:0], dirty[13:0], 1'b0, busy}
     input  wire [31:0]			      ext_flush_cycles,  // cycles the last flush / page list took
     // page list: write 0x3C = push a physical page number, write 0x3D = go (bit0 = drop)
@@ -466,6 +475,11 @@ module axi_is_the_worst_v1_0_S00_AXI #
    assign ring_scsi_cq_cons  = slv_reg26;
    assign ring_scsi_rd_beats = slv_reg27;
    assign ring_scsi_rd_seq   = slv_reg28;
+   assign gio_ans_lo  = slv_reg32;
+   assign gio_ans_hi  = slv_reg33;
+   assign gio_ans_seq = slv_reg34;
+   assign gio_cons    = slv_reg35;
+   assign gio_irq     = slv_reg42[15:0];
 
    
    assign S_AXI_AWREADY	= axi_awready;
@@ -1382,8 +1396,8 @@ module axi_is_the_worst_v1_0_S00_AXI #
 	  6'h1D   : reg_data_out <= wf_epc;  // wild-fault EPC (poison deref site)
 	  6'h1E   : reg_data_out <= wf_badv;  // wild-fault BadVaddr = poison pointer P
 	  6'h1F   : reg_data_out <= wf_stat;  // {wild-fault count[15:0],11'd0,cause[4:0]}
-	  6'h20   : reg_data_out <= 32'd0;
-	  6'h21   : reg_data_out <= 32'd0;
+	  6'h20   : reg_data_out <= gio_prod;                          // GIO window: records published
+	  6'h21   : reg_data_out <= {gio_pend, gio_pend_seq[30:0]};   // GIO window: held load
 	  6'h22   : reg_data_out <= 32'd0;
 	  6'h23   : reg_data_out <= 32'd0;
 	  /* the ARM-requested whole-cache flush (debug): 0x24[31:1] = cycles the last
@@ -1443,7 +1457,12 @@ module axi_is_the_worst_v1_0_S00_AXI #
 	  //              ~0.3 B/rec (~5x), fits the 64MB ring, ~5x less DRAM slowdown.
 	  // 0x2026072a = codec packer PIPELINED (2-stage, WNS margin) + ring 64MB->112MB
 	  //              (whole GIO region, compare wrap) so be's crash-time trace fits, no wrap.
-	  6'h3F   : reg_data_out <= 32'h20261014;   // RTL revision: staging rings only
+	  // 0x20261016 = ARM-served GIO window (Newport).
+	  // 0x20261017 = + IOC2 8042 kbd/mouse ARM-served through the gio ring (record
+	  //              dwoff[21] = space 1, irq doorbell bit 8 -> INT3 mappable 4);
+	  //              ds1386 bbRAM is DRAM (needs the low-byte-MAC henry_arcs);
+	  //              MC DMA fill, running ds1386 clock, SCC WR8, WD reg 2.
+	  6'h3F   : reg_data_out <= 32'h20261017;   // RTL revision
 	  default : reg_data_out <= 0;
 	endcase
      end

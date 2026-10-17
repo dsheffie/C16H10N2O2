@@ -181,6 +181,15 @@ module henry_soc
    input  logic [31:0]           ring_scsi_cq_cons,  // SCSI completions consumed
    input  logic [31:0]           ring_scsi_rd_beats, // beats staged for the next SCSI READ
    input  logic [31:0]           ring_scsi_rd_seq,   // ...for this command (written after beats)
+   // ---- ARM-served GIO window (gio_window.sv, docs/newport-on-henry.md) ----
+   input  logic [31:0]           gio_cons,           // capture-ring records the ARM has consumed
+   input  logic [31:0]           gio_ans_lo,         // read answer lanes 0-3
+   input  logic [31:0]           gio_ans_hi,         // read answer lanes 4-7
+   input  logic [31:0]           gio_ans_seq,        // recno of the READ answered (written last)
+   input  logic [15:0]           gio_irq,            // [7:0] -> INT3 local1 sources (7 = VRETRACE), [8] -> mappable 4 (8042)
+   output logic [31:0]           gio_prod,           // debug: records published
+   output logic                  gio_pend,           // debug: a load is waiting for the ARM
+   output logic [31:0]           gio_pend_seq,
    output logic [47:0]           enet_station,       // programmed station MAC (for RX filter)
    output logic [7:0]            enet_rx_cmd,        // Seeq RX command (match mode)
    output logic [31:0]           enet_dbg,           // ENET shim debug viz (AXI PMU readback)
@@ -221,9 +230,26 @@ module henry_soc
    //   IOC2: 0x1fbd9800 .. 0x1fbd98ff (256 B, carved out of HPC3)
    //   HPC3: 0x1fb80000 .. 0x1fbfffff (512 KB) minus IOC2
    wire w_is_mc   = (c_req_addr[31:20] == 12'h1fa);
-   wire w_is_ioc  = (c_req_addr[31:8]  == 24'h1fbd98);
-   wire w_is_hpc3 = (c_req_addr[31:19] == 13'h3f7) & ~w_is_ioc;   // 0x1fb80000>>19
-   wire w_is_dev  = w_is_mc | w_is_hpc3 | w_is_ioc;
+   /* IOC2 8042 keyboard/mouse controller (data 0x1fbd9843, command/status 0x1fbd9847):
+    * ARM-served through the gio_window ring (space 1).  The rest of that line
+    * (0x48..0x4f) stays with ioc.sv. */
+   wire w_is_kbd  = (c_req_addr[31:4] == 28'h1fbd984) & (|c_req_mask[7:0]);
+   wire w_is_ioc  = (c_req_addr[31:8]  == 24'h1fbd98) & ~w_is_kbd;
+   /* ds1386 battery-backed RAM (the Indy NVRAM: environment + station MAC) is plain
+    * DRAM the ARM populates, not an HPC3 register: 0x1fbe0040 .. 0x1fbe7fff (the clock,
+    * regs 0x00-0x0f, stays in hpc3.sv).  Undecoded here, the CPU access falls through
+    * to DRAM at the device-window offset (the same path as the PROM image). */
+   wire w_is_bbram = (c_req_addr[31:15] == 17'h03f7c) & (c_req_addr[14:6] != 9'd0);  // 0x1fbe0000>>15
+   wire w_is_hpc3 = (c_req_addr[31:19] == 13'h3f7) & ~w_is_ioc & ~w_is_kbd & ~w_is_bbram;   // 0x1fb80000>>19
+   wire w_is_gio;                                                    // gio_window: 0x1f0f0000 .. 0x1f0f1fff
+   /* GIO space with nothing behind it (docs/bus-errors.md): the MC times the access
+    * out -- loads complete with a bus error when CPUCTRL1.ABORT_EN is set, stores are
+    * absorbed; either way the MC latches GIO_ERROR_ADDR/STAT.  Covers the GIO slots
+    * (minus present windows) and HPC3 chip 1 (0x1fb00000): an Indy has only chip 0,
+    * and Linux probes the graphics slot only after chip 1's PBDMA read bus-errors. */
+   wire w_is_gio_empty = (((c_req_addr[31:0] >= 32'h1f000000) & (c_req_addr[31:0] < 32'h1fa00000)) |
+			  ((c_req_addr[31:0] >= 32'h1fb00000) & (c_req_addr[31:0] < 32'h1fb80000))) & ~w_is_gio;
+   wire w_is_dev  = w_is_mc | w_is_hpc3 | w_is_ioc | w_is_kbd | w_is_gio | w_is_gio_empty;
    wire w_is_load = (c_req_opcode == 5'd4);
 
 `ifdef SCSI_CLOBBER_TRACE
@@ -615,16 +641,14 @@ module henry_soc
       .trace_req_mask(w_trace_req_mask),
       .trace_rsp_valid(w_arb_rsp_valid[2]),          .trace_rsp_bad(mem_rsp_bad),
       .trace_ring_wptr(trace_ring_wptr), .trace_overflow(trace_overflow));
+   /* gio_window needs arbiter master 2 too: the two cannot be built together */
+   GIO_WINDOW_AND_DRAM_TRACE_BOTH_NEED_ARBITER_MASTER_2 u_master2_conflict();
 `else
    assign w_trace_stall          = 1'b0;
-   assign w_trace_req_valid      = 1'b0;
-   assign w_trace_req_addr       = 'd0;
-   assign w_trace_req_store_data = 'd0;
-   assign w_trace_req_opcode     = 'd0;
-   assign w_trace_req_mask       = 'd0;
    assign trace_ring_wptr        = 'd0;
    assign trace_overflow         = 1'b0;
 `endif
+
 
    // Parameterized weighted round-robin arbiter: master 0 = CPU, 1 = DMA, 2 = trace.
    // NSLOT=8, SLOT_MAP gives CPU slots 0..5, DMA slot 6, trace slot 7 -> CPU:DMA:trace
@@ -897,16 +921,117 @@ module henry_soc
 
    wire w_dev_accept = c_req_valid & w_is_dev & ~r_dev_busy;
 
+   // ---- arbiter master 2 is shared by the GIO window and the MC fill engine ----
+   wire                 w_gio_req_valid;
+   wire [`PA_WIDTH-1:0] w_gio_req_addr;
+   wire [4:0]           w_gio_req_opcode;
+   wire [127:0]         w_gio_req_store_data;
+   wire [15:0]          w_gio_req_mask;
+   wire                 w_gio_rsp_valid;
+   wire                 w_mcdma_req_valid;
+   wire [`PA_WIDTH-1:0] w_mcdma_req_addr;
+   wire [127:0]         w_mcdma_req_store_data;
+   wire                 w_mcdma_rsp_valid;
+
+   // ---- ARM-served GIO window (arbiter master 2): the Newport REX3 slot ----
+   wire         w_gio_done;
+   wire [127:0] w_gio_rdata;
+   gio_window u_gio
+     (.clk(clk), .reset(reset),
+      .sel(w_dev_accept & (w_is_gio | w_is_kbd)), .is_store(~w_is_load), .space(w_is_kbd),
+      .addr(c_req_addr[31:0]),
+      .mask(c_req_mask), .wdata(c_req_store_data),
+      .hit(w_is_gio), .done(w_gio_done), .rdata(w_gio_rdata),
+      .cons(gio_cons), .ans_lo(gio_ans_lo), .ans_hi(gio_ans_hi), .ans_seq(gio_ans_seq),
+      .prod(gio_prod), .pend(gio_pend), .pend_seq(gio_pend_seq),
+      .mem_req_valid(w_gio_req_valid), .mem_req_addr(w_gio_req_addr),
+      .mem_req_opcode(w_gio_req_opcode), .mem_req_store_data(w_gio_req_store_data),
+      .mem_req_mask(w_gio_req_mask),
+      .mem_rsp_valid(w_gio_rsp_valid));
+
    wire [127:0] w_rd_mc, w_rd_hpc3, w_rd_iocdev, w_rd_int3;
    wire         w_scc_tx_valid;
    wire [7:0]   w_scc_tx_byte;
    wire         w_scc_tx_int;   // SCC Tx-buffer-empty IRQ (joins rx on map_src[5])
 
+   /* the byte address of an access: line base + its first enabled byte lane */
+   logic [3:0] t_first_lane;
+   always_comb
+     begin
+	t_first_lane = 4'd0;
+	for(integer b = 15; b >= 0; b = b - 1)
+	  begin
+	     if(c_req_mask[b])
+	       begin
+		  t_first_lane = 4'(b);
+	       end
+	  end
+     end
+   wire w_mc_abort_en, w_mc_buserr;
+   wire w_gio_timeout = w_dev_accept & w_is_gio_empty & w_mc_abort_en;
    mc #(.MEMCFG0(MEMCFG0)) u_mc
      (.clk(clk), .reset(reset),
       .sel(w_dev_accept & w_is_mc), .is_store(~w_is_load),
       .offs(c_req_addr[16:0]), .mask(c_req_mask), .wdata(c_req_store_data),
-      .rdata(w_rd_mc));
+      .rdata(w_rd_mc),
+      .gio_err(w_gio_timeout), .gio_err_addr({c_req_addr[31:4], t_first_lane}),
+      .abort_en(w_mc_abort_en), .buserr(w_mc_buserr),
+      .dma_req_valid(w_mcdma_req_valid), .dma_req_addr(w_mcdma_req_addr),
+      .dma_req_store_data(w_mcdma_req_store_data), .dma_rsp_valid(w_mcdma_rsp_valid));
+
+   /* Master-2 mux.  The arbiter is one-outstanding and a master holds its request
+    * until answered, so the owner is LOCKED from the cycle a request is presented
+    * until its response (else the other could take the answer).  The GIO window wins
+    * a tie: a held CPU load waits on it, while the fill engine only runs at boot. */
+   logic r_m2_busy, n_m2_busy;
+   logic r_m2_mc, n_m2_mc;
+   logic t_m2_mc;
+`ifndef ENABLE_DRAM_TRACE
+   always_comb
+     begin
+        t_m2_mc   = r_m2_busy ? r_m2_mc : (~w_gio_req_valid & w_mcdma_req_valid);
+        n_m2_busy = r_m2_busy;
+        n_m2_mc   = r_m2_mc;
+        if(w_arb_rsp_valid[2])
+          begin
+             n_m2_busy = 1'b0;
+          end
+        else if(w_trace_req_valid)
+          begin
+             n_m2_busy = 1'b1;
+             n_m2_mc   = t_m2_mc;
+          end
+     end // always_comb
+   assign w_trace_req_valid      = t_m2_mc ? w_mcdma_req_valid      : w_gio_req_valid;
+   assign w_trace_req_addr       = t_m2_mc ? w_mcdma_req_addr       : w_gio_req_addr;
+   assign w_trace_req_opcode     = t_m2_mc ? 5'd7                   : w_gio_req_opcode;
+   assign w_trace_req_store_data = t_m2_mc ? w_mcdma_req_store_data : w_gio_req_store_data;
+   assign w_trace_req_mask       = t_m2_mc ? 16'hffff               : w_gio_req_mask;
+   assign w_gio_rsp_valid        = w_arb_rsp_valid[2] & ~t_m2_mc;
+   assign w_mcdma_rsp_valid      = w_arb_rsp_valid[2] &  t_m2_mc;
+`else
+   always_comb
+     begin
+        t_m2_mc   = 1'b0;
+        n_m2_busy = 1'b0;
+        n_m2_mc   = 1'b0;
+     end // always_comb
+   assign w_gio_rsp_valid   = 1'b0;
+   assign w_mcdma_rsp_valid = 1'b0;
+`endif
+   always_ff @(posedge clk)
+     begin
+        if(reset)
+          begin
+             r_m2_busy <= 1'b0;
+             r_m2_mc   <= 1'b0;
+          end
+        else
+          begin
+             r_m2_busy <= n_m2_busy;
+             r_m2_mc   <= n_m2_mc;
+          end
+     end // always_ff
 
    hpc3 u_hpc3
      (.clk(clk), .reset(reset),
@@ -1046,15 +1171,31 @@ module henry_soc
       .sel(w_dev_accept & w_is_ioc), .is_store(~w_is_load),
       .offs(c_req_addr[7:0]), .mask(c_req_mask), .wdata(c_req_store_data),
       .rdata(w_rd_int3),
-      .local0_src({3'd0, w_enet_intrq, 1'b0, w_scsi_intrq | w_hpc_scsi_intr, 1'b0}), .local1_src(8'd0),  // local0[3]=ENET [1]=SCSI0
-      .map_src({2'd0, w_scc_rx_avail | w_scc_tx_int, 5'd0}),  // bit5 = Serial DUART (SCC Rx|Tx)
-      .buserr(3'd0),
+      .local0_src({3'd0, w_enet_intrq, 1'b0, w_scsi_intrq | w_hpc_scsi_intr, 1'b0}), .local1_src(gio_irq[7:0]),  // local0[3]=ENET [1]=SCSI0; local1 = ARM-driven (gio_window devices)
+      .map_src({2'd0, w_scc_rx_avail | w_scc_tx_int, gio_irq[8], 4'd0}),  // bit5 = Serial DUART (SCC Rx|Tx), bit4 = 8042 kbd/mouse (ARM-driven)
+      .buserr({1'b0, w_mc_buserr, 1'b0}),   // [1] = MC bus error (docs/bus-errors.md)
       .timer0_irq(w_ioc_timer0), .timer1_irq(1'b0),
       .ip2(w_int3_ip2), .ip3(w_int3_ip3), .ip4(w_int3_ip4),
       .ip5(w_int3_ip5), .ip6(w_int3_ip6));
 
    wire [127:0] w_rd_ioc = w_rd_iocdev | w_rd_int3;
-   wire [127:0] w_dev_sel_rdata = w_is_mc ? w_rd_mc : (w_is_ioc ? w_rd_ioc : (w_rd_hpc3 | w_rd_scsi | w_rd_enet));
+   wire [127:0] w_dev_sel_rdata = w_is_gio_empty ? 128'd0 :
+				  w_is_mc ? w_rd_mc : (w_is_ioc ? w_rd_ioc : (w_rd_hpc3 | w_rd_scsi | w_rd_enet));
+
+   /* a gio_window access completes when the window says so (stores once queued,
+    * loads once the ARM has answered), not after DEV_LAT */
+   logic r_dev_gio;
+   logic r_dev_bad;     /* this device load timed out on GIO: answer with a bus error */
+   always_ff @(posedge clk) begin
+      if(reset) begin
+         r_dev_gio <= 1'b0;
+         r_dev_bad <= 1'b0;
+      end
+      else if(w_dev_accept) begin
+         r_dev_gio <= w_is_gio | w_is_kbd;
+         r_dev_bad <= w_gio_timeout & w_is_load;
+      end
+   end
 
    always_ff @(posedge clk) begin
       if(reset) begin
@@ -1072,6 +1213,10 @@ module henry_soc
          r_dev_cnt   <= DEV_LAT[$clog2(DEV_LAT+1)-1:0];
          r_dev_rdata <= w_dev_sel_rdata;
       end
+      else if(r_dev_busy & r_dev_gio) begin
+         if(w_gio_done)
+           r_dev_busy <= 1'b0;
+      end
       else if(r_dev_busy) begin
          if(r_dev_cnt == '0)
            r_dev_busy <= 1'b0;
@@ -1083,10 +1228,10 @@ module henry_soc
    // =====================================================================
    //  Response mux: device response vs. external (pass-through) response.
    // =====================================================================
-   wire w_dev_rsp = r_dev_busy & (r_dev_cnt == '0);
+   wire w_dev_rsp = r_dev_busy & (r_dev_gio ? w_gio_done : (r_dev_cnt == '0));
    assign c_rsp_valid     = w_dev_rsp | w_mem_rsp_cpu;
-   assign c_rsp_bad       = w_dev_rsp ? 1'b0 : (w_mem_rsp_cpu & mem_rsp_bad);
-   assign c_rsp_load_data = w_dev_rsp ? r_dev_rdata : mem_rsp_load_data;
+   assign c_rsp_bad       = w_dev_rsp ? r_dev_bad : (w_mem_rsp_cpu & mem_rsp_bad);
+   assign c_rsp_load_data = w_dev_rsp ? (r_dev_gio ? w_gio_rdata : r_dev_rdata) : mem_rsp_load_data;
 
    // =====================================================================
    //  SoC console FIFO (8-deep) -- exposed on the putchar_fifo_* port.

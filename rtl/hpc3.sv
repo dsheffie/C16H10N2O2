@@ -56,7 +56,6 @@ module hpc3
    logic [31:0] r_scsi_dmacfg, r_scsi_piocfg;  // 0x11010 / 0x11014 SCSI0 channel cfg
    logic        r_hd0_xie;        /* latched XIE interrupt; cleared when cntl is read */
    logic        r_hd0_dir, r_hd0_flush;
-   logic [47:0] r_enet_eaddr;       // ds1386 bbRAM station MAC @0x604e8..0x604fc; FSBL-programmed
 
    // NMC93CS56 serial EEPROM @ reg 0x30008 (hpc3c0->eeprom). IRIX if_ec (get_nvreg,
    // ml/IP22.c) reads the station MAC from it via a bit-banged Microwire protocol:
@@ -81,13 +80,37 @@ module hpc3
       end
    endfunction
 
-   // ds1386 RTC / battery-backed clock @0x60000 (byte-per-word x4: internal reg i
-   // at offset 0x60000 + i*4, value in the low byte = [31:24] after the BE swap,
-   // same lane convention as the IOC2 SYSID). A FIXED, valid BCD wall-clock
-   // (2000-01-01 00:00:00) -- NOT optional: with the clock regs reading 0, IRIX's
-   // rtodc() loop bound is garbage and boot spins forever; a valid BCD time lets
-   // it print "lost battery backup clock" and proceed. (Ported from interp_mips
-   // sgi_hpc.cc; see docs/peripherals/hpc3.md. month/date are 1-based BCD.)
+   // ds1386 RTC @0x60000 (byte-per-word x4: internal reg i at offset 0x60000 + i*4,
+   // value in the low byte = [31:24] after the BE swap, same lane convention as the
+   // IOC2 SYSID).  Regs 0x00-0x0f live here: a running BCD clock (the SGI PROM
+   // calibrates the CPU against the seconds tick and polls hundredths to check the
+   // oscillator), settable by byte or word stores.  It resets to 2030-01-01 00:00:00:
+   // IRIX rtodc() decodes year=1940+bcd (bcd<45 adds 30), so bcd 90 -> 2030, AFTER
+   // the ~2026-06 /var/sysgen mtimes -- IRIX reconfigures ONCE and skips it on every
+   // later boot.  The battery-backed RAM above reg 0x0f (the Indy NVRAM: environment
+   // + station MAC) is NOT here: henry_soc leaves 0x1fbe0040..0x1fbe7fff undecoded,
+   // so it is DRAM the ARM populates (see henry_soc.sv).
+   localparam int RTC_DIV = 1000000;   // core clocks per 1/100 s (100 MHz, as the IOC2 PIT assumes)
+   logic [7:0]  r_rtc [0:15];
+   logic [7:0]  n_rtc [0:15];
+   logic [19:0] r_rtc_div, n_rtc_div;
+   logic [7:0]  t_rtc_last_date, t_rtc_inc;
+   logic        t_rtc_leap;
+   integer      j;
+
+   function automatic logic [7:0] bcd_inc(input logic [7:0] v);
+      begin
+         if(v[3:0] == 4'd9)
+           begin
+              bcd_inc = {v[7:4] + 4'd1, 4'd0};
+           end
+         else
+           begin
+              bcd_inc = {v[7:4], v[3:0] + 4'd1};
+           end
+      end
+   endfunction
+
    function automatic logic [31:0] hpc_rd(input logic [18:0] o);
       logic [31:0] x;
       begin
@@ -102,6 +125,7 @@ module hpc3
          else if(o == 19'h11004)     x = {26'd0, r_hd0_xie, r_hd0_flush, 2'd0, r_hd0_dir, scsi0_dma_busy};
          else if(o == 19'h11010)     x = r_scsi_dmacfg;         // SCSI0 DMA cfg readback
          else if(o == 19'h11014)     x = r_scsi_piocfg;         // SCSI0 PIO cfg readback
+         else if(o[18:6] == 13'h1800) x = {r_rtc[o[5:2]], 24'd0}; // ds1386 regs 0x00-0x0f
          else case(o)
            19'h30000: x = r_intstat;
            19'h30004: x = r_misc;
@@ -110,41 +134,6 @@ module hpc3
            // -> post-bswap they land in the CPU word's [4:0] {EPROT,CSEL,ECLK,DATO,DATI}.
            19'h30008: x = {3'b0, r_ee_dati, r_ee_dato, r_ee_eclk, r_ee_csel, r_ee_eprot, 24'd0};
            19'h1000c: x = w_dma_status; // mem-to-mem DMA status: bit0=BUSY bit1=DONE
-           19'h60004: x = 32'h00000000; // ds1386 seconds      (BCD 00)
-           19'h60008: x = 32'h00000000; // ds1386 minutes      (BCD 00)
-           19'h60010: x = 32'h00000000; // ds1386 hours        (BCD 00, 24h)
-           19'h60018: x = 32'h01000000; // ds1386 day-of-week  (1)
-           19'h60020: x = 32'h01000000; // ds1386 date         (1st)
-           19'h60024: x = 32'h01000000; // ds1386 month        (January)
-           19'h60028: x = 32'h90000000; // ds1386 year = BCD 90 (byte in [31:24], same lane as
-                                        // the MAC/SYSID fields).  IRIX rtodc() decodes
-                                        // year=1940+bcd (bcd<45 adds 30): bcd 90>=45 -> 2030,
-                                        // AFTER the ~2026-06 /var/sysgen mtimes, so IRIX
-                                        // reconfigures ONCE and skips it on every later boot.
-                                        // Was 32'h00000000 (BCD 00 -> 1970): the comment
-                                        // described the fix but the VALUE was never changed,
-                                        // so the guest re-ran "Automatically reconfiguring the
-                                        // operating system" every boot and never reached a
-                                        // login prompt.
-           19'h6002c: x = 32'h00000000; // ds1386 command/status (not busy)
-           // IP22 station ethernet MAC in the ds1386 bbRAM (ip22_nvram_read
-           // EADDR_NVOFS=250; bbram base 0x60100 so reg 250 -> 0x604e8). The
-           // henry_arcs FSBL programs r_enet_eaddr at boot (from its eaddr_str),
-           // so IRIX if_ec reads a valid MAC (all-zero fails is_valid_ether_addr).
-           // Byte-per-word, byte in [31:24]; matches interp_mips sgi_hpc.cc reads.
-           // IP22 station MAC in the ds1386 bbRAM. IRIX get_nvreg (Guiness/Indy path)
-           // reads these as a 32-bit word (lw @ 0xbfbe0000 + reg*8 + 0x100) then `& 0xff`.
-           // The core byte-swaps device word loads, so the byte sits in hpc_rd[31:24]
-           // -> post-bswap it's the CPU word's low byte [7:0] that `& 0xff` selects.
-           // HARDCODED constant (not the FSBL-programmed r_enet_eaddr): the kernel
-           // writes/clears the bbRAM region during boot, which was zeroing the reg
-           // before IRIX's much-later MAC read.  MAC = 08:00:69:12:34:56.
-           19'h604e8: x = 32'h08000000; // MAC byte 0
-           19'h604ec: x = 32'h00000000; // MAC byte 1
-           19'h604f0: x = 32'h69000000; // MAC byte 2
-           19'h604f4: x = 32'h12000000; // MAC byte 3
-           19'h604f8: x = 32'h34000000; // MAC byte 4
-           19'h604fc: x = 32'h56000000; // MAC byte 5
            default:   x = 32'd0;     // unmodeled HPC3 read regs -> 0 (gap)
          endcase
          hpc_rd = x;
@@ -172,7 +161,6 @@ module hpc3
          r_scsi_dmacfg <= 32'd0;
          r_hd0_xie <= 1'b0; r_hd0_dir <= 1'b0; r_hd0_flush <= 1'b0;
          r_scsi_piocfg <= 32'd0;
-         r_enet_eaddr  <= 48'd0;
          r_ee_eprot <= 1'b0; r_ee_csel <= 1'b0; r_ee_eclk <= 1'b0;
          r_ee_dato  <= 1'b0; r_ee_dati <= 1'b0;
          r_ee_bitcnt <= 5'd0; r_ee_shin <= 11'd0; r_ee_shout <= 16'd0;
@@ -228,19 +216,117 @@ module hpc3
                      end
                   end
                end
-               // FSBL programs the station MAC into the ds1386 bbRAM. HPC3 store
-               // convention (scsi_shim.sv): byte at addr-offset N = wdata[8N+:8],
-               // so the word-aligned MAC byte is the LOW byte of its lane: wdata[32*i +: 8].
-               19'h604e8: r_enet_eaddr[47:40] <= wdata[32*i +: 8];
-               19'h604ec: r_enet_eaddr[39:32] <= wdata[32*i +: 8];
-               19'h604f0: r_enet_eaddr[31:24] <= wdata[32*i +: 8];
-               19'h604f4: r_enet_eaddr[23:16] <= wdata[32*i +: 8];
-               19'h604f8: r_enet_eaddr[15:8]  <= wdata[32*i +: 8];
-               19'h604fc: r_enet_eaddr[7:0]   <= wdata[32*i +: 8];
                default:   /* enet/scsi/pio data windows: write-absorb */ ;
              endcase
       end
    end
+
+   // ---- ds1386 clock: 100 Hz tick, BCD carry chain, then this cycle's stores ----
+   always_comb
+     begin
+        for(j = 0; j < 16; j = j + 1)
+          begin
+             n_rtc[j] = r_rtc[j];
+          end
+        n_rtc_div = r_rtc_div + 20'd1;
+        /* (2*tens + ones) mod 4 == year mod 4 */
+        t_rtc_leap = ((2'({r_rtc[10][4], 1'b0}) + r_rtc[10][1:0]) == 2'd0);
+        t_rtc_last_date = (r_rtc[9][4:0] == 5'h02) ? (t_rtc_leap ? 8'h29 : 8'h28) :
+                          ((r_rtc[9][4:0] == 5'h04) || (r_rtc[9][4:0] == 5'h06) ||
+                           (r_rtc[9][4:0] == 5'h09) || (r_rtc[9][4:0] == 5'h11)) ? 8'h30 : 8'h31;
+        t_rtc_inc = 8'd0;
+        if(r_rtc_div == 20'(RTC_DIV - 1))
+          begin
+             n_rtc_div = 20'd0;
+             if(r_rtc[0] != 8'h99)
+               begin
+                  n_rtc[0] = bcd_inc(r_rtc[0]);                 // hundredths
+               end
+             else
+               begin
+                  n_rtc[0] = 8'h00;
+                  if(r_rtc[1] != 8'h59)
+                    begin
+                       n_rtc[1] = bcd_inc(r_rtc[1]);            // seconds
+                    end
+                  else
+                    begin
+                       n_rtc[1] = 8'h00;
+                       if(r_rtc[2] != 8'h59)
+                         begin
+                            n_rtc[2] = bcd_inc(r_rtc[2]);       // minutes
+                         end
+                       else
+                         begin
+                            n_rtc[2] = 8'h00;
+                            if(r_rtc[4][5:0] != 6'h23)
+                              begin
+                                 t_rtc_inc = bcd_inc({2'd0, r_rtc[4][5:0]});
+                                 n_rtc[4] = {r_rtc[4][7:6], t_rtc_inc[5:0]};   // hours (24 h)
+                              end
+                            else
+                              begin
+                                 n_rtc[4] = {r_rtc[4][7:6], 6'h00};
+                                 n_rtc[6] = (r_rtc[6] == 8'h07) ? 8'h01 : bcd_inc(r_rtc[6]);  // day of week
+                                 if(r_rtc[8] != t_rtc_last_date)
+                                   begin
+                                      n_rtc[8] = bcd_inc(r_rtc[8]);            // date
+                                   end
+                                 else
+                                   begin
+                                      n_rtc[8] = 8'h01;
+                                      if(r_rtc[9][4:0] != 5'h12)
+                                        begin
+                                           t_rtc_inc = bcd_inc({3'd0, r_rtc[9][4:0]});
+                                           n_rtc[9] = {r_rtc[9][7:5], t_rtc_inc[4:0]};  // month (EOSC/ESQW kept)
+                                        end
+                                      else
+                                        begin
+                                           n_rtc[9] = {r_rtc[9][7:5], 5'h01};
+                                           n_rtc[10] = (r_rtc[10] == 8'h99) ? 8'h00 : bcd_inc(r_rtc[10]);  // year
+                                        end
+                                   end
+                              end
+                         end
+                    end
+               end
+          end
+        /* a store wins over the tick: byte (lbu/sb at reg*4+3) or word stores */
+        if(sel & is_store & (offs[18:6] == 13'h1800))
+          begin
+             for(j = 0; j < 4; j = j + 1)
+               begin
+                  if(mask[4*j + 3])
+                    begin
+                       n_rtc[{offs[5:4], 2'(j)}] = wdata[32*j + 24 +: 8];
+                    end
+               end
+          end
+     end // always_comb
+
+   always_ff @(posedge clk)
+     begin
+        if(reset)
+          begin
+             for(j = 0; j < 16; j = j + 1)
+               begin
+                  r_rtc[j] <= 8'h00;
+               end
+             r_rtc[6]  <= 8'h01;   // day of week 1
+             r_rtc[8]  <= 8'h01;   // date 1
+             r_rtc[9]  <= 8'h01;   // January
+             r_rtc[10] <= 8'h90;   // 2030 (see above)
+             r_rtc_div <= 20'd0;
+          end
+        else
+          begin
+             for(j = 0; j < 16; j = j + 1)
+               begin
+                  r_rtc[j] <= n_rtc[j];
+               end
+             r_rtc_div <= n_rtc_div;
+          end
+     end // always_ff
 
 `ifdef VERILATOR
    // TEMP: trace HPC3-window accesses in the PBUS config regions to see what IRIX's
@@ -255,7 +341,8 @@ module hpc3
    always_ff @(posedge clk)
      if(sel & ~is_store & (offs != 19'h30000)
         & ~(offs[18:15] == 4'h1)                 // 0x08000-0x0ffff / 0x10000-0x17fff DMA
-        & ~((offs & 19'h78000) == 19'h40000))    // 0x40000 WD33C93
+        & ~((offs & 19'h78000) == 19'h40000)     // 0x40000 WD33C93
+        & ~(offs[18:6] == 13'h1800))             // ds1386 clock (the PROM polls it)
        $display("[rd] offs=%05x mask=%04x rd=%08x_%08x_%08x_%08x",
                 offs, mask, rdata[127:96], rdata[95:64], rdata[63:32], rdata[31:0]);
 `endif

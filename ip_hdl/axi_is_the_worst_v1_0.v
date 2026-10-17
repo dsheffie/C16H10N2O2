@@ -363,6 +363,10 @@ module axi_is_the_worst_v1_0 #
    wire [15:0]  w_scsi_sel_delay;
    // staging-ring doorbells: S00_AXI (ARM) -> henry_soc engines
    wire [31:0]  w_ring_tx_cons, w_ring_rx_prod, w_ring_scsi_cq_cons, w_ring_scsi_rd_beats, w_ring_scsi_rd_seq;
+   // ARM-served GIO window: S00_AXI doorbells <-> henry_soc
+   wire [31:0]  w_gio_ans_lo, w_gio_ans_hi, w_gio_ans_seq, w_gio_cons, w_gio_prod, w_gio_pend_seq;
+   wire [15:0]  w_gio_irq;
+   wire         w_gio_pend;
    // ext flush page list: S00_AXI (ARM writes 0x3C/0x3D) -> henry_soc
    wire         w_ext_pg_push, w_ext_pg_go, w_ext_pg_drop;
    wire [31:0]  w_ext_pg_ppn;
@@ -474,6 +478,14 @@ module axi_is_the_worst_v1_0 #
 				       .ring_scsi_cq_cons(w_ring_scsi_cq_cons),
 				       .ring_scsi_rd_beats(w_ring_scsi_rd_beats),
 				       .ring_scsi_rd_seq(w_ring_scsi_rd_seq),
+				       .gio_ans_lo(w_gio_ans_lo),
+				       .gio_ans_hi(w_gio_ans_hi),
+				       .gio_ans_seq(w_gio_ans_seq),
+				       .gio_cons(w_gio_cons),
+				       .gio_irq(w_gio_irq),
+				       .gio_prod(w_gio_prod),
+				       .gio_pend(w_gio_pend),
+				       .gio_pend_seq(w_gio_pend_seq),
 				       .ext_flush_stat(w_ext_flush_stat),
 				       .ext_flush_cycles(w_ext_flush_cycles),
 				       .ext_pg_push(w_ext_pg_push),
@@ -724,6 +736,14 @@ module axi_is_the_worst_v1_0 #
 	   .ring_scsi_cq_cons(w_ring_scsi_cq_cons),
 	   .ring_scsi_rd_beats(w_ring_scsi_rd_beats),
 	   .ring_scsi_rd_seq(w_ring_scsi_rd_seq),
+	   .gio_cons(w_gio_cons),
+	   .gio_ans_lo(w_gio_ans_lo),
+	   .gio_ans_hi(w_gio_ans_hi),
+	   .gio_ans_seq(w_gio_ans_seq),
+	   .gio_irq(w_gio_irq),
+	   .gio_prod(w_gio_prod),
+	   .gio_pend(w_gio_pend),
+	   .gio_pend_seq(w_gio_pend_seq),
 	   .enet_tx_req_seq(w_enet_tx_req_seq),
 	   .enet_tx_nbdp(w_enet_tx_nbdp),
 	   .enet_rx_arm_seq(w_enet_rx_arm_seq),
