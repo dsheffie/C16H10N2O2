@@ -7,6 +7,7 @@
 #include "verilated.h"
 #include <cstdio>
 #include <cstring>
+#include <cstdlib>
 #include <cstdint>
 #include <map>
 #include <vector>
@@ -252,6 +253,48 @@ int main(int argc, char **argv) {
   check(ok6, "TX oversize: first 2048 bytes", 0, 0);
   check(stg[TXS + 10*2048] == 0, "TX oversize: wrote past its slot", stg[TXS + 10*2048], 0);
 
+  /* ---- TX random: chains of 1-3 packets, each 1-4 descriptors at random byte offsets
+   *      and lengths (under 2 KB per packet).  Every slot byte, each entry's length,
+   *      ETXD on every descriptor, CRBDP at done. ---- */
+  srand(4242);
+  uint32_t prod = get_le32(STG + IDX);
+  int nbad_r = 0, nrun_r = 0;
+  for(int r = 0; r < 200; r++) {
+    memset(mem + 0x10000, 0, 0x30000);
+    const int npkt = 1 + rand() % 3;
+    std::vector<std::vector<uint8_t>> pk(npkt);
+    uint32_t a = 0x1400, buf = 0x10000;
+    int ndesc_total = 0;
+    for(int p = 0; p < npkt; p++) {
+      const int nd = 1 + rand() % 4;
+      for(int i = 0; i < nd; i++) {
+        const uint32_t bp = buf + (uint32_t)(rand() % 16), cnt = 1u + (uint32_t)(rand() % 480);
+        for(uint32_t k = 0; k < cnt; k++) { mem[bp + k] = pat(3000 + r * 16 + p * 4 + i, k); pk[p].push_back(mem[bp + k]); }
+        const bool last_d = (i + 1 == nd), last_p = (p + 1 == npkt);
+        put_be32(a, bp); put_be32(a + 4, cnt | (last_d ? BC_EOXP : 0) | (last_d && last_p ? BC_EOX : 0)); put_be32(a + 8, a + 16);
+        a += 16; buf += 0x800; ndesc_total++;
+      }
+    }
+    d->tx_cons = prod;
+    int t0 = n_tx_done;
+    d->tx_nbdp = 0x1400; d->tx_go = 1;
+    bool ok = wait_for(&n_tx_done, t0) == 1;
+    for(int k = 0; k < 20; k++) { step(); }
+    ok &= get_le32(STG + IDX) == prod + (uint32_t)npkt;
+    for(int p = 0; p < npkt; p++) {
+      const uint32_t slot = (prod + (uint32_t)p) & 255;
+      ok &= (get_le32(STG + TXCQ + 16 * slot) & 0x1ffff) == pk[p].size();
+      for(uint32_t k = 0; k < pk[p].size(); k++) { ok &= stg[TXS + slot * 2048 + k] == pk[p][k]; }
+    }
+    for(int i = 0; i < ndesc_total; i++) { ok &= (get_be32(0x1404 + 16 * (uint32_t)i) & BC_ETXD) != 0; }
+    ok &= d->tx_crbdp == a;
+    prod += (uint32_t)npkt;
+    nrun_r++;
+    if(!ok) { nbad_r++; if(nbad_r <= 5) { printf("  TX random #%d npkt=%d ndesc=%d FAIL\n", r, npkt, ndesc_total); } }
+  }
+  check(nbad_r == 0, "TX random chains", nbad_r, nrun_r);
+
+  printf("(%ld cycles)\n", cyc);
   printf("== enet_ring_dma unit test: %d checks, %d failures: %s ==\n", checks, fails, fails ? "FAIL" : "PASS");
   delete d;
   return fails ? 1 : 0;

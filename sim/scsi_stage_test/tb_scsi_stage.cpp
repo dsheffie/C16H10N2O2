@@ -6,6 +6,7 @@
 #include "verilated.h"
 #include <cstdio>
 #include <cstring>
+#include <cstdlib>
 #include <cstdint>
 #include <vector>
 
@@ -243,7 +244,65 @@ int main(int argc, char **argv) {
     check(ok, "8 second chain data (stale read-ahead?)", r, 0);
   }
 
+  /* 9: random chains, both directions: 1-4 descriptors at random byte offsets with
+   *    random lengths.  Every guest byte, the guard bytes around each buffer, the
+   *    completion entry and (WRITE) the zero padding of the last staged beat. */
+  srand(12345);
+  int n9 = 0, n9_bad = 0;
+  for(int r = 0; r < 300; r++) {
+    const int nseg = 1 + rand() % 4;
+    const bool wr = (rand() & 1) != 0;
+    std::vector<seg_t> segs;
+    uint32_t total = 0;
+    memset(mem + 0x8000, GUARD, 4 * 0x3000);
+    for(int i = 0; i < nseg; i++) {
+      seg_t sg = {0x8000u + 0x3000u * (uint32_t)i + (uint32_t)(rand() % 16), 1u + (uint32_t)(rand() % 2500)};
+      segs.push_back(sg);
+      total += sg.cnt;
+    }
+    chain(0x1000, segs);
+    std::vector<uint8_t> f(total);
+    for(uint32_t k = 0; k < total; k++) { f[k] = pat(500 + r, k); }
+    new_cmd();
+    if(wr) {
+      uint32_t k = 0;
+      for(const seg_t &sg : segs) { for(uint32_t j = 0; j < sg.cnt; j++) { mem[sg.bp + j] = f[k++]; } }
+      memset(&stg[WR], 0x5a, ((total + 15) & ~15u) + 32);
+      go(0x1000, 1);
+    }
+    else {
+      arm_stage(f.data(), total + (uint32_t)(rand() % 3) * 16);   /* exact or over-staged */
+      go(0x1000, 0);
+    }
+    bool got = arm_wait_cq(&e) && e.bytes == total && (e.flags & 7) == 1 && e.nbdp == 0x1000;
+    ok = got;
+    uint32_t k = 0;
+    for(const seg_t &sg : segs) {
+      const uint32_t base = sg.bp & ~0xfffu;
+      for(uint32_t a = base; a < base + 0x3000u; a++) {
+        if(a >= sg.bp && a < sg.bp + sg.cnt) {
+          if(!wr) { ok &= mem[a] == f[k + (a - sg.bp)]; }
+        }
+        else {
+          ok &= mem[a] == GUARD;
+        }
+      }
+      k += sg.cnt;
+    }
+    if(wr) {
+      for(uint32_t j = 0; j < total; j++) { ok &= stg[WR + j] == f[j]; }
+      for(uint32_t j = total; j < ((total + 15) & ~15u); j++) { ok &= stg[WR + j] == 0; }
+    }
+    n9++;
+    if(!ok) {
+      n9_bad++;
+      if(n9_bad <= 5) { printf("  case 9 #%d %s nseg=%d total=%u entry bytes=%u flags=%u\n", r, wr ? "WRITE" : "READ", nseg, total, e.bytes, e.flags); }
+    }
+  }
+  check(n9_bad == 0, "9 random chains", n9_bad, n9);
+
   printf("(entries skipped as other commands': %u)\n", n_skipped);
+  printf("(%ld cycles)\n", cyc);
   printf("== scsi_stage unit test: %d checks, %d failures: %s ==\n", checks, fails, fails ? "FAIL" : "PASS");
   delete d;
   return fails ? 1 : 0;
