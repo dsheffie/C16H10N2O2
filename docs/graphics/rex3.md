@@ -12,12 +12,11 @@ source: SGI Newport REX3 spec (rex3.pdf)
 > It is also the master of the Display Control Bus (DCB) that programs the rest of
 > the Newport display chain (VC2, XMAP9, CMAP, RAMDAC).
 >
-> **Not implemented in Henry.** There is no REX3 logic in `rtl/` or `ip_hdl/`; accesses to
-> this window fall through to plain DRAM (see [Henry relevance](#henry-relevance-implementation-scope)).
-> This document is reference + future-work for a Henry graphics console: it
-> captures the architecture, programming model, and register-group map well enough
-> to (a) understand the part and (b) scope what a Henry REX3 would entail, without
-> exhaustively transcribing all 149 spec pages.
+> **On Henry, REX3 is software on the Zynq ARM.** The PL captures every access to this window
+> into a ring (`rtl/gio_window.sv`) and the ARM runs a model of the chip; IRIX reaches the 4Dwm
+> desktop on silicon. See [Newport on henry](../newport-on-henry.md) and
+> [Henry relevance](#henry-relevance-implementation-scope). This page captures the architecture,
+> programming model and register-group map without transcribing all 149 spec pages.
 
 Part: REX3, SGI 099-9005-001, LSI L1A9040, 0.6µm CMOS gate array, 304 MQUAD,
 ~149K gates incl. 5.7Kb dual-port RAM. (rex3.pdf p.5)
@@ -268,13 +267,23 @@ the GO bit during save/restore.
 
 ## Henry relevance / implementation scope
 
-**Henry today: not implemented.** No REX3 logic exists in `rtl/` or `ip_hdl/`. Henry's
-device decode (`henry_soc.sv`) claims only MC/HPC3/IOC2, so accesses to `0x1f0f0000`
-fall through to the external memory port, which in SGI mode remaps `0x1f000000–0x1fffffff`
-onto a DRAM window — they read/write ordinary DRAM and do **not** bus-error. Nothing here is
-boot-critical: Henry boots IRIX/Linux on the serial console.
+**Henry today: an ARM-served software REX3, working on silicon (2026-10-18).** The
+recommended design below was built: `rtl/gio_window.sv` logs every REX3 store into a DDR
+ring and holds loads until the ARM answers. All reads go to the ARM (no PL shadow registers yet),
+and a full ring stalls the CPU. Layers 2–3 run as `sgi_newport`, a condensed MAME `newport.cpp`
+with span kernels, on an A53. MC graphics DMA and the retrace interrupt exist. Two drawing
+rules missing from the MAME model mattered for a real desktop and are now modeled:
 
-**Future Henry graphics console:** implementing REX3 is essentially the *whole*
+- **CID match** (`CLIPMODE[12:9]`): Xsgi tags the root window's visible region with CID 1 in the
+  auxiliary planes and draws the wallpaper with CID match, so windows stay on top. The test has
+  to be applied wherever clipping is, including the fast span kernel.
+- **Per-plane write masks**: pop-up-plane writes replicate across byte lanes and must not reach
+  the overlay byte (CID `0x33`, PUP `0xcc`, OLAY `0xffff00`).
+
+See [Newport on henry](../newport-on-henry.md) for the design and screenshots. The layering
+below is kept as the reference scoping of the chip.
+
+**Scoping REX3 (reference):** implementing REX3 is essentially the *whole*
 graphics-console effort, in three layers of decreasing tractability:
 
 1. **GIO64 register face (most tractable).** A slave decoding the `0x1F0F0000`
@@ -306,7 +315,7 @@ stack is targeted. Subpixel anti-aliased lines and the full DDA shader are the
 least-essential, highest-effort parts.
 
 **Where the drawing could run (feasibility study, 2026-10-02, `NEWPORT_FEASIBILITY.md`
-at the repo root — study only, nothing built).** A REX3 rasterizer in PL (layer 2
+at the repo root; this is the design henry built).** A REX3 rasterizer in PL (layer 2
 above) was judged **not to fit** Henry's current LUT budget (rough CI8 subset estimate
 10–20K LUT). The study's recommended design keeps only layer 1 in PL — a DDR **write
 ring** for every REX3 store (IRIX's measured stream is ~99.9% posted writes), shadow

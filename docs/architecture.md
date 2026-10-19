@@ -17,8 +17,8 @@ system that boots IRIX. This page is the system-level view; each block has its o
 | **MC** | Memory controller: DRAM banks + sizing, the GIO64 bus arbiter, error/refresh/timers, the graphics (V)DMA master. | [MC](peripherals/mc.md) |
 | **HPC3** | Peripheral/DMA controller: SCSI ×2, Ethernet, PBUS; the ds1386 RTC/NVRAM and serial EEPROM. | [HPC3](peripherals/hpc3.md), [SCSI disk](peripherals/scsi_disk_theory_of_operation.md) |
 | **IOC2** | I/O controller: the **Z8530 serial console**, the INT3 interrupt controller, the 8254 timer, keyboard/mouse, parallel. | [IOC2](peripherals/ioc2.md), [SCC](peripherals/scc.md) |
-| **GIO64** | The expansion/graphics bus (16 × 4 MB slots). Henry has no GIO64 decode and no graphics; the slot space is DRAM-backed (see below). | [GIO64](peripherals/gio64.md) |
-| **VDMA** | The MC's virtual-DMA graphics master (future-work; its own page-table walker). | [VDMA](peripherals/vdma.md) |
+| **GIO64** | The expansion/graphics bus (16 × 4 MB slots). On Henry the REX3 window is an ARM-served Newport; the rest of the slot space is empty and bus-errors. | [GIO64](peripherals/gio64.md), [Newport on henry](newport-on-henry.md) |
+| **VDMA** | The MC's virtual-DMA graphics master (its own page-table walker). Henry implements memory → GIO as a DMA-engine channel. | [VDMA](peripherals/vdma.md) |
 | **ARCS shim** | The firmware state Henry plants so `/unix` boots without the real PROM/sash. | [Firmware](firmware-arcs.md) |
 
 ## How Henry realizes it (RTL + FPGA)
@@ -33,15 +33,18 @@ else through to DRAM:
 | `hpc3.sv` | HPC3 registers @ `0x1fb80000` (minus IOC2) | incl. the ds1386 RTC/NVRAM @ `+0x60000` |
 | `ioc.sv` | IOC2 @ `0x1fbd9800` | Z8530 SCC console (Tx + Rx FIFO), i8254 |
 | `int3.sv` | INT3 interrupt mux (IOC2 `+0x80`) | separate module, instantiated in `henry_soc.sv` |
-| `scsi_shim.sv` | WD33C93 + HPC3 SCSI channel | the **ARM (Zynq PS) services the disk**: it walks the `{BP,BC,DP}` chain in shared DRAM and moves the data itself |
+| `scsi_shim.sv` | WD33C93 + HPC3 SCSI channel | register model; the DMA engine walks the `{BP,BC,DP}` chain and the ARM serves the disk image through the staging rings ([protocol](arm-device-protocol.md)) |
 | `enet_shim.sv` | Seeq 8003 + HPC3 ENET | register model; `enet_ring_dma.sv` walks the descriptor chains and the ARM moves frames through the staging rings ([protocol](arm-device-protocol.md)) |
-| `mem_arbiter.sv` | DRAM arbitration | weighted round-robin, one request outstanding: CPU + the SoC DMA master ports (SCSI engine, ENET ring engine, opt-in DRAM deep trace) |
+| `dma_engine.sv` | the SoC's one DMA engine | channels SCSI, ENET TX, ENET RX and MC VDMA (`CH_V`), behind one `dma_snoop_shim` so guest-memory accesses are coherent with the L1/L2 |
+| `gio_window.sv` | ARM-served GIO window | REX3 @ `0x1f0f0000` and the IOC2 8042: accesses (and VDMA data) become records in a staging-region ring that the ARM's device models consume ([Newport on henry](newport-on-henry.md)) |
+| `mem_arbiter.sv` | DRAM arbitration | weighted round-robin, one request outstanding: CPU + the SoC DMA master ports (DMA engine, GIO window ring) |
 | `ip_hdl/axi_is_the_worst_*.v` | AXI4 master to PS DRAM + AXI-Lite control/debug registers | packaged as the Vivado user IP |
 
 The IP22 512 KB **System Memory Alias** (physical `0x0–0x7ffff` → `0x08000000`) is applied in `henry_soc.sv`
-to CPU accesses before arbitration. There is **no GIO64 decode** in the RTL: accesses in `0x1f000000–0x1fffffff` that are not
-MC/HPC3/IOC2 fall through to the AXI master, which maps that 16 MB window into shared DRAM. The boot-PROM range
-is therefore DRAM-backed too: the host (`henry_tb` in sim, the ARM driver on the FPGA) loads the ARCS first-stage
+to CPU accesses before arbitration. In `0x1f000000–0x1fffffff`, the REX3 window and the 8042 go to `gio_window`, and
+the rest of GIO space is decided "empty" by the MC (a bus error with `CPUCTRL1.ABORT_EN`, see
+[Bus errors](bus-errors.md)). Other addresses fall through to the AXI master, which maps a 16 MB window into shared
+DRAM. The boot-PROM range is DRAM-backed this way: the host (`henry_tb` in sim, the ARM driver on the FPGA) loads the ARCS first-stage
 image (`henry_arcs.bin`) there and starts the core at the reset vector `0xbfc00000`.
 
 ## Buses & topology
@@ -52,9 +55,9 @@ image (`henry_arcs.bin`) there and starts the core at the reset vector `0xbfc000
 - **GIO64** (`0x1f000000–0x1f9fffff`) — the expansion/graphics bus, mastered by the CPU (through the MC
   arbiter), by graphics, and by long-burst DMA. Sixteen 4 MB slots; IP22 wires only graphics + two expansion
   slots, and an access to an unpopulated slot returns a **bus error** — which is exactly how IRIX's GIO probe
-  decides "no device." (On Henry this is *not* modeled — see above: GIO space is backed by DRAM, the core ignores
-  the AXI master's `mem_rsp_bad`, and INT3's bus-error input is tied to 0. Newport graphics is not
-  implemented; see the [graphics pages](graphics/index.md).)
+  decides "no device." Henry models this: the MC returns the error with the response and r9999 takes a
+  precise data bus error ([Bus errors](bus-errors.md)). Slot 0 holds an ARM-served Newport
+  ([Newport on henry](newport-on-henry.md)).
 - **Local I/O** (`0x1fb80000+`) — HPC3 + IOC2 + the boot PROM. HPC3 bridges GIO64 to the peripherals and the
   PBUS (where the RTC/NVRAM, EEPROM, audio, and parallel live).
 
@@ -78,7 +81,12 @@ software cache management: the IRIX `cache` instruction is **not** a NOP, and r9
 ops (I-cache invalidate for code coherence; D-cache invalidate-*without*-writeback for DMA-in). This is the
 single most important cross-block contract — see [Cache, coherence & TLB](coherence-cache-tlb.md).
 
-**How Henry keeps DMA coherent.** On Henry the SCSI and Ethernet "DMA" is done by the **ARM** writing and
+**How Henry keeps DMA coherent (current).** All device DMA (SCSI, Ethernet, VDMA) goes through `dma_engine.sv`,
+whose guest-memory accesses pass a `dma_snoop_shim` (write back + invalidate the line in the core's caches, then
+access DRAM). The ARM exchanges data with the engine through staging rings and never touches guest memory after
+boot, so no flushes are needed ([ARM device protocol](arm-device-protocol.md)).
+
+**Earlier (flush-based) builds.** Before the snooped engine, the SCSI and Ethernet "DMA" was done by the **ARM** writing and
 reading guest buffers in the shared DRAM, below the r9999 caches. IRIX's own `cache` ops are honored (see
 [CPU integration](cpu-integration.md)),
 but they are not sufficient on their own, so the ARM driver also asks the core to flush around each transfer:
@@ -99,9 +107,10 @@ inert** (`ENABLE_DMA_SNOOP`; the core ties its L2 snoop port off). Details and s
 Peripheral interrupt sources (HPC3 DMA-done/error, GIO64 device lines, the 8254 timers) aggregate in the
 **INT3** controller inside IOC2, which drives five `CPU_INT_N` lines into r9999's CP0 `Cause.IP[6:2]`. The CPU's
 own periodic tick is the on-chip **CP0 Count/Compare** timer, not a peripheral. See [IOC2](peripherals/ioc2.md).
-In Henry (`int3.sv`, wired in `henry_soc.sv`) the live sources are SCSI0 (Local0 bit 1) and ENET (Local0 bit 3)
-→ IP2, the SCC Rx/Tx (Serial DUART mappable bit 5 → IP2 via the map mask), and i8254 counter 0 (Timer0 → IP4);
-Timer1, Local1 and the bus-error input are tied off.
+In Henry (`int3.sv`, wired in `henry_soc.sv`) the live sources are SCSI0 (Local0 bit 1), ENET (Local0 bit 3) and
+MC DMA completion (Local0 bit 4) → IP2; the ARM-driven Local1 lines (bit 7 = Newport VRETRACE) → IP3; the SCC
+Rx/Tx (Serial DUART mappable bit 5) and the ARM-served 8042 (mappable bit 4) via the map mask; i8254 counter 0
+(Timer0 → IP4); and the MC bus-error line. Timer1 is tied off.
 
 ## Build/verify strategy
 

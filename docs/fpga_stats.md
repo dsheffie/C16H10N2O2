@@ -14,7 +14,24 @@ the CAM off the fetch path; since the memory-system rework (non-blocking L1D + L
 sits in the **L1D port-2 pipeline**. Newest block first. Reports for each deployed bitstream are
 snapshotted next to it in `~/fpga/ultra96v2-henry/bit_<r9999 sha>/`.
 
-## 2026-10-04 -- r9999 5c89b70 (L1D flushes start only from a drained L1D) -- CURRENT deployed bit
+## 2026-10-14 .. 10-18 -- device rings, Newport, VDMA, big core
+
+Summary rows from the bitstream manifest (Vivado post-route WNS @ 100 MHz and CLB LUTs; full reports are
+kept next to each bitstream). All built with `ENABLE_DEBUG_WATCHPOINT`.
+
+| date | bitstream (md5) | config | WNS | CLB LUTs |
+|---|---|---|---|---|
+| 10-14 | `0e7de40d` | ROB 32, LSU 12, HILO 8, L2 512 KB, L1D 16 KB / L1I 32 KB; ENET+SCSI staging rings (no Newport). Passed a 24-round IRIX soak; Dhrystone 169.6 VAX MIPS | +0.074 | 63085 |
+| 10-16 | `d8ad3041` | TINY_CORE; first `gio_window` + ARM-served Newport (RTL rev `0x20261016`) | +0.102 | 56663 |
+| 10-17 | `959051bd` | TINY_CORE; DMA engine + VDMA channel (TLB_LO fix) + usage counters | +0.261 | 54949 |
+| 10-17 | `974ea88e` | TINY_CORE; + ring BEGIN/END markers (RTL rev `0x20261018`) | +0.048 | 54906 |
+| 10-18 | `7d953110` | big core (sched 8, LSU 8, L1D 16 KB, L1I 32 KB, L2 128 KB, ROB 16, skid on) + DMA engine + VDMA + markers. Runs the Newport desktop and Doom; Dhrystone 158.1 VAX MIPS | +0.145 | 57609 |
+| 10-18 | `d60ca46f` | as `7d953110` with L2 256 KB (105.5 BRAM tiles) | +0.051 | 57753 |
+
+A ROB 32 + LSU 12 + 256 KB L2 variant of the Newport/DMA-engine design routed at **−2.061 ns** (88.7% LUTs)
+and is not usable at 100 MHz on the ZU3EG.
+
+## 2026-10-04 -- r9999 5c89b70 (L1D flushes start only from a drained L1D)
 
 Henry `main` @ `209e6f6`; bitstream md5 `f66c6d49dfb1…`; `impl_11`; built with
 `ENABLE_DEBUG_WATCHPOINT` on (the `gen_mipscore.sh` default). Core config: 16 KB L1I + 16 KB L1D,

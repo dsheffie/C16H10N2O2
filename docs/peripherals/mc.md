@@ -1,6 +1,6 @@
 ---
 title: MC — Memory Controller
-status: draft (MAME-validated; henry RTL status audited 2026-10-04 against main @209e6f6)
+status: draft (MAME-validated; henry RTL status audited 2026-10-18 against branch dma-engine)
 source: SGI IP22 MC spec (mc.pdf); MAME golden reference; henry rtl/mc.sv, rtl/henry_soc.sv, ip_hdl/axi_is_the_worst_v1_0_M00_AXI.v
 ---
 
@@ -31,7 +31,12 @@ byte-enables of a word). The core byte-swaps device word loads, so values are st
 | `0xc4`, `0xcc` | MEMCFG0, MEMCFG1 | R/W **at the BE alias only** (`0xc0`/`0xc8` read 0). MEMCFG0 resets to the `MEMCFG0` parameter (below), MEMCFG1 to 0 |
 | `0xd4`, `0xdc` | CPU_MEMACC, GIO_MEMACC | R/W storage at the BE alias, reset 0 |
 | `0x1004` | RPSS_CTR | free-running core-clock counter ÷ 10 = **100 ns ticks at the 100 MHz core clock** |
-| everything else | CTRLD, REF_CTR, watchdog, error regs, semaphores, locks, DMA/VDMA, DMA µTLB | **read 0, writes ignored** |
+| `0x08/0x0c` bit 4 of the stored word (BE bit 28) | CPUCTRL1.ABORT_EN | enables GIO time-outs: with it, an access to empty GIO space is an error ([Bus errors](../bus-errors.md)); the ARCS shim sets it |
+| `0xe0`–`0xfc` | CPU/GIO_ERROR_ADDR, CPU/GIO_ERROR_STAT | latched on an empty-GIO access (`GIO_ERROR_STAT.TIME`); write clears; any status bit set drives the MC bus-error line to INT3 |
+| `0x160/0x164`, `0x168/0x16c` | DMA_CAUSE, DMA_CTL | VDMA completion cause; `DMA_CTL` bit 4 (BE bit 28) enables the completion interrupt (INT3 Local0 bit 4) |
+| `0x180`–`0x1bc` | DMA_TLB_{HI,LO}_{0..3} | R/W; the PTE page is `TLB_LO[25:6]` ([VDMA](vdma.md)) |
+| `0x2000`–`0x204c` | DMA_MEMADR, SIZE, STRIDE, GIO_ADR, MODE, COUNT, RUN | the VDMA descriptor; a start runs `dma_engine` channel `CH_V`; `MEMADR`/`COUNT` hold the final values; `DMA_RUN` bit 6 = running |
+| everything else | CTRLD, REF_CTR, watchdog, semaphores, locks | **read 0, writes ignored** |
 
 **MEMCFG0 default.** The parameter is `0x0000203f`, which IRIX reads as **`0x3f200000`**. That decodes to
 bank 0 base `0x20` (`0x08000000`), MSIZE `0x1f` (8M×36, a **128 MB** bank), VLD=1, BNK=0; banks 1/2/3 absent.
@@ -199,7 +204,7 @@ see the top of this page):
 The list below is the original MAME-derived plan. What henry actually ships is the table at the top of this
 page:
 
-- REF_CTR, CTRLD and the error registers read 0.
+- REF_CTR and CTRLD read 0. The error registers latch empty-GIO accesses ([Bus errors](../bus-errors.md)).
 - CPUCTRL0 has no side effects.
 - MEMCFG is not used to route DRAM.
 
@@ -216,7 +221,7 @@ Must-implement subset (everything else can be inert storage that reads back what
    decoded window. → verify: ARCS memory descriptors + kernel sizing see the right amount of RAM.
 6. **CPU_MEMACC / GIO_MEMACC** (`0xd0`,`0xd8`) — store/return opaque timing words. → verify: writeback then
    readback matches.
-7. **Error regs** (`0xe0`–`0xf8`) — read 0, write-to-clear. → verify: no spurious bus-error handling.
+7. **Error regs** (`0xe0`–`0xf8`) — latch empty-GIO accesses (with `ABORT_EN`), write-to-clear. → verify: `tests/buserr` (cause 7 + `GIO_ERROR_ADDR`/`STAT`).
 
 ## Golden vectors (from MAME)
 

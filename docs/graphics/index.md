@@ -1,14 +1,17 @@
 ---
 title: Newport graphics (overview)
-status: draft / future-work
+status: implemented (ARM-served model), 2026-10-18
 ---
 # Newport graphics board (overview)
 
 > Intro: the Indy "XL" graphics board on GIO64 slot 0 (phys `0x1f000000`; REX3 registers at
-> `0x1f0f0000`). **Henry does not implement any of it** — there is no REX3/VC2/XMAP9/RB2/RO1 logic in
-> `rtl/` or `ip_hdl/`, and Henry boots headless on the serial console. These pages are (a) a reference
-> description of the SGI hardware, (b) Henry's implementation status (none), and (c) the future-work
-> path for a Henry graphics console.
+> `0x1f0f0000`). **Henry runs it on silicon** as an ARM-served device: the PL captures every
+> REX3 access into a ring and the Zynq ARM runs a software model of the board, and IRIX reaches
+> the 4Dwm desktop. See **[Newport on henry](../newport-on-henry.md)** for the design,
+> screenshots and known issues. The pages in this section describe the SGI hardware.
+
+![4Dwm desktop on henry silicon](img/newport/silicon-desktop-doom.png)
+*IRIX 6.5 4Dwm on henry (Ultra96-v2), Newport served by the ARM; Doom in a window.*
 
 > **Software side:** what IRIX's Xsgi, `ng1` kernel driver and GL libraries actually do to this
 > hardware (store widths, polling, pixel DMA, context switch) is in
@@ -84,56 +87,31 @@ reading `0xDEADBEEF`), then for a product-ID word, and finally treats a readable
 
 ## Henry relevance
 
-**Implementation status (current RTL): nothing.** No Newport chip is modeled — a grep of `rtl/` and
-`ip_hdl/` for rex3/newport/vc2/xmap finds only address-map comments. Henry boots IRIX and Linux headless
-on the SCC serial console; nothing on this page is on the boot path. (Today's IRIX desktop is X11
-forwarded over Ethernet / VNC, not a Henry framebuffer.)
+**Implementation: an ARM-served model, working on silicon.** No Newport chip is built in the PL.
+`rtl/gio_window.sv` turns every access to the REX3 window (`0x1f0f0000–0x1f0f1fff`) into a
+record in a DDR capture ring, and holds loads until the ARM answers. On the Zynq ARM, the driver
+runs `sgi_newport` (a condensed MAME `newport.cpp`, shared with
+[indysim](https://github.com/dsheffie/indysim)) and shows the framebuffer on an X display viewed
+over VNC. The MC's graphics DMA (VDMA, memory → GIO) is a channel of henry's DMA engine and
+feeds the same ring. The vertical-retrace interrupt is an ARM-driven INT3 `local1` level.
+Details: [Newport on henry](../newport-on-henry.md).
 
-What the graphics aperture actually does today: `henry_soc.sv` decodes only MC (`0x1fa…`), HPC3
-(`0x1fb8…`–`0x1fbf…`) and IOC2; every other physical address, including `0x1f000000–0x1f3fffff`, falls
-through to the external AXI memory port. In SGI mode `axi_is_the_worst_v1_0_M00_AXI.v` remaps
-`0x1f000000–0x1fffffff` onto a 16 MB DRAM window (the same window that backs the boot-PROM image at
-`0x1fc00000`), so **a load or store to the Newport aperture hits ordinary DRAM — it does not bus-error.**
-(An out-of-range address returns `0xA5A5A5A5` with `mem_rsp_bad`, but the r9999 core ignores
-`mem_rsp_bad`, and the IOC2 `buserr` input is tied to 0.) A graphics probe therefore sees whatever that
-DRAM holds rather than an empty-slot bus error. Graphics interrupts (IOC2 Local1 VRETRACE etc.) are tied
-to 0, and the MC graphics-DMA registers (`0x2000`+) are not implemented.
+Why this split: the 2026-10-02 feasibility study (`NEWPORT_FEASIBILITY.md`, QEMU traces of
+IRIX 6.5) found IRIX's stream is ~99.9% posted writes. Serving every access on the ARM was
+3–10× too slow, a REX3 rasterizer in the PL did not fit henry's LUT budget, and the hybrid (PL
+logs writes, ARM draws) was feasible. Any design needed MC graphics DMA and a retrace interrupt;
+henry has both.
 
-**Feasibility (study only, 2026-10-02; `NEWPORT_FEASIBILITY.md` at the repo root, not part of the
-published docs).** The study recorded IRIX 6.5's Newport access stream under QEMU and compared three
-designs:
+What the generic Newport work turned out to be (in the order it was needed):
 
-- **Every access serviced by the Zynq ARM: not feasible** — 3–10× short on throughput even with a
-  dedicated spinning A53, ~1000× short with today's polling loop.
-- **Hybrid: feasible.** IRIX's stream is ~99.9% posted writes, so the PL can log writes into a DDR ring
-  and answer STATUS/CONFIG/DCB-status reads from shadow registers, while an ARM thread runs a software
-  REX3 (a port of MAME's) and does scanout. Estimated PL cost ~1–2K LUT.
-- **REX3 rasterizer in PL: does not fit** Henry's current LUT budget.
-- **Required by any design:** MC graphics DMA (Xsgi/GL use it for large Get/PutImage with no PIO
-  fallback) and a vertical-retrace interrupt.
-
-None of this is built; the measured rates are from QEMU traces, and the r9999 per-store cost was an
-estimate, not a measurement.
-
-**Generic scope of a Henry Newport** (independent of where the drawing runs):
-
-1. Decode the REX3 register window (`0x1f0f0000–0x1f0f1fff`) and make the driver's probe succeed (e.g.
-   a readable `USER_STATUS` at `0x1f0f133c`) → verify: the OS reports a Newport in slot 0.
-2. Implement REX3's host-visible register file and the `HOSTRW` pixel path over a framebuffer in real
-   RAM → verify: the IRIX/PROM graphics init writes registers and clears the screen without faulting.
-3. Implement the **rendering command set** (lines/spans/blocks via the Bresenham iterators, the DDA
-   color iterators, dither/blend/LogicOp, fast-clear, screen-to-screen copy). **This is the bulk of the
-   work** — it is most of the 149-page REX3 spec → verify: a known IRIX 2D workload draws correctly.
-4. The scanout hardware (VC2 timing, RO1/XMAP9/CMAP/RAMDAC) need not be rebuilt as chips — scanout can
-   read the framebuffer RAM directly — but the driver still programs VC2/XMAP9/CMAP/RAMDAC over the DCB,
-   so their register state (and correct DCB read replies) must exist, and a CI framebuffer must be
-   displayed through the CMAP/XMAP9 mode state to look right.
-5. **MC graphics DMA** and a **vertical-retrace interrupt** (VC2 VINTR → IOC2) — the feasibility study
-   found IRIX depends on both (see above); neither exists in Henry today.
-
-The big-ticket item is step 3: REX3 is where essentially all the drawing complexity lives, because
-Newport deliberately pushes geometry and Z onto the host and keeps everything downstream as
-fixed-function scanout.
+1. The probe: a readable REX3 window → `hinv` reports "Graphics board: Indy 8-bit" (or 24-bit).
+2. The REX3 register file, the DCB devices (VC2, XMAP9, CMAP, RAMDAC) with correct readback, and
+   the drawing command set (spans, lines, blocks, host data). This comes from MAME's model.
+   Two bugs that MAME has, CID match in `CLIPMODE` and per-plane write masks, showed up only once
+   a real desktop ran (see [Newport on henry](../newport-on-henry.md#two-model-bugs-found-on-silicon)).
+3. Scanout is not rebuilt as chips: the ARM reads the framebuffer directly and applies the
+   CMAP/XMAP9 mode state.
+4. MC VDMA and the retrace interrupt.
 
 ## Sources
 
@@ -147,7 +125,7 @@ fixed-function scanout.
 - Linux `arch/mips/sgi-ip22/ip22-gio.c` (v6.12) — `ip22_check_gio()`: HQ2 `MYSTERY` / Newport `USTATUS`
   probe offsets.
 - MAME `src/devices/bus/gio64/newport.cpp` — REX3 window `0xf0000–0xf1fff` within the slot.
-- Henry RTL (implementation status): `rtl/henry_soc.sv` (device decode, `buserr(3'd0)`, Local1 sources
-  tied 0), `ip_hdl/axi_is_the_worst_v1_0_M00_AXI.v` (SGI-mode `0x1f…` → DRAM remap).
+- Henry RTL: `rtl/gio_window.sv` (the ARM-served window), `rtl/dma_engine.sv` (VDMA channel),
+  `rtl/mc.sv` (DMA TLB/CTL registers), `rtl/henry_soc.sv` (decode, INT3 wiring).
 - `NEWPORT_FEASIBILITY.md` (repo root, 2026-10-02 study; not published) — IRIX access-stream
   measurements and the ARM/hybrid/PL comparison.

@@ -1,10 +1,18 @@
 # Bus errors: detected at the MC, returned with the response
 
-Status: DESIGN (2026-10-16). Today a CPU access that nothing answers returns whatever
-the fold sends back (DRAM-shadow zeros for empty GIO space), so the OS's probes
-(Linux `get_dbe()`, IRIX `badaddr`) never see a fault. `DATA_BUS_ERROR` /
-`INSN_BUS_ERROR` exist in r9999's `machine.vh` but nothing raises them, and the
-L2 ignores `mem_rsp_bad`.
+Status: **S1 IMPLEMENTED** (2026-10-16/17). Uncached loads and stores to empty GIO space
+fault as on IP22:
+
+- henry `rtl/mc.sv` decides "empty" and latches `GIO_ERROR_ADDR/STAT`; the MC bus-error line
+  is INT3 `buserr[1]`.
+- r9999 `c83cd5f`: the L1D forwards `mem_rsp_bad` on uncached-load responses, and the core
+  raises a precise data bus error (cause 7) at retirement.
+- The `henry_arcs` shim sets `CPUCTRL1.ABORT_EN` (r9999 `91129f9`).
+- Bare-metal test: henry `tests/buserr`.
+
+S2 (cached accesses to non-existent memory) and S3 (instruction bus errors) are not done.
+Before this, a CPU access that nothing answered returned DRAM-shadow data, so the OS's probes
+(Linux `get_dbe()`, IRIX `badaddr`) never saw a fault. The design below is what was built.
 
 ## Architecture (IP22 MC chip spec §5.14–5.17; MIPS R4000)
 
@@ -52,7 +60,7 @@ load-issue path: it rides the slow response paths.
 
 ## Stages
 
-- **S1 (this):** uncached loads/stores to empty GIO space. Enough for Linux's
+- **S1 (done):** uncached loads/stores to empty GIO space. Enough for Linux's
   Newport probe and IRIX's GIO probes.
 - **S2:** cached accesses to addresses with no memory bank (`CPU_ERROR_STAT.ADDR`):
   the L2 and L1D must not install the line; the requester gets DBE.

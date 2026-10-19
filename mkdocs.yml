@@ -53,6 +53,8 @@ nav:
   - Firmware (ARCS shim): firmware-arcs.md
   - Boot & console: boot-and-console.md
   - Cache, coherence & TLB: coherence-cache-tlb.md
+  - ARM ↔ device protocol (staging rings): arm-device-protocol.md
+  - Bus errors: bus-errors.md
   - FPU (COP1): fpu-cop1.md
   - Peripherals:
       - MC (memory controller): peripherals/mc.md
@@ -64,6 +66,7 @@ nav:
       - VDMA (virtual DMA): peripherals/vdma.md
       - DMUX (data mux): peripherals/dmux1.md
   - Graphics:
+      - Newport on henry (working, screenshots): newport-on-henry.md
       - Newport overview: graphics/index.md
       - REX3 (raster engine): graphics/rex3.md
       - VC2 (video timing/cursor): graphics/vc2.md

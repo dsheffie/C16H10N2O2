@@ -1,6 +1,6 @@
 ---
 title: How IRIX drives Newport (Xsgi, ng1 driver, GL)
-status: reference (static reverse engineering of IRIX 6.5.22; nothing run on henry)
+status: reference (static reverse engineering of IRIX 6.5.22) + what henry observed on silicon (section 7)
 ---
 # How IRIX drives Newport: Xsgi, the `ng1` kernel driver, and GL
 
@@ -9,8 +9,9 @@ status: reference (static reverse engineering of IRIX 6.5.22; nothing run on hen
 > engineering of the shipped binaries. It is what a henry graphics path (or a QEMU/ISS model) has to satisfy.
 > The henry design study that uses these numbers is `NEWPORT_FEASIBILITY.md` at the repo root.
 >
-> **Nothing here was run on henry.** Facts marked *(inferred)* were not confirmed against a branch target or
-> a running system.
+> Sections 1–6 come from static analysis; facts marked *(inferred)* were not confirmed against a running
+> system. **Section 7** records what IRIX actually did once henry ran it on silicon
+> ([Newport on henry](../newport-on-henry.md)).
 
 ## Sources
 
@@ -346,3 +347,26 @@ MAME's `perform_dma` is a working reference (about 100 lines).
 
 The measured access rates (QEMU, icount-stamped) and the ARM-hybrid recommendation are in
 `NEWPORT_FEASIBILITY.md` and the project memory note on Newport feasibility.
+
+## 7. What henry observed on silicon (2026-10-17/18)
+
+Running IRIX 6.5 to the 4Dwm desktop on henry's ARM-served Newport confirmed the table above and added
+these points:
+
+- **MC graphics DMA is not used before xdm.** There were 0 transfers up to the login screen and 7
+  non-fill transfers right after login, all mode `0x50` (memory → GIO, upward). Image puts (wallpaper tiles,
+  login icons, Doom's frames) all take this path. With the DMA missing, the wallpaper was noise.
+- **The DMA TLB's PTE-page field is `TLB_LO[25:6]`.** IRIX's page tables sit above PA `0x10000000` (seen:
+  `lo = 0x005bf642`), so MAME's `0x003fffc0` mask sent every page to PA 0 ([VDMA](../peripherals/vdma.md)).
+- **Xsgi waits for each DMA.** No CPU store to REX3 landed between a transfer's start and end, so the
+  "busy during host-data DMA" ordering never came into play.
+- **Window composition depends on CID match.** Xsgi tags the root window's visible region with clip ID 1 in
+  the auxiliary planes and draws full-screen wallpapers (e.g. *Twilight*) with `CLIPMODE` CID match 2. A model
+  without the CID test paints the wallpaper over every window.
+- **Pop-up-plane writes rely on per-plane write masks.** Xsgi uses `WRMASK 0xffffff` while drawing in the pop-up
+  planes (planes = 5); the value replicates across byte lanes and must be masked to the PUP bits or it lands in
+  the overlay byte (a black bar in the Background panel).
+- **GFXBUSY during DMA:** reporting busy faithfully while a DMA runs correlated with IRIX bus-error panics on
+  henry; runs without it (`NP_NO_GFXBUSY=1`) are stable. Root cause open.
+- **XL24 timing comes from the `monitor` variable.** A 24-bit board (CMAP board revision 0) takes its
+  timing from the ARCS `monitor` environment variable; without `monitor=h`, IRIX picks 1024×768.

@@ -1,23 +1,23 @@
 ---
 title: GIO64 — expansion/graphics bus
-status: draft (MAME-validated; henry RTL status audited 2026-10-04 against main @209e6f6)
-source: SGI GIO bus spec (gio64.pdf); MAME golden reference; henry rtl/henry_soc.sv, rtl/mc.sv, ip_hdl/axi_is_the_worst_v1_0_M00_AXI.v
+status: draft (MAME-validated; henry RTL status audited 2026-10-18 against branch dma-engine)
+source: SGI GIO bus spec (gio64.pdf); MAME golden reference; henry rtl/henry_soc.sv, rtl/mc.sv, rtl/gio_window.sv
 ---
 
 # GIO64 — Expansion / Graphics Bus (Henry block spec)
 
-> Intro: GIO64 = 0x1f000000–0x1fffffff, sixteen 4 MB slots (graphics = slot 0). For a HEADLESS Henry the key
-> behavior is the device-probe: IRIX reads a Product-ID word at each slot base; an empty slot bus-errors.
-> The original plan was for Henry to bus-error ALL GIO accesses ("no devices"). **That is not what henry does
-> today**; see [What henry actually does](#what-henry-actually-does-current-rtl). Legend ✅/⚠️.
+> Intro: GIO64 = 0x1f000000–0x1fffffff, sixteen 4 MB slots (graphics = slot 0). The key behavior is the
+> device probe: IRIX reads at each slot base, and an empty slot bus-errors. **Henry today:** slot 0 holds an
+> ARM-served Newport (REX3 window `0x1f0f0000–0x1f0f1fff`), and the rest of GIO space is empty and bus-errors;
+> see [What henry actually does](#what-henry-actually-does-current-rtl). Legend ✅/⚠️.
 
-## Role in Henry (and the headless simplification)
+## Role in Henry (and the original headless simplification)
 
 GIO64 is SGI's synchronous, multiplexed address-data expansion bus (64-bit AD, ≤40 MHz) used for graphics
 (Newport / Express), the HPC3 I/O bridge, and option cards. On real IP22 the bus has masters (graphics DMA,
 HPC3 SCSI/enet) and slaves; arbitration, pipelined transfers, parity, ROM, and INT routing all matter.
 
-Henry is **headless** — no framebuffer, no option cards. The bus protocol (the AD-cycle handshake, MASDLY /
+Henry was originally planned **headless** — no framebuffer, no option cards (it now has an ARM-served Newport in slot 0; see below). The bus protocol (the AD-cycle handshake, MASDLY /
 SLVDLY / GRXDLY / MEMDLY flow control, tristate turnover, parity) is **not implemented**. What Henry must do is
 satisfy IRIX's **boot-time device probe** so the kernel cleanly concludes "no GIO devices present" and moves on.
 
@@ -34,25 +34,26 @@ arbiter never actually runs.
 
 ## What henry actually does (current RTL)
 
-**henry has no GIO decode and never generates a bus error.**
+**Slot 0 has a graphics board; the rest of GIO space is empty and bus-errors (2026-10-17 onward).**
 
-- **On-chip devices.** The only on-chip device windows in `0x1f000000–0x1fffffff` are MC (`0x1fa00000–0x1fafffff`),
-  HPC3 (`0x1fb80000–0x1fbfffff`) and the IOC2 carve-out (`henry_soc.sv:255-257`). Device responses always have
-  `rsp_bad = 0`.
-- **Everything else is passed through.** That covers the graphics slot, the expansion slots, the reserved
-  `0x1f800000` range and the PROM at `0x1fc00000`. These go **unchanged to the external memory bus**, exactly
-  like DRAM.
-- **On the FPGA**, the AXI master folds `0x1f000000–0x1fffffff` to the DRAM shadow `0x10000000 | pa[23:0]`
-  (`ip_hdl/axi_is_the_worst_v1_0_M00_AXI.v:375-383`). A GIO probe therefore **reads whatever is in that shadow
-  DRAM**, and writes land there.
-- **No bus errors from memory either.** An out-of-range address (above `addrmask`) returns the poison pattern
-  `0xA5A5…`, not a bus error. The r9999 L2 does not consume `mem_rsp_bad`, so no DBE/IBE is raised.
-- **In simulation**, `henry_tb` serves these addresses from its memory model.
+- **The REX3 window** `0x1f0f0000–0x1f0f1fff` goes to `rtl/gio_window.sv`, an ARM-served window: stores become
+  records in a staging-region ring, loads are held until the ARM's Newport model answers. IRIX probes the board
+  and `hinv` reports an Indy graphics board. The IOC2 8042 (`0x1fbd9843/7`) is served the same way. See
+  [Newport on henry](../newport-on-henry.md).
+- **Empty GIO** = `[0x1f000000, 0x1fa00000)` minus the REX3 window, plus HPC3 chip 1 `[0x1fb00000, 0x1fb80000)`
+  (`w_is_gio_empty` in `henry_soc.sv`). With `CPUCTRL1.ABORT_EN` set (the ARCS shim sets it, as SGI's PROM does)
+  a load completes with an error: the MC latches `GIO_ERROR_ADDR/STAT`, and r9999 takes a precise data bus error
+  (cause 7). A store is absorbed and raises the MC bus-error interrupt. Without `ABORT_EN`, a load returns 0. See
+  [Bus errors](../bus-errors.md).
+- **On-chip devices:** MC (`0x1fa00000–0x1fafffff`), HPC3 (`0x1fb80000–0x1fbfffff`) and the IOC2 carve-out.
+- **The boot PROM** at `0x1fc00000` still goes to the external memory bus, where the AXI master folds it into a
+  DRAM shadow that holds the ARCS image.
+- **GIO masters:** the MC's VDMA (memory → GIO) is implemented as a channel of henry's DMA engine and delivers its
+  data into the same `gio_window` ring ([VDMA](vdma.md)). There is no GIO64 bus protocol in the RTL.
+- **Interrupts:** Newport's vertical retrace is an ARM-driven INT3 Local1 bit 7; the 8042 uses mappable bit 4.
 
-So the "empty slot ⇒ bus-error ⇒ no device" contract described below is **not** what IRIX sees on henry. IRIX
-sees an ordinary memory read of the shadow. IRIX and Linux do boot headless on henry (serial console) with
-this behaviour. That a probe of the shadow is *harmless* is not guaranteed: it depends on what is in the
-shadow DRAM at the probed offsets. A real bus-error responder for the GIO apertures would make it robust.
+Before 2026-10-16 none of this existed: every non-MC/HPC3/IOC2 address in `0x1f000000–0x1fffffff` fell through to
+DRAM, so a probe read whatever was in the shadow, and nothing raised a bus error.
 
 ## Address map / slot decoding
 
@@ -142,7 +143,7 @@ class/timing knobs at init). On Henry there are **no other masters**, so arbitra
 only needs `GIO64_ARB` to behave as **R/W storage** (PROM writes, reads back the same value). ✅ (henry: the
 write is stored but a read returns 0. Nothing in the boot path has needed the read-back.)
 
-## Minimum for a Henry IRIX boot (original plan — not what henry implements; see above)
+## Minimum for a Henry IRIX boot (original headless plan)
 
 1. **Decode** the range `0x1f000000–0x1fffffff` (all 16 slots + reserved holes). → verify: address hits Henry's GIO block.
 2. **Bus-error every access** to it (populated graphics slot included → "all slots empty"). → verify: IRIX probe finds no GIO device in any slot and skips graphics/expansion. ✅
@@ -154,13 +155,13 @@ deferred until a real GIO device is added (see Open).
 
 ## Golden vectors
 
-| # | Access                                  | Planned response | henry today (FPGA) | Why (plan)                     |
+| # | Access                                  | Planned response | henry today (FPGA, `ABORT_EN` set) | Why (plan)                     |
 |---|-----------------------------------------|------------------|--------------------|--------------------------------|
-| 1 | word read @ 0x1f000000 (gfx slot base)  | **bus-error** (DBE) | DRAM shadow `0x10000000` contents | empty-slot probe → "no graphics" |
-| 2 | word read @ 0x1f400000 (exp0 base)      | **bus-error**    | DRAM shadow `0x10400000` | "no expansion 0"               |
-| 3 | word read @ 0x1f600000 (exp1 base)      | **bus-error**    | DRAM shadow `0x10600000` | "no expansion 1"               |
+| 1 | word read @ 0x1f000000 (gfx slot base)  | **bus-error** (DBE) | **bus-error** (DBE); the REX3 window at `+0xf0000` answers | empty-slot probe → "no graphics" |
+| 2 | word read @ 0x1f400000 (exp0 base)      | **bus-error**    | **bus-error** (DBE) | "no expansion 0"               |
+| 3 | word read @ 0x1f600000 (exp1 base)      | **bus-error**    | **bus-error** (DBE) | "no expansion 1"               |
 | 4 | word read @ 0x1fc00000                  | **bus-error**    | the PROM/ARCS image in the shadow (`0x10c00000`) | ⚠️ `0x1fc00000` is the **boot PROM**, not an unwired GIO slot; it never bus-errors on any IP22 |
-| 5 | any write into a GIO aperture           | **bus-error**    | lands in the DRAM shadow | no slave to accept             |
+| 5 | any write into an empty GIO aperture    | **bus-error**    | absorbed; MC bus-error interrupt | no slave to accept             |
 | 6 | MC `GIO64_ARB` write V then read        | returns **V**    | returns **0**      | R/W storage, no side effect    |
 
 ## Open / not-yet-needed

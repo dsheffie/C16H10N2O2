@@ -1,15 +1,16 @@
 ---
 title: VDMA — Virtual DMA (graphics/GIO master)
-status: draft / future-work (MAME-reference)
-source: SGI IP22 Virtual DMA spec (vdma.pdf); henry status audited 2026-10-04 against main @209e6f6 (rtl/mc.sv)
+status: implemented for memory -> GIO (dma_engine CH_V), 2026-10-18
+source: SGI IP22 Virtual DMA spec (vdma.pdf); henry status audited 2026-10-18 against branch dma-engine (rtl/mc.sv, rtl/dma_engine.sv)
 ---
 
 # VDMA — Virtual DMA (Henry block spec)
 
 > Intro: VDMA = the MC's GIO/graphics DMA master that DMAs directly from USER VIRTUAL addresses, walking the
 > CPU's page tables via its OWN 4-entry PTEBase µTLB (separate from the 48-entry JTLB but R4000-PTE-compatible).
-> NOT needed for headless boot; NOT the SCSI/enet path (that's HPC3). Non-coherent on uniprocessor R4000 ->
-> reinforces Henry's mandatory cache ops. Legend ✅ = confirmed against spec/MAME, ⚠️ = subtle / easy-to-miss.
+> NOT needed for headless boot; NOT the SCSI/enet path (that's HPC3). On henry it IS needed for the Newport desktop:
+> IRIX's X server sends every image (wallpaper, icons, application blits) memory -> GIO through it.
+> Legend ✅ = confirmed against spec/MAME, ⚠️ = subtle / easy-to-miss.
 
 The "FastForward" project DMA engine that lives **inside the MC** (Memory Controller). Its job: move
 variable-sized blocks between **user-space main memory** and the **graphics/GIO subsystem**, with the block
@@ -17,22 +18,31 @@ described by *user virtual addresses* that the engine translates on the fly. Opt
 library `v3f()` call (ship a 3-float / 12-byte vertex to the pipe). Authored by Karim Abdalla & James Tornes,
 Draft 1.5 (1992).
 
-## Role in Henry  (future-work; graphics-only; uniprocessor = no snoop)
-- ⚠️ **Not boot-critical, and not implemented.** Henry boots headless with no graphics card, so nothing ever
-  programs the VDMA descriptor registers.
-  - **Registers.** In henry's `rtl/mc.sv` the whole VDMA register set is unimplemented: `0x150–0x1b8`
-    (mask/subst, cause/ctl, µTLB) and `0x2000+` (descriptor/run). It reads 0 and writes are ignored. A
-    `GIO_RUN` poll therefore reads "not running".
-  - **GIO probes.** These do not bus-error in henry; they read a DRAM shadow (see [GIO64](gio64.md)).
-  - **Boot.** IRIX boots regardless. This doc exists because the block is architecturally interesting (a DMA engine
-  with its own page-table walker) and because it *confirms* Henry's cache-coherence contract.
+## Role in Henry  (implemented for memory → GIO; graphics-only)
+- ✅ **Implemented (2026-10-17) for what IRIX uses: mode `0x50`, memory → GIO, upward.** IRIX makes no
+  VDMA transfers before the xdm login; after login, Xsgi uses it for every image put (wallpaper tiles, icons,
+  Doom's frames). Measured with the usage counters at AXI-Lite `0x22`/`0x23`.
+  - **Engine.** Channel `CH_V` (3) of `rtl/dma_engine.sv`, the DMA engine shared with SCSI and ENET. It runs the
+    linecount/zoomcount/bytecount loop with `stride`/`DMA_COUNT` semantics copied from indysim's `dma_perform`.
+    Each 8-byte group becomes a `VDMA STORE` record in the Newport `gio_window` ring, bracketed by BEGIN/END
+    markers ([Newport on henry](../newport-on-henry.md#mc-vdma-memory-gio)).
+  - **Registers** (`rtl/mc.sv`): the DMA TLB `0x180–0x1bc`, `DMA_CTL`/`DMA_CAUSE`/`DMA_COUNT`, the descriptor
+    registers, and the final `MEMADR` written back at completion. `DMA_CTL` bit 4 enables the completion
+    interrupt on INT3 `local0` bit 4.
+  - **Not modeled:** GIO → memory, fill mode and the `0x2070` start alias complete at once without moving data;
+    the µTLB/PTE fault causes are not raised.
+  - **Validation:** `sim/vdma_test` (RTL against indysim's `dma_perform`, 3000 random transfers × 6 seeds) and
+    `tests/vdma` under `henry_tb` (39/39 doublewords, IRQ/CAUSE/MEMADR).
+- ⚠️ **The PTE-page field is `TLB_LO[25:6]`, like a PTE's PFN.** MAME masks the entry with `0x003fffc0`, dropping
+  `lo[25:22]`. That works only while the page tables sit below PA `0x10000000`. IRIX's sit higher (seen:
+  `lo = 0x005bf642` → PTE page `0x16fd9000`; MAME read `0x06fd9000`, all zeros, so every page went to PA 0 and
+  the wallpaper was garbage). Henry and indysim use `[25:6]`.
 - ✅ **Distinct from HPC3.** VDMA is the **graphics/GIO** master and the only DMA path that touches *virtual*
   addresses + page tables. The real SCSI / Ethernet / PBUS DMA (the boot-critical I/O) is **HPC3**, which is
   pure-physical scatter-gather — see `hpc3`. Don't conflate them.
 - ⚠️ **Henry is uniprocessor R4000.** Cache snooping in VDMA is an **R4000MP-only** feature (the large package).
-  r9999 / Henry have no working DMA snoop: the DMA→L2 snoop FIFO in `henry_soc.sv` is opt-in
-  (`ENABLE_DMA_SNOOP`), and the core ties its snoop input off. Any DMA engine is therefore **non-coherent**,
-  and software cache ops are load-bearing (see Cache coherence below).
+  Henry's DMA engine does its memory reads through its own coherent snoop shim instead, so VDMA needs no
+  cache flush from IRIX or the ARM.
 
 ## Address translation — the PTEBase µTLB + hardware page-table walker
 The novel feature: the engine translates user virtual addresses *itself*, page-by-page, so the OS no longer has
@@ -83,7 +93,7 @@ flowchart TD
   then re-asserts `GIO_STDMA.Start` to continue.
 
 ## Cache coherence  (non-coherent on uniprocessor; snoop = R4000MP-only)
-⚠️ **This is the load-bearing part for Henry, even though VDMA itself is future-work.** The spec lays out two
+⚠️ **This is the load-bearing part of the spec.** The spec lays out two
 coherence options and explicitly scopes one of them out for the uniprocessor:
 - **Snoop** (the engine watches the CPU's cache) — `GIO_MODE.Snoop` (MODE[5]) requests it, but it exists
   **only on R4000MP**. Henry / r9999 is uniprocessor R4000: there is **no snoop hardware**.
@@ -97,11 +107,9 @@ coherence options and explicitly scopes one of them out for the uniprocessor:
     dirty lines are flushed to DRAM and the engine reads current data.
 - This is the *same* coherence story as HPC3 (which has zero coherence hardware) — see the cache/coherence notes
   in `hpc3` and the chip-registers digest.
-- ⚠️ **Henry caveat.** On henry, guest L1 cache ops alone are **not** sufficient. r9999 has an L2 that IRIX
-  cannot see (`Config.SC` = no secondary cache), so IRIX never maintains it. henry's existing DMA paths
-  (SCSI/ENET) rely on ARM-requested L1D+L2 flushes / page-list flushes around host deposits (see
-  [HPC3 cache coherence](hpc3.md#cache-coherence-none-in-hardware-the-mandatory-software-contract)). A future
-  VDMA engine would need the same treatment.
+- ⚠️ **Henry caveat.** On henry, guest L1 cache ops alone are **not** sufficient: r9999 has an L2 that IRIX
+  cannot see (`Config.SC` = no secondary cache), so IRIX never maintains it. Henry's VDMA channel avoids the
+  problem by reading memory through the DMA engine's coherent snoop shim.
 
 ## Descriptor register set  (a register set, not an in-memory linked list)
 ⚠️ Unlike HPC3's in-memory descriptor chain, a VDMA "descriptor" *is* the set of MC registers below. Once a DMA
@@ -150,19 +158,15 @@ linecount→zoomcount→bytecount walk with `stride`/`linewidth` address arithme
   CPU services it (load a µTLB entry, page in, set dirty) and **re-asserts `GIO_STDMA.Start`** to resume from
   exactly where it stopped. Context switch = read out all descriptor regs, restore later.
 
-## Henry implications / future model  (what Henry would add to model VDMA)
-If/when Henry grows a graphics device and someone wants VDMA:
-1. **GIO-DMA state machine in the MC** running the nested linecount/zoomcount/bytecount blitter loop over
-   `GIO_MEMADR`/`GIO_SIZE`/`GIO_STRIDE`/`GIO_MODE`, sourcing/sinking on the GIO64 bus as a long-burst master.
-2. **4-entry PTEBase µTLB (CAM) + hardware page-table walker**, gated by `GIO_CTL.Xlate`. ✅ **Reuse the r9999
-   core's existing R4000 PTE/EntryLo decode** — GIO_TLBLO is deliberately EntryLo-compatible — rather than a
-   second decoder. Software loads/invalidates the µTLB; HW only reads it.
-3. **Restartable fault path**: latch the four causes into `GIO_CAUSE`/`GIO_RUN`, stop at a save-able boundary,
-   resume on `GIO_STDMA.Start`. All descriptor state lives in the (already context-switchable) registers.
-4. **Non-snooping**: model the engine as **direct-to-DRAM** and rely on the L1d cache ops (`Hit-Invalidate-D`
-   after DMA-in, `Hit-WB-Invalidate-D` before DMA-out). Those are uniprocessor-correct on a real Indy, but on
-   henry they must be paired with something that covers the IRIX-invisible L2. That could be an ARM/HW flush
-   like the HPC3 paths use, or a working L2 snoop.
+## Henry implementation notes
+What henry built, against the list a VDMA model needs:
+1. **The blitter loop** over `GIO_MEMADR`/`GIO_SIZE`/`GIO_STRIDE`/`GIO_MODE`: in `dma_engine` channel `CH_V`.
+   It sinks to the ARM-served Newport through the `gio_window` ring, not a GIO64 bus.
+2. **TLB + page-table walk:** 4 software-loaded entries (4 MB each) and a leaf PTE load per page, with the last
+   page cached; the PTE page comes from `TLB_LO[25:6]` (see above).
+3. **Faults:** not modeled. IRIX's transfers have not faulted so far.
+4. **Coherence:** the engine's reads go through the coherent snoop shim, which covers the IRIX-invisible L2,
+   so no cache flushes are needed.
 
 This block reinforces (does not introduce) the IP22 coherence rule: the cache-op discipline that makes HPC3
 correct is the *same* discipline VDMA's spec mandates, and the spec says so explicitly for the uniprocessor.
