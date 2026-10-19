@@ -854,6 +854,11 @@ static void tb_gio_doorbell(void *ctx, uint32_t reg, uint32_t v) {
     }
 }
 static void tb_np_write(void *ctx, uint32_t off, uint64_t v, uint32_t sz) {
+  /* GIOLOG=1: every write that reaches the Newport (tests/vdma/check.py reads these) */
+  static const bool g_giolog = getenv("GIOLOG") != nullptr;
+  if(g_giolog) {
+    fprintf(stderr, "[giow] %04x %016llx %u\n", off, (unsigned long long)v, sz);
+  }
   static_cast<sgi_newport*>(ctx)->write(off, v, sz);
 }
 static uint64_t tb_np_read(void *ctx, uint32_t off, uint32_t sz) {
@@ -2019,8 +2024,9 @@ int main(int argc, char **argv) {
     phost.irq = [](void *, bool level) { gio_set_irq(&g_gio, GIO_IRQ_KBD, level ? GIO_IRQ_KBD : 0); };
     phost.ppm = [](void *, const char *path) { g_np->dump_ppm(path); };
     g_ps2 = new sgi_ps2(phost);
-    gio_dev_t dev = { g_np, tb_np_write, tb_np_read };
-    gio_dev_t dev2 = { g_ps2, tb_ps2_write, tb_ps2_read };
+    gio_dev_t dev = { g_np, tb_np_write, tb_np_read,
+                      [](void *ctx, bool on) { static_cast<sgi_newport*>(ctx)->set_in_dma(on); } };
+    gio_dev_t dev2 = { g_ps2, tb_ps2_write, tb_ps2_read, nullptr };
     io.doorbell = tb_gio_doorbell;
     gio_init(&g_gio, io, dev, dev2);
   }
@@ -3317,6 +3323,9 @@ int main(int argc, char **argv) {
                 rd32(i*16), rd32(i*16+4), rd32(i*16+8), (i == first) ? "  <<< first mismatch" : "");
   }
 
+  fprintf(stderr, "[gio] VDMA: %llu transfers, %llu doublewords; %llu CPU stores held past a transfer, %llu overflowed\n",
+          (unsigned long long)g_gio.dma_xfers, (unsigned long long)g_gio.dma_stores,
+          (unsigned long long)g_gio.held_stores, (unsigned long long)g_gio.held_overflow);
   fprintf(stderr, "[gio] %llu stores, %llu reads, %llu split, %llu bad recno; cons %u prod %u pend %u\n",
           (unsigned long long)g_gio.stores, (unsigned long long)g_gio.reads, (unsigned long long)g_gio.split,
           (unsigned long long)g_gio.bad_recno, g_gio.cons, (uint32_t)tb->gio_prod, (uint32_t)tb->gio_pend);
