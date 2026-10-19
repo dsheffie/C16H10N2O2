@@ -1,8 +1,8 @@
 `include "machine.vh"
 // -----------------------------------------------------------------------------
-// dma_engine.sv -- henry's DMA engine: three channels (SCSI, ENET TX, ENET RX) on one
-// memory port and one shared byte mover.  Replaces scsi_dma + scsi_stage and
-// enet_ring_dma (docs/arm-device-protocol.md); the MC VDMA is to follow.
+// dma_engine.sv -- henry's DMA engine: four channels (SCSI, ENET TX, ENET RX, MC VDMA)
+// on one memory port and one shared byte mover.  Replaces scsi_dma + scsi_stage and
+// enet_ring_dma (docs/arm-device-protocol.md); VDMA is the MC's memory -> GIO transfer.
 //
 // The mover.  The staging side of every transfer is 16 B aligned; only the guest
 // side has a byte offset.  So every move is one 128-bit byte ROTATE plus lane masks,
@@ -82,6 +82,21 @@ module dma_engine
    output logic                  rx_dropped,   // 1-cycle: ring full (ROWN=0), frame dropped
    output logic [31:0]           rx_crbdp,     // descriptor just filled
    output logic [31:0]           rx_next_nbdp, // ring position after this frame
+   // ---- VDMA channel (mc): MC "virtual DMA", memory -> GIO ----
+   input  logic                  v_go,         // 1-cycle: start with the values below
+   input  logic [31:0]           v_memadr,     // first byte (virtual: through the DMA TLB)
+   input  logic [31:0]           v_size,       // {lines, width}
+   input  logic [31:0]           v_stride,     // {line zoom[25:16], signed stride[15:0]}
+   input  logic [31:0]           v_count,      // {first line's zoom[25:16], its bytes[15:0]}
+   input  logic [31:0]           v_gio,        // GIO address every doubleword is stored to
+   input  logic [3:0][31:0]      v_tlb_hi,     // DMA TLB: VA[31:22] of each 4 MB region
+   input  logic [3:0][31:0]      v_tlb_lo,     // DMA TLB: [25:6] = PA[31:12] of its PTE page
+   output logic                  v_done,       // 1-cycle: the transfer is complete
+   output logic [31:0]           v_memadr_end, // DMA_MEMADR after the transfer
+   output logic                  v_rec_valid,  // a doubleword for the GIO window
+   output logic [63:0]           v_rec_lanes,  // lane i = the byte at GIO address + i
+   output logic [31:0]           v_rec_addr,
+   input  logic                  v_rec_ready,
    // ---- memory port (the DMA snoop shim) ----
    output logic                  dn_req_valid,
    output logic [`PA_WIDTH-1:0]  dn_req_addr,
@@ -117,6 +132,7 @@ module dma_engine
    localparam logic [1:0] CH_S = 2'd0;    // SCSI
    localparam logic [1:0] CH_T = 2'd1;    // ENET TX
    localparam logic [1:0] CH_R = 2'd2;    // ENET RX
+   localparam logic [1:0] CH_V = 2'd3;    // MC VDMA
 
    // ---------------- the mover ----------------
    /* lane i of d moves to lane (i + n) mod 16 */
@@ -161,8 +177,8 @@ module dma_engine
    logic [1:0]    r_last, n_last;            // last grant, for round robin
    logic [1:0]    t_grant, t_own;
    logic          t_any;
-   logic [2:0]    t_valid;                   // per channel: a request is presented
-   logic [2:0]    t_rsp;                     // per channel: its response is here
+   logic [3:0]    t_valid;                   // per channel: a request is presented
+   logic [3:0]    t_rsp;                     // per channel: its response is here
    logic [127:0]  t_rot_in, t_rot;
    logic [3:0]    t_rot_n;
 
@@ -227,6 +243,37 @@ module dma_engine
    logic [127:0]  t_s_rot_in;
    logic [3:0]    t_s_rot_n;
    logic          t_s_quiet, t_s_cancel;
+   logic [31:0]   t_s_nbp;                   /* READ: bp after this line's store */
+   logic [13:0]   t_s_ncnt;
+   logic [4:0]    t_s_nh;
+   logic          t_s_nbeat_v;
+
+   /* READ: the state for the next line, decided from the values after an access, so
+    * a line that can go straight to its fetch or store does not spend a cycle in
+    * S_R_NEED (the old scsi_stage's read-ahead hid that cycle).  S_R_NEED remains for
+    * waiting on the ARM (rd_stalled), the starved post and a cancel. */
+   function automatic sstate_t s_rd_next(input logic [3:0] off, input logic [13:0] cnt,
+					 input logic [4:0] h, input logic beat_v, input logic fetch_ok,
+					 input logic cancel_pending);
+      logic [4:0] take;
+      take = line_take(off, cnt);
+      if(cancel_pending)
+	begin
+	   s_rd_next = S_R_NEED;
+	end
+      else if((take <= (5'd16 - h)) || beat_v)
+	begin
+	   s_rd_next = S_R_STORE;
+	end
+      else if(fetch_ok)
+	begin
+	   s_rd_next = S_R_FETCH;
+	end
+      else
+	begin
+	   s_rd_next = S_R_NEED;
+	end
+   endfunction
 
    // ---------------- ENET TX channel ----------------
    typedef enum logic [3:0] {
@@ -318,6 +365,55 @@ module dma_engine
    wire  [31:0]   w_rx_slot = STG_RXS + {13'd0, r_r_cons[7:0], 11'd0};
    wire  [31:0]   w_rx_wb   = (r_r_bc & ~BC_ROWN & ~BC_COUNT) | ({18'd0, r_r_res} & BC_COUNT);
 
+   // ---------------- VDMA channel ----------------
+   /* The MC's memory -> GIO transfer (sgi_mc.cc dma_perform, after MAME): `lines`
+    * lines; each is sent `zoom` times (the first line takes its zoom and byte count
+    * from DMA_COUNT, the rest zoom from the stride register and width from the size
+    * register), then the signed stride is added.  A line goes out as doublewords of
+    * up to 8 bytes (lane i = the byte at the line position + i, a short tail zero
+    * filled), each one store of all 8 lanes to the GIO address.  Every byte address is
+    * virtual: a DMA TLB entry whose VA[31:22] matches names the page of PTEs, the PTE
+    * gives the page (a miss uses the address as physical, as indysim does).  Both the
+    * entry's PTE page and a PTE's page are bits [25:6] << 6 (MAME masks the entry with
+    * 0x003fffc0, which loses page tables above PA 0x10000000: IRIX's are there).  A 16 B
+    * line never crosses a 4 KB page, so one translation covers a whole line access;
+    * the last page's frame is kept.  Upward transfers only (the MC starts no other). */
+   typedef enum logic [2:0] {
+      V_IDLE  = 3'd0,
+      V_LINE  = 3'd1,    // next line, or done
+      V_ZOOM  = 3'd2,    // next copy of the line, or advance by the stride
+      V_GROUP = 3'd3,    // next doubleword of the line, or rewind for the next copy
+      V_XLATE = 3'd4,    // the current byte's page: kept frame, TLB miss, or PTE load
+      V_PTE   = 3'd5,    // load the PTE
+      V_LOAD  = 3'd6,    // load the line holding the current byte: gather
+      V_EMIT  = 3'd7     // hand the doubleword to the GIO window
+   } vstate_t;
+
+   vstate_t       r_v_state, n_v_state;
+   logic [31:0]   r_v_mem, n_v_mem;          // current byte (virtual)
+   logic [15:0]   r_v_lines, n_v_lines;      // lines not yet started
+   logic [9:0]    r_v_zoom, n_v_zoom;        // copies of this line still to send
+   logic [15:0]   r_v_bytes, n_v_bytes;      // bytes of this copy still to send
+   logic [15:0]   r_v_width, n_v_width;
+   logic [9:0]    r_v_lzoom, n_v_lzoom;
+   logic [15:0]   r_v_stride, n_v_stride;
+   logic [31:0]   r_v_gio, n_v_gio;
+   logic [3:0]    r_v_len, n_v_len;          // bytes in this doubleword (1..8)
+   logic [3:0]    r_v_gn, n_v_gn;            // bytes gathered so far
+   logic [63:0]   r_v_grp, n_v_grp;
+   logic          r_v_pv, n_v_pv;            // r_v_vpn -> r_v_pfn is valid
+   logic [19:0]   r_v_vpn, n_v_vpn;
+   logic [19:0]   r_v_pfn, n_v_pfn;
+   logic          r_v_done, n_v_done;
+   logic          v_req_valid;
+   logic [31:0]   v_req_addr;
+   logic [4:0]    t_v_room, t_v_take, t_v_gsum;
+   logic [3:0]    t_v_need;
+   logic          t_v_hit;
+   logic [19:0]   t_v_ptpage;                // the hit entry's PTE page: PA[31:12]
+   logic [31:0]   t_v_pte_pa, t_v_pte;
+   logic [127:0]  t_v_gmask;                 // lanes [gn, gn + take)
+
    // ======================================================================
    //  mover inputs per channel (registers only: no dependence on the port)
    // ======================================================================
@@ -350,6 +446,29 @@ module dma_engine
 	t_r_take      = line_take(t_r_off, r_r_cnt);
 	t_r_have      = 5'd16 - r_r_h;
 	t_r_need_beat = (t_r_take > t_r_have);
+	/* VDMA: gather; this line access takes min(16 - offset, bytes still wanted) */
+	t_v_room = 5'd16 - {1'b0, r_v_mem[3:0]};
+	t_v_need = r_v_len - r_v_gn;
+	t_v_take = ({1'b0, t_v_need} < t_v_room) ? {1'b0, t_v_need} : t_v_room;
+	t_v_gsum = {1'b0, r_v_gn} + t_v_take;
+	t_v_gmask = bytes_of(lanes({1'b0, r_v_gn}, t_v_gsum));
+	/* DMA TLB: the first entry whose VA[31:22] matches */
+	t_v_hit    = 1'b0;
+	t_v_ptpage = 20'd0;
+	for(int e = 3; e >= 0; e--)
+	  begin
+	     if(v_tlb_hi[e][31:22] == r_v_mem[31:22])
+	       begin
+		  t_v_hit    = 1'b1;
+		  t_v_ptpage = v_tlb_lo[e][25:6];
+	       end
+	  end
+	t_v_pte_pa = {t_v_ptpage, r_v_mem[21:12], 2'd0};
+	/* the PTE word of the loaded line (big-endian in DRAM) */
+	t_v_pte = bswap32((t_v_pte_pa[3:2] == 2'd3) ? dn_rsp_load_data[127:96] :
+			  (t_v_pte_pa[3:2] == 2'd2) ? dn_rsp_load_data[95:64] :
+			  (t_v_pte_pa[3:2] == 2'd1) ? dn_rsp_load_data[63:32] :
+			  dn_rsp_load_data[31:0]);
      end // always_comb
 
    /* SCSI: waiting for a staged beat that cannot be fetched, with nothing outstanding */
@@ -361,16 +480,16 @@ module dma_engine
    // ======================================================================
    always_comb
      begin
-	t_valid = {r_req_valid, t_req_valid, s_req_valid};
+	t_valid = {v_req_valid, r_req_valid, t_req_valid, s_req_valid};
 	t_any   = |t_valid;
 	/* round robin: the first requester after the last grant */
 	t_grant = r_last;
-	for(int i = 2; i >= 0; i--)
+	for(int i = 3; i >= 0; i--)
 	  begin
 	     /* lowest i wins: r_last + 1 first, r_last itself last */
-	     if(t_valid[(int'(r_last) + i + 1) % 3])
+	     if(t_valid[(int'(r_last) + i + 1) % 4])
 	       begin
-		  t_grant = 2'((int'(r_last) + i + 1) % 3);
+		  t_grant = 2'((int'(r_last) + i + 1) % 4);
 	       end
 	  end
 	t_own  = r_busy ? r_own : t_grant;
@@ -390,7 +509,7 @@ module dma_engine
 	     n_own  = t_grant;
 	     n_last = t_grant;
 	  end
-	t_rsp = {(t_own == CH_R), (t_own == CH_T), (t_own == CH_S)} & {3{dn_rsp_valid}};
+	t_rsp = {(t_own == CH_V), (t_own == CH_R), (t_own == CH_T), (t_own == CH_S)} & {4{dn_rsp_valid}};
 
 	/* the owner drives the rotator: scatter store data, or the gathered line */
 	case(t_own)
@@ -405,6 +524,11 @@ module dma_engine
 					   (r_r_beat & bytes_of(lanes(5'd0, r_r_h))))
 			                : r_r_hold;
 	       t_rot_n  = t_r_off - r_r_h[3:0];
+	    end
+	  CH_V:
+	    begin
+	       t_rot_in = dn_rsp_load_data;
+	       t_rot_n  = r_v_gn - r_v_mem[3:0];
 	    end
 	  default:
 	    begin
@@ -434,6 +558,14 @@ module dma_engine
 	       dn_req_opcode     = r_req_opcode;
 	       dn_req_store_data = r_req_data;
 	       dn_req_mask       = r_req_mask;
+	    end
+	  CH_V:
+	    begin
+	       dn_req_valid      = v_req_valid;
+	       dn_req_addr       = {{(`PA_WIDTH-32){1'b0}}, v_req_addr};
+	       dn_req_opcode     = 5'd4;
+	       dn_req_store_data = 128'd0;
+	       dn_req_mask       = 16'hffff;
 	    end
 	  default:
 	    begin
@@ -488,6 +620,10 @@ module dma_engine
 	n_s_h          = r_s_h;
 	n_s_wn         = r_s_wn;
 
+	t_s_nbp      = r_s_bp;
+	t_s_ncnt     = r_s_cnt;
+	t_s_nh       = r_s_h;
+	t_s_nbeat_v  = r_s_beat_v;
 	s_req_valid  = 1'b0;
 	s_req_addr   = r_s_nbdp;
 	s_req_opcode = 5'd4;
@@ -552,7 +688,10 @@ module dma_engine
 		    n_s_eox   = w_bc[31];
 		    n_s_xie   = w_bc[29];
 		    n_s_dp    = w_dp;
-		    n_s_state = (w_bc[13:0] == 14'd0) ? S_NEXT : (r_s_dir ? S_W_LOAD : S_R_NEED);
+		    n_s_state = (w_bc[13:0] == 14'd0) ? S_NEXT :
+				r_s_dir ? S_W_LOAD :
+				s_rd_next(w_bp[3:0], w_bc[13:0], r_s_h, r_s_beat_v,
+					  r_s_gen_ok && (r_s_fetch != r_s_avail), cancel || r_s_cancel);
 		 end
 	    end
 	  S_R_NEED:
@@ -607,22 +746,24 @@ module dma_engine
 	       s_req_opcode = 5'd7;
 	       s_req_data   = t_rot;
 	       s_req_mask   = lanes({1'b0, t_s_off}, {1'b0, t_s_off} + t_s_take);
+	       t_s_nbp     = r_s_bp + {27'd0, t_s_take};
+	       t_s_ncnt    = r_s_cnt - {9'd0, t_s_take};
+	       t_s_nh      = t_s_need_beat ? (r_s_h + t_s_take - 5'd16) : (r_s_h + t_s_take);
+	       t_s_nbeat_v = t_s_need_beat ? 1'b0 : r_s_beat_v;
 	       if(t_rsp[CH_S])
 		 begin
 		    if(t_s_need_beat)
 		      begin
-			 n_s_hold   = r_s_beat;       /* the rest of the new beat */
-			 n_s_h      = r_s_h + t_s_take - 5'd16;
-			 n_s_beat_v = 1'b0;
+			 n_s_hold = r_s_beat;         /* the rest of the new beat */
 		      end
-		    else
-		      begin
-			 n_s_h = r_s_h + t_s_take;
-		      end
-		    n_s_bp    = r_s_bp + {27'd0, t_s_take};
-		    n_s_cnt   = r_s_cnt - {9'd0, t_s_take};
-		    n_s_xfer  = r_s_xfer + {27'd0, t_s_take};
-		    n_s_state = (r_s_cnt == {9'd0, t_s_take}) ? S_NEXT : S_R_NEED;
+		    n_s_h      = t_s_nh;
+		    n_s_beat_v = t_s_nbeat_v;
+		    n_s_bp     = t_s_nbp;
+		    n_s_cnt    = t_s_ncnt;
+		    n_s_xfer   = r_s_xfer + {27'd0, t_s_take};
+		    n_s_state  = (t_s_ncnt == 14'd0) ? S_NEXT :
+				 s_rd_next(t_s_nbp[3:0], t_s_ncnt, t_s_nh, t_s_nbeat_v,
+					   r_s_gen_ok && (r_s_fetch != r_s_avail), cancel || r_s_cancel);
 		 end
 	    end
 	  S_W_LOAD:
@@ -1160,7 +1301,7 @@ module dma_engine
 	  begin
 	     r_busy         <= 1'b0;
 	     r_own          <= CH_S;
-	     r_last         <= CH_R;
+	     r_last         <= CH_V;
 	     r_s_state      <= S_IDLE;
 	     r_s_go         <= 1'b0;
 	     r_s_go_nbdp    <= 32'd0;
@@ -1321,6 +1462,205 @@ module dma_engine
 	     r_r_h          <= n_r_h;
 	  end
      end // always_ff
+
+   // ======================================================================
+   //  VDMA channel
+   // ======================================================================
+   always_comb
+     begin
+	n_v_state   = r_v_state;
+	n_v_mem     = r_v_mem;
+	n_v_lines   = r_v_lines;
+	n_v_zoom    = r_v_zoom;
+	n_v_bytes   = r_v_bytes;
+	n_v_width   = r_v_width;
+	n_v_lzoom   = r_v_lzoom;
+	n_v_stride  = r_v_stride;
+	n_v_gio     = r_v_gio;
+	n_v_len     = r_v_len;
+	n_v_gn      = r_v_gn;
+	n_v_grp     = r_v_grp;
+	n_v_pv      = r_v_pv;
+	n_v_vpn     = r_v_vpn;
+	n_v_pfn     = r_v_pfn;
+	n_v_done    = 1'b0;
+	v_req_valid = 1'b0;
+	v_req_addr  = {r_v_pfn, r_v_mem[11:4], 4'd0};
+	v_rec_valid = 1'b0;
+	case(r_v_state)
+	  V_IDLE:
+	    begin
+	       if(v_go)
+		 begin
+		    n_v_mem    = v_memadr;
+		    n_v_lines  = v_size[31:16];
+		    n_v_width  = v_size[15:0];
+		    n_v_lzoom  = v_stride[25:16];
+		    n_v_stride = v_stride[15:0];
+		    n_v_zoom   = v_count[25:16];
+		    n_v_bytes  = v_count[15:0];
+		    n_v_gio    = v_gio;
+		    n_v_pv     = 1'b0;            /* the page tables may have changed */
+		    n_v_state  = V_LINE;
+		 end
+	    end
+	  V_LINE:
+	    begin
+	       if(r_v_lines == 16'd0)
+		 begin
+		    n_v_done  = 1'b1;
+		    n_v_state = V_IDLE;
+		 end
+	       else
+		 begin
+		    n_v_lines = r_v_lines - 16'd1;
+		    n_v_state = V_ZOOM;
+		 end
+	    end
+	  V_ZOOM:
+	    begin
+	       if(r_v_zoom == 10'd0)
+		 begin
+		    n_v_zoom  = r_v_lzoom;
+		    n_v_mem   = r_v_mem + {{16{r_v_stride[15]}}, r_v_stride};
+		    n_v_state = V_LINE;
+		 end
+	       else
+		 begin
+		    n_v_zoom  = r_v_zoom - 10'd1;
+		    n_v_state = V_GROUP;
+		 end
+	    end
+	  V_GROUP:
+	    begin
+	       if(r_v_bytes == 16'd0)
+		 begin
+		    /* this copy is sent: the next copy re-reads the line */
+		    n_v_bytes = r_v_width;
+		    if(r_v_zoom != 10'd0)
+		      begin
+			 n_v_mem = r_v_mem - {16'd0, r_v_width};
+		      end
+		    n_v_state = V_ZOOM;
+		 end
+	       else
+		 begin
+		    n_v_len   = (r_v_bytes < 16'd8) ? r_v_bytes[3:0] : 4'd8;
+		    n_v_gn    = 4'd0;
+		    n_v_grp   = 64'd0;
+		    n_v_state = V_XLATE;
+		 end
+	    end
+	  V_XLATE:
+	    begin
+	       if(r_v_pv && (r_v_vpn == r_v_mem[31:12]))
+		 begin
+		    n_v_state = V_LOAD;
+		 end
+	       else if(t_v_hit)
+		 begin
+		    n_v_state = V_PTE;
+		 end
+	       else
+		 begin
+		    /* no entry maps it: the address is physical */
+		    n_v_pv    = 1'b1;
+		    n_v_vpn   = r_v_mem[31:12];
+		    n_v_pfn   = r_v_mem[31:12];
+		    n_v_state = V_LOAD;
+		 end
+	    end
+	  V_PTE:
+	    begin
+	       v_req_valid = 1'b1;
+	       v_req_addr  = {t_v_pte_pa[31:4], 4'd0};
+	       if(t_rsp[CH_V])
+		 begin
+		    n_v_pv    = 1'b1;
+		    n_v_vpn   = r_v_mem[31:12];
+		    n_v_pfn   = t_v_pte[25:6];
+		    n_v_state = V_LOAD;
+		 end
+	    end
+	  V_LOAD:
+	    begin
+	       v_req_valid = 1'b1;
+	       if(t_rsp[CH_V])
+		 begin
+		    n_v_grp   = r_v_grp | (t_rot[63:0] & t_v_gmask[63:0]);
+		    n_v_gn    = t_v_gsum[3:0];
+		    n_v_mem   = r_v_mem + {27'd0, t_v_take};
+		    n_v_bytes = r_v_bytes - {11'd0, t_v_take};
+		    n_v_state = (t_v_gsum == {1'b0, r_v_len}) ? V_EMIT : V_XLATE;
+		 end
+	    end
+	  V_EMIT:
+	    begin
+	       v_rec_valid = 1'b1;
+	       if(v_rec_ready)
+		 begin
+		    n_v_state = V_GROUP;
+		 end
+	    end
+	  default:
+	    begin
+	       n_v_state = V_IDLE;
+	    end
+	endcase // case (r_v_state)
+     end // always_comb
+
+   always_ff @(posedge clk)
+     begin
+	if(reset)
+	  begin
+	     r_v_state  <= V_IDLE;
+	     r_v_mem    <= 32'd0;
+	     r_v_lines  <= 16'd0;
+	     r_v_zoom   <= 10'd0;
+	     r_v_bytes  <= 16'd0;
+	     r_v_width  <= 16'd0;
+	     r_v_lzoom  <= 10'd0;
+	     r_v_stride <= 16'd0;
+	     r_v_gio    <= 32'd0;
+	     r_v_len    <= 4'd0;
+	     r_v_gn     <= 4'd0;
+	     r_v_grp    <= 64'd0;
+	     r_v_pv     <= 1'b0;
+	     r_v_vpn    <= 20'd0;
+	     r_v_pfn    <= 20'd0;
+	     r_v_done   <= 1'b0;
+	  end
+	else
+	  begin
+`ifdef DISABLE_NEWPORT
+	     /* no graphics: nothing issues VDMA, so pin the channel idle -- its
+	      * requests, datapath and arbiter slot become constants and are removed */
+	     r_v_state  <= V_IDLE;
+`else
+	     r_v_state  <= n_v_state;
+`endif
+	     r_v_mem    <= n_v_mem;
+	     r_v_lines  <= n_v_lines;
+	     r_v_zoom   <= n_v_zoom;
+	     r_v_bytes  <= n_v_bytes;
+	     r_v_width  <= n_v_width;
+	     r_v_lzoom  <= n_v_lzoom;
+	     r_v_stride <= n_v_stride;
+	     r_v_gio    <= n_v_gio;
+	     r_v_len    <= n_v_len;
+	     r_v_gn     <= n_v_gn;
+	     r_v_grp    <= n_v_grp;
+	     r_v_pv     <= n_v_pv;
+	     r_v_vpn    <= n_v_vpn;
+	     r_v_pfn    <= n_v_pfn;
+	     r_v_done   <= n_v_done;
+	  end
+     end // always_ff
+
+   assign v_done       = r_v_done;
+   assign v_memadr_end = r_v_mem;
+   assign v_rec_lanes  = r_v_grp;
+   assign v_rec_addr   = r_v_gio;
 
    /* SCSI busy: a chain is latched or open (ACTIVE in hd0.cntl), through its posting */
    assign busy         = r_s_go || (r_s_state != S_IDLE);

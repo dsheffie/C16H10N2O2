@@ -134,6 +134,8 @@ module axi_is_the_worst_v1_0_S00_AXI #
     output wire [31:0]			      gio_cons,          // 0x23 records consumed
     output wire [15:0]			      gio_irq,           // 0x2a IRQ levels -> INT3 local1
     input  wire [31:0]			      gio_prod,          // read 0x20
+    input  wire [31:0]			      vdma_stat0,        // read 0x22: MC VDMA {non-fill starts[23:0], last mode[7:0]}
+    input  wire [31:0]			      vdma_stat1,        // read 0x23: MC VDMA {fill starts[15:0], other DMA reg writes[15:0]}
     input  wire				      gio_pend,          // read 0x21 [31]
     input  wire [31:0]			      gio_pend_seq,      // read 0x21 [30:0]
     input  wire [31:0]			      ext_flush_stat,    // {completed[15:0], dirty[13:0], 1'b0, busy}
@@ -1398,8 +1400,8 @@ module axi_is_the_worst_v1_0_S00_AXI #
 	  6'h1F   : reg_data_out <= wf_stat;  // {wild-fault count[15:0],11'd0,cause[4:0]}
 	  6'h20   : reg_data_out <= gio_prod;                          // GIO window: records published
 	  6'h21   : reg_data_out <= {gio_pend, gio_pend_seq[30:0]};   // GIO window: held load
-	  6'h22   : reg_data_out <= 32'd0;
-	  6'h23   : reg_data_out <= 32'd0;
+	  6'h22   : reg_data_out <= vdma_stat0;                        // MC VDMA usage: {non-fill starts, last mode}
+	  6'h23   : reg_data_out <= vdma_stat1;                        // MC VDMA usage: {fill starts, other DMA reg writes}
 	  /* the ARM-requested whole-cache flush (debug): 0x24[31:1] = cycles the last
 	   * flush took, 0x25[31:16] = flushes completed, 0x25[1] = a flush is running.
 	   * Bit 0 of both was a beat-FIFO flag (retired); it reads 0. */
@@ -1462,7 +1464,9 @@ module axi_is_the_worst_v1_0_S00_AXI #
 	  //              dwoff[21] = space 1, irq doorbell bit 8 -> INT3 mappable 4);
 	  //              ds1386 bbRAM is DRAM (needs the low-byte-MAC henry_arcs);
 	  //              MC DMA fill, running ds1386 clock, SCC WR8, WD reg 2.
-	  6'h3F   : reg_data_out <= 32'h20261017;   // RTL revision
+	  // 0x20261018 = + MC VDMA memory -> GIO through the gio ring: record types
+	  //              2 (VDMA store) and 3 (BEGIN/END marker); VDMA counters 0x22/0x23.
+	  6'h3F   : reg_data_out <= 32'h20261018;   // RTL revision
 	  default : reg_data_out <= 0;
 	endcase
      end

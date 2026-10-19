@@ -9,7 +9,8 @@
 //          earlier store), and the CPU load is held until the ARM writes the
 //          answer and then its sequence number (AXI-Lite 0x20/0x21, then 0x22).
 // Record (LE, byte i = bits [8i+7:8i]):
-//   [31:0]   {type[31:30] (0 STORE, 1 READ), mask[29:22], dwoff[21:0]}
+//   [31:0]   {type[31:30] (0 STORE, 1 READ, 2 VDMA STORE, 3 VDMA MARKER), mask[29:22], dwoff[21:0]}
+//            MARKER: mask bit 0 = BEGIN (1) / END (0) of one MC VDMA transfer
 //            dwoff[21] = `space`: 0 the window at BASE, 1 a second ARM-served device
 //            the SoC routes here (the IOC2 8042 keyboard/mouse controller)
 //   [63:32]  recno -- 1, 2, 3, ...  (numbering from 1 means the answer register's
@@ -20,6 +21,13 @@
 // least every PROD_EVERY records.  The CPU is held while the ring is full
 // (assigned - cons == RING_N).
 // One memory port (arbiter master 2); staging PAs are not snooped.
+// A second source, the MC VDMA (memory -> GIO), adds 8-byte VDMA STORE records (mask
+// 0xff), bracketed by a BEGIN marker (queued ahead of any CPU access after the start)
+// and an END marker (after the last doubleword).  The CPU is never held for the DMA --
+// a held CPU access keeps the L1D from answering the DMA's snoops: deadlock.  Instead
+// the ARM acts as REX3 does during a host-data DMA: between the markers it reports busy
+// and applies the CPU's stores only after END (gio_service.h).
+// A record's recno is assigned when it is queued, so the ring stays in recno order.
 // -----------------------------------------------------------------------------
 module gio_window #(parameter logic [31:0] BASE       = 32'h1f0f0000,
 		    parameter int          LG_SIZE    = 13,             // 8 KB
@@ -39,6 +47,13 @@ module gio_window #(parameter logic [31:0] BASE       = 32'h1f0f0000,
     output logic                  hit,            // combinational: addr is in the window
     output logic                  done,           // 1-cycle: the access is complete
     output logic [127:0]          rdata,          // valid with done (loads)
+    // ---- MC VDMA: doublewords to store into the window ----
+    input  logic                  dma_begin,      // 1-cycle: a VDMA transfer starts (queue BEGIN)
+    input  logic                  dma_end,        // 1-cycle: its last doubleword was taken (queue END)
+    input  logic                  dma_valid,
+    input  logic [31:0]           dma_addr,       // GIO address (8-byte aligned)
+    input  logic [63:0]           dma_lanes,      // lane i = the byte at dma_addr + i
+    output logic                  dma_ready,      // 1-cycle: taken this cycle
     // ---- ARM doorbells (S00_AXI) ----
     input  logic [31:0]           cons,           // records the ARM has consumed
     input  logic [31:0]           ans_lo,         // answer lanes 0-3
@@ -82,7 +97,9 @@ module gio_window #(parameter logic [31:0] BASE       = 32'h1f0f0000,
    logic [31:0]  r_published, n_published;
    logic         r_rd_unpub, n_rd_unpub;  // a READ record is written but prod not yet published
 
-   logic [127:0] t_rec;
+   logic [127:0] t_rec, t_drec, t_brec, t_erec;
+   logic         r_beg, n_beg;            // BEGIN marker to queue
+   logic         r_end, n_end;            // END marker to queue
    logic [7:0]   t_lanes_mask;
    logic [63:0]  t_lanes;
    logic         t_space, t_enq, t_deq;
@@ -108,6 +125,9 @@ module gio_window #(parameter logic [31:0] BASE       = 32'h1f0f0000,
 			t_lanes_mask,
 			space,
 			21'({addr[LG_SIZE-1:4], |mask[15:8]})};   /* addr is line aligned: the mask picks the half */
+	t_drec       = {dma_lanes, r_assigned + 32'd1, 2'b10, 8'hff, 1'b0, 21'(dma_addr[LG_SIZE-1:3])};
+	t_brec       = {64'd0, r_assigned + 32'd1, 2'b11, 8'h01, 22'd0};
+	t_erec       = {64'd0, r_assigned + 32'd1, 2'b11, 8'h00, 22'd0};
 	/* ring space counts every record built so far, queued or written */
 	t_space = (r_assigned - cons) < 32'(RING_N);
 
@@ -121,13 +141,30 @@ module gio_window #(parameter logic [31:0] BASE       = 32'h1f0f0000,
 	n_rdata     = r_rdata;
 	t_enq       = 1'b0;
 	t_enq_rec   = t_rec;
+	dma_ready   = 1'b0;
+	n_beg       = r_beg | dma_begin;
+	n_end       = r_end | dma_end;
 
-	if(sel)
+	if(r_beg && (r_q_cnt != 3'(QN)) && t_space)
 	  begin
-	     /* a new access: build its record now (recno = assigned + 1) */
+	     /* BEGIN goes first: a CPU access this cycle waits one cycle as a held one */
 	     n_assigned = r_assigned + 32'd1;
-	     if((r_q_cnt != 3'(QN)) && t_space)
+	     t_enq      = 1'b1;
+	     t_enq_rec  = t_brec;
+	     n_beg      = dma_begin;
+	     if(sel)
 	       begin
+		  n_held     = 1'b1;
+		  n_held_rec = t_rec;
+		  n_held_rd  = !is_store;
+	       end
+	  end
+	else if(sel)
+	  begin
+	     /* a new access: queue it now (recno = assigned + 1), or hold it */
+	     if(!r_beg && (r_q_cnt != 3'(QN)) && t_space)
+	       begin
+		  n_assigned = r_assigned + 32'd1;
 		  t_enq = 1'b1;
 		  if(is_store)
 		    begin
@@ -146,20 +183,40 @@ module gio_window #(parameter logic [31:0] BASE       = 32'h1f0f0000,
 		  n_held_rd  = !is_store;
 	       end
 	  end
-	else if(r_held && (r_q_cnt != 3'(QN)) && ((r_held_rec[63:32] - 32'd1 - cons) < 32'(RING_N)))
+	else if(r_held && !r_beg)
 	  begin
-	     t_enq     = 1'b1;
-	     t_enq_rec = r_held_rec;
-	     n_held    = 1'b0;
-	     if(r_held_rd)
+	     if((r_q_cnt != 3'(QN)) && t_space)
 	       begin
-		  n_wait     = 1'b1;
-		  n_wait_seq = r_held_rec[63:32];
+		  /* the held record takes its recno now */
+		  n_assigned = r_assigned + 32'd1;
+		  t_enq      = 1'b1;
+		  t_enq_rec  = {r_held_rec[127:64], r_assigned + 32'd1, r_held_rec[31:0]};
+		  n_held     = 1'b0;
+		  if(r_held_rd)
+		    begin
+		       n_wait     = 1'b1;
+		       n_wait_seq = r_assigned + 32'd1;
+		    end
+		  else
+		    begin
+		       n_done = 1'b1;
+		    end
 	       end
-	     else
-	       begin
-		  n_done = 1'b1;
-	       end
+	  end
+	else if(dma_valid && !r_beg && (r_q_cnt != 3'(QN)) && t_space)
+	  begin
+	     /* a VDMA doubleword: a posted store record */
+	     n_assigned = r_assigned + 32'd1;
+	     t_enq      = 1'b1;
+	     t_enq_rec  = t_drec;
+	     dma_ready  = 1'b1;
+	  end
+	else if(r_end && !dma_valid && (r_q_cnt != 3'(QN)) && t_space)
+	  begin
+	     n_assigned = r_assigned + 32'd1;
+	     t_enq      = 1'b1;
+	     t_enq_rec  = t_erec;
+	     n_end      = dma_end;
 	  end
 
 	if(r_wait && (ans_seq == r_wait_seq))
@@ -266,6 +323,8 @@ module gio_window #(parameter logic [31:0] BASE       = 32'h1f0f0000,
 	     r_written   <= '0;
 	     r_published <= '0;
 	     r_rd_unpub  <= 1'b0;
+	     r_beg       <= 1'b0;
+	     r_end       <= 1'b0;
 	  end
 	else
 	  begin
@@ -284,6 +343,8 @@ module gio_window #(parameter logic [31:0] BASE       = 32'h1f0f0000,
 	     r_written   <= n_written;
 	     r_published <= n_published;
 	     r_rd_unpub  <= n_rd_unpub;
+	     r_beg       <= n_beg;
+	     r_end       <= n_end;
 	  end
      end // always_ff
 

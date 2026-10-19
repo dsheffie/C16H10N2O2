@@ -365,6 +365,7 @@ module axi_is_the_worst_v1_0 #
    wire [31:0]  w_ring_tx_cons, w_ring_rx_prod, w_ring_scsi_cq_cons, w_ring_scsi_rd_beats, w_ring_scsi_rd_seq;
    // ARM-served GIO window: S00_AXI doorbells <-> henry_soc
    wire [31:0]  w_gio_ans_lo, w_gio_ans_hi, w_gio_ans_seq, w_gio_cons, w_gio_prod, w_gio_pend_seq;
+   wire [31:0]  w_vdma_stat0, w_vdma_stat1;   // MC VDMA usage counters (read 0x22/0x23)
    wire [15:0]  w_gio_irq;
    wire         w_gio_pend;
    // ext flush page list: S00_AXI (ARM writes 0x3C/0x3D) -> henry_soc
@@ -484,6 +485,8 @@ module axi_is_the_worst_v1_0 #
 				       .gio_cons(w_gio_cons),
 				       .gio_irq(w_gio_irq),
 				       .gio_prod(w_gio_prod),
+				       .vdma_stat0(w_vdma_stat0),
+				       .vdma_stat1(w_vdma_stat1),
 				       .gio_pend(w_gio_pend),
 				       .gio_pend_seq(w_gio_pend_seq),
 				       .ext_flush_stat(w_ext_flush_stat),
@@ -742,6 +745,8 @@ module axi_is_the_worst_v1_0 #
 	   .gio_ans_seq(w_gio_ans_seq),
 	   .gio_irq(w_gio_irq),
 	   .gio_prod(w_gio_prod),
+	   .vdma_stat0(w_vdma_stat0),
+	   .vdma_stat1(w_vdma_stat1),
 	   .gio_pend(w_gio_pend),
 	   .gio_pend_seq(w_gio_pend_seq),
 	   .enet_tx_req_seq(w_enet_tx_req_seq),

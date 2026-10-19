@@ -26,7 +26,7 @@
 // MUTUALLY EXCLUSIVE with hpc3.sv `ENABLE_HPC3_DMA -- both claim the HPC3 DMA
 // channel window @0x10000.  Uncomment here AND comment ENABLE_HPC3_DMA in hpc3.sv.
 // Seeq 8003 + HPC3 ENET DMA control shim (enet_shim.sv).  Shares the HPC3 window
-// with scsi_shim (disjoint offsets); ENET IRQ -> IOC2 local0 bit3.
+// with scsi_shim (disjoint offsets); ENET IRQ -> IOC2 local0 bit3; MC DMA -> local0 bit4.
 // Device data moves through the staging rings (docs/arm-device-protocol.md): the
 // ARM never touches guest memory.  dma_engine walks the ENET and SCSI descriptor
 // chains and moves their data (one memory port, one byte mover).  It reaches memory
@@ -188,6 +188,8 @@ module henry_soc
    input  logic [31:0]           gio_ans_seq,        // recno of the READ answered (written last)
    input  logic [15:0]           gio_irq,            // [7:0] -> INT3 local1 sources (7 = VRETRACE), [8] -> mappable 4 (8042)
    output logic [31:0]           gio_prod,           // debug: records published
+   output logic [31:0]           vdma_stat0,         // MC VDMA usage: {non-fill starts[23:0], last mode[7:0]}
+   output logic [31:0]           vdma_stat1,         // MC VDMA usage: {fill starts[15:0], other DMA reg writes[15:0]}
    output logic                  gio_pend,           // debug: a load is waiting for the ARM
    output logic [31:0]           gio_pend_seq,
    output logic [47:0]           enet_station,       // programmed station MAC (for RX filter)
@@ -878,7 +880,33 @@ module henry_soc
    wire [127:0]         w_mcdma_req_store_data;
    wire                 w_mcdma_rsp_valid;
 
+   /* MC VDMA (memory -> GIO): the MC starts it, dma_engine moves it into the GIO window */
+   wire                 w_vdma_go, w_vdma_done;
+   wire [31:0]          w_vdma_memadr, w_vdma_size, w_vdma_stride, w_vdma_count, w_vdma_gio;
+   wire [3:0][31:0]     w_vdma_tlb_hi, w_vdma_tlb_lo;
+   wire [31:0]          w_vdma_memadr_end;
+   wire                 w_vdma_rec_valid, w_vdma_rec_ready;
+   wire [63:0]          w_vdma_rec_lanes;
+   wire [31:0]          w_vdma_rec_addr;
+   wire                 w_mc_dma_irq;
+   wire                 w_vdma_begin;     /* MC: a VDMA transfer is starting (the start store's cycle) */
+
    // ---- ARM-served GIO window (arbiter master 2): the Newport REX3 slot ----
+   /* DISABLE_NEWPORT: build without graphics.  The REX3 window is not decoded, so
+    * it falls into w_is_gio_empty and times out like an Indy with no graphics board
+    * (IRIX/Linux probe the slot and come up on the serial console), and the Newport
+    * IRQs (INT3 local1, incl. VRETRACE) are tied off so the ARM model cannot raise
+    * them.  MC VDMA goes too (only Newport uses it): mc.sv completes memory -> GIO
+    * at once and dma_engine pins its VDMA channel idle.  The 8042 (space 1) still
+    * rides the window. */
+   wire         w_gio_hit;
+`ifdef DISABLE_NEWPORT
+   assign w_is_gio = 1'b0;
+   wire [7:0]   w_gio_local1 = 8'd0;
+`else
+   assign w_is_gio = w_gio_hit;
+   wire [7:0]   w_gio_local1 = gio_irq[7:0];
+`endif
    wire         w_gio_done;
    wire [127:0] w_gio_rdata;
    gio_window u_gio
@@ -886,7 +914,9 @@ module henry_soc
       .sel(w_dev_accept & (w_is_gio | w_is_kbd)), .is_store(~w_is_load), .space(w_is_kbd),
       .addr(c_req_addr[31:0]),
       .mask(c_req_mask), .wdata(c_req_store_data),
-      .hit(w_is_gio), .done(w_gio_done), .rdata(w_gio_rdata),
+      .hit(w_gio_hit), .done(w_gio_done), .rdata(w_gio_rdata),
+      .dma_begin(w_vdma_begin), .dma_end(w_vdma_done), .dma_valid(w_vdma_rec_valid), .dma_addr(w_vdma_rec_addr), .dma_lanes(w_vdma_rec_lanes),
+      .dma_ready(w_vdma_rec_ready),
       .cons(gio_cons), .ans_lo(gio_ans_lo), .ans_hi(gio_ans_hi), .ans_seq(gio_ans_seq),
       .prod(gio_prod), .pend(gio_pend), .pend_seq(gio_pend_seq),
       .mem_req_valid(w_gio_req_valid), .mem_req_addr(w_gio_req_addr),
@@ -922,7 +952,11 @@ module henry_soc
       .gio_err(w_gio_timeout), .gio_err_addr({c_req_addr[31:4], t_first_lane}),
       .abort_en(w_mc_abort_en), .buserr(w_mc_buserr),
       .dma_req_valid(w_mcdma_req_valid), .dma_req_addr(w_mcdma_req_addr),
-      .dma_req_store_data(w_mcdma_req_store_data), .dma_rsp_valid(w_mcdma_rsp_valid));
+      .dma_req_store_data(w_mcdma_req_store_data), .dma_rsp_valid(w_mcdma_rsp_valid),
+      .v_go(w_vdma_go), .v_memadr(w_vdma_memadr), .v_size(w_vdma_size), .v_stride(w_vdma_stride),
+      .v_count(w_vdma_count), .v_gio(w_vdma_gio), .v_tlb_hi(w_vdma_tlb_hi), .v_tlb_lo(w_vdma_tlb_lo),
+      .v_done(w_vdma_done), .v_memadr_end(w_vdma_memadr_end), .v_begin(w_vdma_begin), .dma_irq(w_mc_dma_irq),
+      .vdma_stat0(vdma_stat0), .vdma_stat1(vdma_stat1));
 
    /* Master-2 mux.  The arbiter is one-outstanding and a master holds its request
     * until answered, so the owner is LOCKED from the cycle a request is presented
@@ -1061,6 +1095,11 @@ module henry_soc
       .rx_armed(w_enet_rx_pos != 32'd0), .rx_nbdp(w_enet_rx_pos),
       .rx_done(enet_dma_rx_done), .rx_dropped(),
       .rx_crbdp(enet_dma_crbdp), .rx_next_nbdp(w_enet_rx_next_nbdp),
+      .v_go(w_vdma_go), .v_memadr(w_vdma_memadr), .v_size(w_vdma_size), .v_stride(w_vdma_stride),
+      .v_count(w_vdma_count), .v_gio(w_vdma_gio), .v_tlb_hi(w_vdma_tlb_hi), .v_tlb_lo(w_vdma_tlb_lo),
+      .v_done(w_vdma_done), .v_memadr_end(w_vdma_memadr_end),
+      .v_rec_valid(w_vdma_rec_valid), .v_rec_lanes(w_vdma_rec_lanes), .v_rec_addr(w_vdma_rec_addr),
+      .v_rec_ready(w_vdma_rec_ready),
       .dn_req_valid(w_eng_req_valid), .dn_req_addr(w_eng_req_addr), .dn_req_opcode(w_eng_req_opcode),
       .dn_req_store_data(w_eng_req_store_data), .dn_req_mask(w_eng_req_mask),
       .dn_rsp_valid(w_seng_rsp_valid), .dn_rsp_load_data(w_seng_rsp_load_data),
@@ -1102,7 +1141,7 @@ module henry_soc
       .sel(w_dev_accept & w_is_ioc), .is_store(~w_is_load),
       .offs(c_req_addr[7:0]), .mask(c_req_mask), .wdata(c_req_store_data),
       .rdata(w_rd_int3),
-      .local0_src({3'd0, w_enet_intrq, 1'b0, w_scsi_intrq | w_hpc_scsi_intr, 1'b0}), .local1_src(gio_irq[7:0]),  // local0[3]=ENET [1]=SCSI0; local1 = ARM-driven (gio_window devices)
+      .local0_src({2'd0, w_mc_dma_irq, w_enet_intrq, 1'b0, w_scsi_intrq | w_hpc_scsi_intr, 1'b0}), .local1_src(w_gio_local1),  // local0[3]=ENET [1]=SCSI0; local1 = ARM-driven (gio_window devices)
       .map_src({2'd0, w_scc_rx_avail | w_scc_tx_int, gio_irq[8], 4'd0}),  // bit5 = Serial DUART (SCC Rx|Tx), bit4 = 8042 kbd/mouse (ARM-driven)
       .buserr({1'b0, w_mc_buserr, 1'b0}),   // [1] = MC bus error (docs/bus-errors.md)
       .timer0_irq(w_ioc_timer0), .timer1_irq(1'b0),
