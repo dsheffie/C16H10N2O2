@@ -64,6 +64,52 @@ static void probe_load_ds(uint32_t addr, uint32_t *pc) {
   *pc = at;
 }
 
+/* IRIX 5.3 wbadaddr (kernel 0x88011104..0x88011444, transcribed): interrupts off,
+ * clear the MC error status, flush, then a posted store to the probed address,
+ * flush with two uncached MC SYSID reads + an uncached DRAM read, then Cause.IP6
+ * (the MC bus-error interrupt) says whether it faulted.  The R4000 is in order,
+ * so the mfc0 reads Cause only after those loads returned.  On a fault: clear the
+ * status, one flush read, restore SR.  Restoring SR with IP6 still pending takes
+ * the bus-error interrupt -- the "IRIX Killed due to Bus Error" at 0x88011240.
+ * Returns 1 if the probe faulted. */
+static uint32_t probe_store_irix(uint32_t addr, uint32_t *val) {
+  uint32_t r, sr, c, t;
+  __asm__ volatile(".set push\n\t.set noreorder\n\t"
+                   "mfc0 %1, $12\n\t"
+                   "mtc0 $0, $12\n\t"
+                   "nop\n\tnop\n\tnop\n\tnop\n\t"
+                   "lui  %3, 0xbfa0\n\t"
+                   "sw   $0, 0xec(%3)\n\t"
+                   "sw   $0, 0xfc(%3)\n\t"
+                   "lw   %3, 4(%3)\n\t"
+                   "lw   %3, 0(%5)\n\t"
+                   "sw   %3, 0(%4)\n\t"
+                   "lui  %3, 0xbfa0\n\t"
+                   "lw   %3, 4(%3)\n\t"
+                   "lui  %3, 0xbfa0\n\t"
+                   "lw   %3, 4(%3)\n\t"
+                   "lui  %3, 0xa000\n\t"
+                   "lw   %3, 0(%3)\n\t"
+                   "mfc0 %2, $13\n\t"
+                   "nop\n\t"
+                   "andi %2, %2, 0x4000\n\t"
+                   "bnez %2, 1f\n\t"
+                   "move %0, $0\n\t"
+                   "mtc0 %1, $12\n\t"
+                   "b    2f\n\t"
+                   "nop\n"
+                   "1:\tlui  %3, 0xbfa0\n\t"
+                   "sw   $0, 0xec(%3)\n\t"
+                   "sw   $0, 0xfc(%3)\n\t"
+                   "lw   %3, 4(%3)\n\t"
+                   "nop\n\tnop\n\tnop\n\tnop\n\tnop\n\t"
+                   "mtc0 %1, $12\n\t"
+                   "li   %0, 1\n"
+                   "2:\tnop\n\tnop\n\tnop\n\tnop\n\t.set pop"
+                   : "=&r"(r), "=&r"(sr), "=&r"(c), "=&r"(t) : "r"(addr), "r"(val) : "memory");
+  return r;
+}
+
 int main(void) {
   /* install the handler at the general vector, through kseg1 so the I-cache
    * cannot hold stale bytes; then clear SR.BEV, keep interrupts off, and clear
@@ -140,6 +186,25 @@ int main(void) {
   V(MC_GIO_ESTAT) = 0;
   if(*(volatile uint8_t *)INT3_ERRSTAT & 2) {
     fail('n');
+  }
+  /* 6: IRIX's write probes, in its boot order, with IE + IM6 live around them: each
+   *    must see IP6 and take no interrupt (a late IP6 = an interrupt after SR restore) */
+  {
+    static const uint32_t probes[4] = {0xbfb00010u, 0xbfb00050u, 0xbf980010u, 0xbf980050u};
+    uint32_t val = 0xaaaa;
+    __asm__ volatile("mfc0 %0, $12" : "=r"(sr));
+    sr |= (1u << 14) | 1u;
+    __asm__ volatile("mtc0 %0, $12\n\tnop\n\tnop" : : "r"(sr));
+    for(int i = 0; i < 4; i++) {
+      if(probe_store_irix(probes[i], &val) != 1) {
+        fail('o');
+      }
+      if(EXC_COUNT != 2) {
+        fail('p');
+      }
+    }
+    sr &= ~((1u << 14) | 1u);
+    __asm__ volatile("mtc0 %0, $12\n\tnop\n\tnop" : : "r"(sr));
   }
   putch('P');
   putch('\n');
