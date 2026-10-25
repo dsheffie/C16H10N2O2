@@ -295,6 +295,12 @@ module axi_is_the_worst_v1_0 #
    
    wire [4:0]					w_mem_req_opcode;
    wire [127:0]					w_load_data;
+   /* lane 1 of the M00 master (AXI ID 1): henry_soc's DMA / gio ring / MC fill port */
+   wire					w_mem2_req_valid, w_mem2_rsp_valid, w_mem2_rsp_bad;
+   wire [35:0]					w_mem2_req_addr;
+   wire [4:0]					w_mem2_req_opcode;
+   wire [15:0]					w_mem2_req_mask;
+   wire [511:0]					w_mem2_req_store_data, w_mem2_load_data;
    
    wire						w_memq_empty;
    wire [5:0]					w_inflight;   /* soc drives LG_ROB_ENTRIES+1 = 5b; upper bit reads 0 */
@@ -366,6 +372,8 @@ module axi_is_the_worst_v1_0 #
    // ARM-served GIO window: S00_AXI doorbells <-> henry_soc
    wire [31:0]  w_gio_ans_lo, w_gio_ans_hi, w_gio_ans_seq, w_gio_cons, w_gio_prod, w_gio_pend_seq;
    wire [31:0]  w_vdma_stat0, w_vdma_stat1;   // MC VDMA usage counters (read 0x22/0x23)
+   wire [4:0]   w_gfx_perf_sel;               // graphics-path counter select (write 0x24 [4:0])
+   wire [31:0]  w_gfx_perf_data;              // selected counter half (read 0x02)
    wire [15:0]  w_gio_irq;
    wire         w_gio_pend;
    // ext flush page list: S00_AXI (ARM writes 0x3C/0x3D) -> henry_soc
@@ -487,6 +495,8 @@ module axi_is_the_worst_v1_0 #
 				       .gio_prod(w_gio_prod),
 				       .vdma_stat0(w_vdma_stat0),
 				       .vdma_stat1(w_vdma_stat1),
+				       .gfx_perf_sel(w_gfx_perf_sel),
+				       .gfx_perf_data(w_gfx_perf_data),
 				       .gio_pend(w_gio_pend),
 				       .gio_pend_seq(w_gio_pend_seq),
 				       .ext_flush_stat(w_ext_flush_stat),
@@ -567,6 +577,14 @@ module axi_is_the_worst_v1_0 #
 				       .mem_rsp_bad(w_mem_rsp_bad),				       				       
 				       .mem_rsp_tag(w_mem_rsp_tag),				       
 				       .mem_req_gnt(w_mem_req_gnt),
+				       .mem2_req_valid(w_mem2_req_valid),
+				       .mem2_req_addr(w_mem2_req_addr),
+				       .mem2_opcode(w_mem2_req_opcode),
+				       .mem2_mask(w_mem2_req_mask),
+				       .mem2_req_store_data(w_mem2_req_store_data),
+				       .mem2_rsp_valid(w_mem2_rsp_valid),
+				       .mem2_rsp_bad(w_mem2_rsp_bad),
+				       .mem2_load_data(w_mem2_load_data),
 				       .INIT_AXI_TXN(m00_axi_init_axi_txn),
 				       .TXN_DONE(m00_axi_txn_done),
 				       .ERROR(m00_axi_error),
@@ -687,6 +705,14 @@ module axi_is_the_worst_v1_0 #
 	   .mem_req_mask(w_mem_req_mask),
 	   .mem_rsp_valid(w_mem_rsp_valid),
 	   .mem_rsp_bad(w_mem_rsp_bad),
+	   .mem2_req_valid(w_mem2_req_valid),
+	   .mem2_req_addr(w_mem2_req_addr),
+	   .mem2_req_store_data(w_mem2_req_store_data),
+	   .mem2_req_opcode(w_mem2_req_opcode),
+	   .mem2_req_mask(w_mem2_req_mask),
+	   .mem2_rsp_valid(w_mem2_rsp_valid),
+	   .mem2_rsp_bad(w_mem2_rsp_bad),
+	   .mem2_rsp_load_data(w_mem2_load_data),
 	   .mem_rsp_load_data(w_load_data),
 
 	   .retire_reg_ptr(w_reg_ptr0),
@@ -747,6 +773,8 @@ module axi_is_the_worst_v1_0 #
 	   .gio_prod(w_gio_prod),
 	   .vdma_stat0(w_vdma_stat0),
 	   .vdma_stat1(w_vdma_stat1),
+	   .gfx_perf_sel(w_gfx_perf_sel),
+	   .gfx_perf_data(w_gfx_perf_data),
 	   .gio_pend(w_gio_pend),
 	   .gio_pend_seq(w_gio_pend_seq),
 	   .enet_tx_req_seq(w_enet_tx_req_seq),

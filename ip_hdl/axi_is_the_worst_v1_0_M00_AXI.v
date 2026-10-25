@@ -61,6 +61,18 @@ module axi_is_the_worst_v1_0_M00_AXI #
 
     input wire [1:0]			     mem_req_tag,
     output wire [1:0]			     mem_rsp_tag,
+    /* lane 1 (AXI ID 1): DMA engine + GIO ring writer + MC fill, one request
+     * outstanding, concurrent with lane 0 (CPU, AXI ID 0).  Opcodes 4/7 = 16B
+     * read/masked write as on lane 0; 5/6 = 64B read/write (4-beat INCR burst,
+     * address forced 64B-aligned, full strobes). */
+    input wire				     mem2_req_valid,
+    input wire [35:0]			     mem2_req_addr,
+    input wire [4:0]			     mem2_opcode,
+    input wire [15:0]			     mem2_mask,
+    input wire [511:0]			     mem2_req_store_data,
+    output wire				     mem2_rsp_valid,
+    output wire				     mem2_rsp_bad,
+    output wire [511:0]			     mem2_load_data,
 
     input wire [31:0]			     max_fetches,
     input wire				     sgi_mode,
@@ -188,379 +200,553 @@ module axi_is_the_worst_v1_0_M00_AXI #
     output wire				     M_AXI_RREADY
     );
 
-   reg [127:0]				     r_load_data;
-   reg [127:0]				     n_store_data, r_store_data;   
-   reg					     r_mem_rsp_valid, n_mem_rsp_valid;
-   reg					     r_mem_rsp_bad, n_mem_rsp_bad;   
-   reg [1:0]				     r_tag,n_tag;
-   
-   assign mem_rsp_valid = r_mem_rsp_valid;
-   assign mem_rsp_bad = r_mem_rsp_bad;
-   
-   assign mem_rsp_tag = r_tag;
-   
-   reg [3:0]	      r_state, n_state;
-   assign state = r_state;
-   
-   reg [63:0]	      r_cnt, n_cnt, r_lat, n_lat;
-   assign txn_cnt = r_cnt;
-   assign txn_lat = r_lat;
-   
-
-   //I/O Connections. Write Address (AW)
-   assign M_AXI_AWID	= 'b0;
-   assign M_AXI_ARID	= 'b0;
-
-   
-   //The AXI address is a concatenation of the target base address + active offset range
-   //Burst LENgth is number of transaction beats, minus 1
-   
-   assign M_AXI_AWLEN	= 8'd0;
-   assign M_AXI_ARLEN	= 8'd0;
-   //Size should be C_M_AXI_DATA_WIDTH, in 2^SIZE bytes, otherwise narrow bursts are used
-   assign M_AXI_AWSIZE	= 3'd4; /* 16 bytes */
-   assign M_AXI_ARSIZE	= 3'd4;
-   
-   //INCR burst type is usually used, except for keyhole bursts
-   assign M_AXI_AWBURST	= 2'b00;
-   assign M_AXI_AWLOCK	= 1'b0;
-   //Update value to 4'b0011 if coherent accesses to be used via the Zynq ACP port. 
-   assign M_AXI_AWCACHE	= 4'b0010;
-   assign M_AXI_AWPROT	= 3'h0;
-   assign M_AXI_AWQOS	= 4'h0;
-   assign M_AXI_AWUSER	= 'b1;
-
-   //Write Data(W)
-
-   assign M_AXI_WUSER	= 'b0;
-
-   //Read Address (AR)
-
-
-   //INCR burst type is usually used, except for keyhole bursts
-   assign M_AXI_ARBURST	= 2'b00;
-   assign M_AXI_ARLOCK	= 1'b0;
-   
-   //Update value to 4'b0011 if coherent accesses to be used via the Zynq ACP port.  
-   assign M_AXI_ARCACHE	= 4'b0010;
-   assign M_AXI_ARPROT	= 3'h0;
-   assign M_AXI_ARQOS	= 4'h0;
-   assign M_AXI_ARUSER	= 'b1;
-   
-   //Example design I/O
-   assign TXN_DONE	= 1'b1;
-
-   reg [31:0]	      r_addr, n_addr;
-   reg [15:0]	      n_store_mask, r_store_mask;
-   
-   reg [31:0]	      r_last_addr, n_last_addr;
-   
-   reg		      r_awvalid, n_awvalid;
-   reg		      r_arvalid, n_arvalid;
-   reg		      n_mem_req_gnt, r_mem_req_gnt;
-   reg		      r_wvalid, n_wvalid;
-   reg		      r_bready, n_bready;
-   reg		      n_rready, r_rready;
-   
-   localparam	      IDLE = 4'd0;
-   localparam	      WR_CH = 4'd1;
-   localparam	      WR_RSP = 4'd2;
-   localparam	      RD_CH = 4'd3;
-   localparam	      RD_RSP = 4'd4;
-   localparam	      WR_BAD = 4'd5;
-   localparam	      RD_BAD = 4'd6;   
-   localparam	      WAIT = 4'd7;
-   localparam	      DEAD = 4'd8;
-   
-   reg [63:0]	      r_axi_reads, n_axi_reads;
-   reg [63:0]	      r_axi_writes, n_axi_writes;
-   reg [7:0]	      r_ticks,n_ticks;
-   
-   reg [31:0]	      r_fetches, n_fetches;
-   assign axi_reads = r_axi_reads;
-   assign axi_writes = r_axi_writes;
-   
-   
-   wire				   w_reset = (M_AXI_ARESETN == 1'b0) | rv_reset;
-   always@(posedge M_AXI_ACLK)
-     begin
-	r_fetches <= w_reset ? 'd0 : n_fetches;
-	r_axi_reads <= w_reset ? 'd0 : n_axi_reads;
-	r_axi_writes <= w_reset ? 'd0 : n_axi_writes;
-	r_state <= w_reset ? IDLE : n_state;
-	r_rready <= w_reset ? 1'b0 : n_rready;
-	r_awvalid <= w_reset ? 1'b0 : n_awvalid;
-	r_arvalid <= w_reset ? 1'b0 : n_arvalid;
-	r_wvalid <= w_reset ? 1'b0 : n_wvalid;
-	r_bready <= w_reset ? 1'b0 : n_bready;
-	r_mem_rsp_valid <= w_reset ? 1'b0 : n_mem_rsp_valid;
-	r_mem_rsp_bad <= w_reset ? 1'b0 : n_mem_rsp_bad;	
-	r_addr <= w_reset ? 32'hdeadbee0 : n_addr;
-	r_store_mask <= w_reset ? 16'd0 : n_store_mask;
-	r_ticks <= w_reset ? 8'd0 : n_ticks;
-	r_tag <= w_reset ? 'd0 : n_tag;
-	r_last_addr <= w_reset ? 32'hcafebeb0 : n_last_addr;
-	r_mem_req_gnt <= w_reset ? 1'b0 : n_mem_req_gnt;
-     end
-
-   assign M_AXI_ARADDR	= r_addr;
-   assign M_AXI_ARVALID = r_arvalid;
-
-   assign M_AXI_RREADY	= r_rready;
-   
-   assign M_AXI_AWVALID	= r_awvalid;
-   assign M_AXI_AWADDR	= r_addr;
-   
-   assign M_AXI_WVALID	= r_awvalid;
-   
-   assign M_AXI_WDATA	= r_store_data;
-   assign M_AXI_WSTRB	= r_store_mask;
-
-   assign M_AXI_WLAST	= r_awvalid;   
-   assign M_AXI_BREADY	= (r_state == WR_CH) | (r_state == WR_RSP);
-   
-   assign mem_req_gnt = r_mem_req_gnt;
-
-
-   always@(posedge M_AXI_ACLK)
-     begin
-        r_cnt <= w_reset ? 'd0 : n_cnt;
-	r_lat <= w_reset ? 'd0 : n_lat;
-     end // always@ (posedge M_AXI_ACLK)
-   
-   always@(*)
-     begin
-	n_cnt = r_cnt;
-	n_lat = r_lat;
-	// if(t_mem_req_gnt)
-	//   begin
-	//      n_cnt = r_cnt + 'd1;
-	//   end
-	//if(r_state == IDLE && n_state == RD_CH)
-	//begin
-	n_cnt = r_cnt + 'd1;
-	//end	
-	//if(r_state != IDLE)
-	//begin
-	//   n_lat = r_lat + 'd1;
-	//end
-	//if(t_update_last_addr & w_match_last)
-	if((r_state == IDLE) & (n_state == IDLE))	  
-	  begin
-	     n_lat = r_lat + 'd1;
-	  end
-     end // always@ (*)
-
-   reg [35:0] t_cpuaddr;
-   reg	      r_sgi_mode;
-   
+   wire w_reset = (M_AXI_ARESETN == 1'b0) | rv_reset;
+   reg  r_sgi_mode;
    always@(posedge M_AXI_ACLK)
      begin
 	r_sgi_mode <= w_reset ? 1'b0 : sgi_mode;
      end
 
+   // ---- per-lane request engines ----
+   wire        w_ar_valid0, w_ar_valid1, w_aw_valid0, w_aw_valid1;
+   wire [31:0] w_ar_addr0, w_ar_addr1, w_aw_addr0, w_aw_addr1;
+   wire [7:0]  w_ar_len0, w_ar_len1, w_aw_len0, w_aw_len1;
+   wire        w_w_valid0, w_w_valid1, w_w_last0, w_w_last1;
+   wire [127:0] w_w_data0, w_w_data1;
+   wire [15:0]  w_w_strb0, w_w_strb1;
+   wire        w_busy0, w_busy1, w_wr0, w_wr1, w_acc0, w_acc_wr0;
+   wire [25:0] w_line0, w_line1, w_acc_line0;
+   wire        w_rd_pulse0, w_rd_pulse1, w_wr_pulse0, w_wr_pulse1;
+   wire [3:0]  w_state0, w_state1;
+   wire [511:0] w_rsp_data0;
+   wire [31:0] w_last_addr0, w_last_addr1;
 
-   //0x2000 0000
+   /* channel ownership (one AR and one AW/W in flight at a time across lanes) */
+   reg         r_ar_lock, r_ar_own;
+   reg         r_aw_lock, r_aw_own;
+   reg         r_w_busy, r_w_own;
+   wire        w_ar_sel = r_ar_lock ? r_ar_own : (w_ar_valid0 ? 1'b0 : 1'b1);
+   wire        w_aw_sel = r_aw_lock ? r_aw_own : (w_aw_valid0 ? 1'b0 : 1'b1);
+
+   assign M_AXI_ARVALID = w_ar_sel ? w_ar_valid1 : w_ar_valid0;
+   assign M_AXI_ARADDR  = w_ar_sel ? w_ar_addr1  : w_ar_addr0;
+   assign M_AXI_ARLEN   = w_ar_sel ? w_ar_len1   : w_ar_len0;
+   assign M_AXI_ARID    = w_ar_sel;
+   wire   w_ar_fire     = M_AXI_ARVALID & M_AXI_ARREADY;
+
+   /* AW only while no W burst is in progress (AXI4: W data follows AW order) */
+   assign M_AXI_AWVALID = ~r_w_busy & (w_aw_sel ? w_aw_valid1 : w_aw_valid0);
+   assign M_AXI_AWADDR  = w_aw_sel ? w_aw_addr1 : w_aw_addr0;
+   assign M_AXI_AWLEN   = w_aw_sel ? w_aw_len1  : w_aw_len0;
+   assign M_AXI_AWID    = w_aw_sel;
+   wire   w_aw_fire     = M_AXI_AWVALID & M_AXI_AWREADY;
+
+   assign M_AXI_WVALID  = r_w_busy & (r_w_own ? w_w_valid1 : w_w_valid0);
+   assign M_AXI_WDATA   = r_w_own ? w_w_data1 : w_w_data0;
+   assign M_AXI_WSTRB   = r_w_own ? w_w_strb1 : w_w_strb0;
+   assign M_AXI_WLAST   = r_w_own ? w_w_last1 : w_w_last0;
+   wire   w_w_fire      = M_AXI_WVALID & M_AXI_WREADY;
+
+   assign M_AXI_RREADY  = 1'b1;    /* each lane is waiting in its R state when its data arrives */
+   assign M_AXI_BREADY  = 1'b1;
+
+   always@(posedge M_AXI_ACLK)
+     begin
+	if(w_reset)
+	  begin
+	     r_ar_lock <= 1'b0;
+	     r_ar_own <= 1'b0;
+	     r_aw_lock <= 1'b0;
+	     r_aw_own <= 1'b0;
+	     r_w_busy <= 1'b0;
+	     r_w_own <= 1'b0;
+	  end
+	else
+	  begin
+	     r_ar_lock <= M_AXI_ARVALID & ~M_AXI_ARREADY;
+	     r_ar_own <= w_ar_sel;
+	     r_aw_lock <= M_AXI_AWVALID & ~M_AXI_AWREADY;
+	     r_aw_own <= w_aw_sel;
+	     if(w_aw_fire)
+	       begin
+		  r_w_busy <= 1'b1;
+		  r_w_own <= w_aw_sel;
+	       end
+	     else if(w_w_fire & M_AXI_WLAST)
+	       begin
+		  r_w_busy <= 1'b0;
+	       end
+	  end
+     end // always@ (posedge M_AXI_ACLK)
+
+   axi_lane #(.ID(0), .BURST(0)) lane0
+     (.clk(M_AXI_ACLK),
+      .reset(w_reset),
+      .sgi_mode(r_sgi_mode),
+      .baseaddr(baseaddr),
+      .addrmask(addrmask),
+      .req_valid(mem_req_valid),
+      .req_addr(cpuaddr),
+      .req_opcode(mem_opcode),
+      .req_mask(mem_mask),
+      .req_store_data({384'd0, mem_req_store_data}),
+      .other_busy(w_busy1),
+      .other_wr(w_wr1),
+      .other_line(w_line1),
+      .other_acc(1'b0),
+      .other_acc_wr(1'b0),
+      .other_acc_line(26'd0),
+      .busy(w_busy0),
+      .wr(w_wr0),
+      .line(w_line0),
+      .acc(w_acc0),
+      .acc_wr(w_acc_wr0),
+      .acc_line(w_acc_line0),
+      .rsp_valid(mem_rsp_valid),
+      .rsp_bad(mem_rsp_bad),
+      .rsp_data(w_rsp_data0),
+      .ar_valid(w_ar_valid0),
+      .ar_addr(w_ar_addr0),
+      .ar_len(w_ar_len0),
+      .ar_fire(w_ar_fire & (w_ar_sel == 1'b0)),
+      .aw_valid(w_aw_valid0),
+      .aw_addr(w_aw_addr0),
+      .aw_len(w_aw_len0),
+      .aw_fire(w_aw_fire & (w_aw_sel == 1'b0)),
+      .w_valid(w_w_valid0),
+      .w_data(w_w_data0),
+      .w_strb(w_w_strb0),
+      .w_last(w_w_last0),
+      .w_fire(w_w_fire & (r_w_own == 1'b0)),
+      .r_valid(M_AXI_RVALID & (M_AXI_RID == 1'b0)),
+      .r_data_in(M_AXI_RDATA),
+      .r_last(M_AXI_RLAST),
+      .b_valid(M_AXI_BVALID & (M_AXI_BID == 1'b0)),
+      .rd_pulse(w_rd_pulse0),
+      .wr_pulse(w_wr_pulse0),
+      .state(w_state0),
+      .last_addr(w_last_addr0));
+
+   axi_lane #(.ID(1), .BURST(1)) lane1
+     (.clk(M_AXI_ACLK),
+      .reset(w_reset),
+      .sgi_mode(r_sgi_mode),
+      .baseaddr(baseaddr),
+      .addrmask(addrmask),
+      .req_valid(mem2_req_valid),
+      .req_addr(mem2_req_addr),
+      .req_opcode(mem2_opcode),
+      .req_mask(mem2_mask),
+      .req_store_data(mem2_req_store_data),
+      .other_busy(w_busy0),
+      .other_wr(w_wr0),
+      .other_line(w_line0),
+      .other_acc(w_acc0),
+      .other_acc_wr(w_acc_wr0),
+      .other_acc_line(w_acc_line0),
+      .busy(w_busy1),
+      .wr(w_wr1),
+      .line(w_line1),
+      .acc(),
+      .acc_wr(),
+      .acc_line(),
+      .rsp_valid(mem2_rsp_valid),
+      .rsp_bad(mem2_rsp_bad),
+      .rsp_data(mem2_load_data),
+      .ar_valid(w_ar_valid1),
+      .ar_addr(w_ar_addr1),
+      .ar_len(w_ar_len1),
+      .ar_fire(w_ar_fire & (w_ar_sel == 1'b1)),
+      .aw_valid(w_aw_valid1),
+      .aw_addr(w_aw_addr1),
+      .aw_len(w_aw_len1),
+      .aw_fire(w_aw_fire & (w_aw_sel == 1'b1)),
+      .w_valid(w_w_valid1),
+      .w_data(w_w_data1),
+      .w_strb(w_w_strb1),
+      .w_last(w_w_last1),
+      .w_fire(w_w_fire & (r_w_own == 1'b1)),
+      .r_valid(M_AXI_RVALID & (M_AXI_RID == 1'b1)),
+      .r_data_in(M_AXI_RDATA),
+      .r_last(M_AXI_RLAST),
+      .b_valid(M_AXI_BVALID & (M_AXI_BID == 1'b1)),
+      .rd_pulse(w_rd_pulse1),
+      .wr_pulse(w_wr_pulse1),
+      .state(w_state1),
+      .last_addr(w_last_addr1));
+
+   // ---- fixed AXI attributes ----
+   assign M_AXI_AWSIZE  = 3'd4;    /* 16-byte beats */
+   assign M_AXI_ARSIZE  = 3'd4;
+   assign M_AXI_AWBURST = 2'b01;   /* INCR (a 1-beat INCR is the old single transfer) */
+   assign M_AXI_ARBURST = 2'b01;
+   assign M_AXI_AWLOCK  = 1'b0;
+   assign M_AXI_AWCACHE = 4'b0010;
+   assign M_AXI_AWPROT  = 3'h0;
+   assign M_AXI_AWQOS   = 4'h0;
+   assign M_AXI_AWUSER  = 'b1;
+   assign M_AXI_WUSER   = 'b0;
+   assign M_AXI_ARLOCK  = 1'b0;
+   assign M_AXI_ARCACHE = 4'b0010;
+   assign M_AXI_ARPROT  = 3'h0;
+   assign M_AXI_ARQOS   = 4'h0;
+   assign M_AXI_ARUSER  = 'b1;
+   assign TXN_DONE      = 1'b1;
+
+   // ---- lane-0 compatibility outputs + counters ----
+   reg [1:0]   r_tag;
+   reg	       r_mem_req_gnt;
+   reg [63:0]  r_axi_reads, r_axi_writes, r_cnt, r_lat;
+   always@(posedge M_AXI_ACLK)
+     begin
+	if(w_reset)
+	  begin
+	     r_tag <= 2'd0;
+	     r_mem_req_gnt <= 1'b0;
+	     r_axi_reads <= 64'd0;
+	     r_axi_writes <= 64'd0;
+	     r_cnt <= 64'd0;
+	     r_lat <= 64'd0;
+	  end
+	else
+	  begin
+	     r_mem_req_gnt <= w_acc0;
+	     if(w_acc0)
+	       begin
+		  r_tag <= mem_req_tag;
+	       end
+	     r_axi_reads <= r_axi_reads + {63'd0, w_rd_pulse0} + {63'd0, w_rd_pulse1};
+	     r_axi_writes <= r_axi_writes + {63'd0, w_wr_pulse0} + {63'd0, w_wr_pulse1};
+	     r_cnt <= r_cnt + 64'd1;
+	     if((w_state0 == 4'd0) & (w_state1 == 4'd0))
+	       begin
+		  r_lat <= r_lat + 64'd1;
+	       end
+	  end
+     end // always@ (posedge M_AXI_ACLK)
+
+   assign mem_rsp_tag = r_tag;
+   assign mem_req_gnt = r_mem_req_gnt;
+   assign axi_reads = r_axi_reads;
+   assign axi_writes = r_axi_writes;
+   assign txn_cnt = r_cnt;
+   assign txn_lat = r_lat;
+   assign axi_busy = w_busy0 | w_busy1;
+   assign state = w_state0;
+   assign load_data = w_rsp_data0[127:0];
+   assign last_addr = w_last_addr0;
+   assign last_data = w_rsp_data0[31:0];
+   always@(posedge M_AXI_ACLK)
+     begin
+	ERROR <= 1'b0;
+     end
+
+endmodule // axi_is_the_worst_v1_0_M00_AXI
+
+
+/* axi_lane -- one request engine of the M00 master (one request outstanding).
+ * The requester holds mem_req_valid until rsp_valid, then must drop it for at
+ * least a cycle (WAIT) before the next request -- the existing core-bus contract.
+ * A request is not accepted while the OTHER lane has an access in flight (or is
+ * accepting one this cycle) to the same 64B line and either access is a write,
+ * so the two AXI IDs never reorder a write against a same-line access. */
+module axi_lane #(parameter ID = 0, parameter BURST = 1)
+   (input wire           clk,
+    input wire           reset,
+    input wire           sgi_mode,
+    input wire [31:0]    baseaddr,
+    input wire [31:0]    addrmask,
+    input wire           req_valid,
+    input wire [35:0]    req_addr,
+    input wire [4:0]     req_opcode,
+    input wire [15:0]    req_mask,
+    input wire [511:0]   req_store_data,
+    input wire           other_busy,
+    input wire           other_wr,
+    input wire [25:0]    other_line,
+    input wire           other_acc,
+    input wire           other_acc_wr,
+    input wire [25:0]    other_acc_line,
+    output wire          busy,
+    output wire          wr,
+    output wire [25:0]   line,
+    output wire          acc,
+    output wire          acc_wr,
+    output wire [25:0]   acc_line,
+    output wire          rsp_valid,
+    output wire          rsp_bad,
+    output wire [511:0]  rsp_data,
+    output wire          ar_valid,
+    output wire [31:0]   ar_addr,
+    output wire [7:0]    ar_len,
+    input wire           ar_fire,
+    output wire          aw_valid,
+    output wire [31:0]   aw_addr,
+    output wire [7:0]    aw_len,
+    input wire           aw_fire,
+    output wire          w_valid,
+    output wire [127:0]  w_data,
+    output wire [15:0]   w_strb,
+    output wire          w_last,
+    input wire           w_fire,
+    input wire           r_valid,
+    input wire [127:0]   r_data_in,
+    input wire           r_last,
+    input wire           b_valid,
+    output wire          rd_pulse,
+    output wire          wr_pulse,
+    output wire [3:0]    state,
+    output wire [31:0]   last_addr);
+
+   localparam IDLE = 4'd0;
+   localparam AR   = 4'd1;
+   localparam RD   = 4'd2;
+   localparam AW   = 4'd3;
+   localparam WD   = 4'd4;
+   localparam WB   = 4'd5;
+   localparam BAD  = 4'd6;
+   localparam WAIT = 4'd7;
+
+   reg [3:0]   r_state, n_state;
+   reg [31:0]  r_addr, n_addr;
+   reg [7:0]   r_len, n_len;
+   reg [1:0]   r_beat, n_beat;
+   reg [15:0]  r_mask, n_mask;
+   reg         r_is_wr, n_is_wr;
+   reg         r_burst, n_burst;
+   reg [511:0] r_sd, n_sd;
+   reg [511:0] r_data;
+   reg         r_rsp_valid, n_rsp_valid;
+   reg         r_rsp_bad, n_rsp_bad;
+   reg [4:0]   r_ticks, n_ticks;
+   reg         t_acc, t_rd_pulse, t_wr_pulse;
+
+   /* IP22 sgi_mode PA fold, exactly as the single-lane master did it */
+   reg [35:0]  t_cpuaddr;
    always@(*)
      begin
-	t_cpuaddr = cpuaddr;
-	if(r_sgi_mode)
+	t_cpuaddr = req_addr;
+	if(sgi_mode)
 	  begin
-	     //System Memory Alias - 0x08000000 to 0x0807ffff
-	     if((cpuaddr <= 32'h17ffffff) & (cpuaddr >= 32'h08000000) )
+	     if((req_addr <= 36'h17ffffff) & (req_addr >= 36'h08000000))
 	       begin
-		  //starts at 2^27 - 256 mbytes
-		  t_cpuaddr = {8'd0, cpuaddr[27:0]};
+		  t_cpuaddr = {8'd0, req_addr[27:0]};
 	       end
-	     else if((cpuaddr <= 32'h1fffffff) & (cpuaddr >= 32'h1f000000))
+	     else if((req_addr <= 36'h1fffffff) & (req_addr >= 36'h1f000000))
 	       begin
-		  //0x1fffffff 0x1fc00000 4 MB Boot PROM
-		  //0x1fbfffff 0x1fb00000 1 MB HPC and I/O devices
-		  //0x1fafffff 0x1fa00000 1 MB MC registers
-		  //0x1f9fffff 0x1f600000 4 MB GIO64 Expansion Slot 1
-		  //0x1f5fffff 0x1f400000 2 MB GIO64 Expansion Slot 0
-		  //0x1f3fffff 0x1f000000 4 MB Graphics System
-		  t_cpuaddr = {12'd16 , cpuaddr[23:0]};
+		  t_cpuaddr = {12'd16, req_addr[23:0]};
 	       end
-	     
-	      //0x1effffff 0x18000000 112 MB Reserved (Future GIO Space)
-	      //0x17ffffff 0x08000000 256 MB Low Local Memory
-	      //0x07ffffff 0x000a0000 ~128 MB EISA Memory
-	      //0x0009ffff 0x00090000 64 KB EISA I/O Space Alias
-	      //0x0008ffff 0x00080000 64 KB EISA I/O Space
-	      //
-	   end
-     end
-	   
-   
-   /* truncate ONLY here, at the 32-bit AXI bus, and only after the
-    * full-width range check below has had a chance to poison it. */
-   wire [31:0] 					w_axi_addr = baseaddr+t_cpuaddr[31:0];
-   wire						w_bad_addr = (t_cpuaddr > {4'd0, addrmask});
+	  end
+     end // always@ (*)
 
-   wire						w_wr_req = mem_req_valid & (mem_opcode == 'd7);
-   wire						w_rd_req = mem_req_valid & (mem_opcode == 'd4);
-   assign axi_busy = (r_state != IDLE);
+   wire [31:0] w_axi_addr = baseaddr + t_cpuaddr[31:0];
+   wire        w_bad_addr = (t_cpuaddr > {4'd0, addrmask});
+   /* BURST=0 (the CPU lane) never sees 5/6, so its upper data slots and beat
+    * counter synthesize away */
+   wire        w_is_burst = (BURST != 0) & ((req_opcode == 5'd5) | (req_opcode == 5'd6));
+   wire        w_rd = req_valid & ((req_opcode == 5'd4) | ((BURST != 0) & (req_opcode == 5'd5)));
+   wire        w_wr = req_valid & ((req_opcode == 5'd7) | ((BURST != 0) & (req_opcode == 5'd6)));
+   wire [25:0] w_req_line = w_axi_addr[31:6];
+   wire        w_same_busy = other_busy & (other_line == w_req_line) & (other_wr | w_wr);
+   wire        w_same_acc = other_acc & (other_acc_line == w_req_line) & (other_acc_wr | w_wr);
+   wire        w_hazard = w_same_busy | w_same_acc;
 
+   assign busy = (r_state != IDLE) & (r_state != WAIT);
+   assign wr = r_is_wr;
+   assign line = r_addr[31:6];
+   assign acc = t_acc;
+   assign acc_wr = w_wr;
+   assign acc_line = w_req_line;
+   assign rsp_valid = r_rsp_valid;
+   assign rsp_bad = r_rsp_bad;
+   assign rsp_data = r_data;
+   assign ar_valid = (r_state == AR);
+   assign ar_addr = r_addr;
+   assign ar_len = r_len;
+   assign aw_valid = (r_state == AW);
+   assign aw_addr = r_addr;
+   assign aw_len = r_len;
+   assign w_valid = (r_state == WD);
+   assign w_data = (r_beat == 2'd0) ? r_sd[127:0] :
+		   (r_beat == 2'd1) ? r_sd[255:128] :
+		   (r_beat == 2'd2) ? r_sd[383:256] :
+		   r_sd[511:384];
+   assign w_strb = r_burst ? 16'hffff : r_mask;
+   assign w_last = (r_beat == r_len[1:0]);
+   assign rd_pulse = t_rd_pulse;
+   assign wr_pulse = t_wr_pulse;
+   assign state = r_state;
+   assign last_addr = r_addr;
 
-   
    always@(*)
      begin
 	n_state = r_state;
-	n_tag = r_tag;
 	n_addr = r_addr;
-	n_store_mask = r_store_mask;
-	
-	n_last_addr = r_last_addr;
-	n_awvalid = r_awvalid;
-	n_arvalid = r_arvalid;
-	
-	n_axi_reads = r_axi_reads;
-	n_axi_writes = r_axi_writes;
-	
-	n_wvalid = 1'b0;
-	n_rready = r_rready;
-	n_bready = r_bready;
-	n_mem_rsp_valid = 1'b0;
-	n_mem_rsp_bad = 1'b0;
-	
-	n_store_data = r_store_data;
-
+	n_len = r_len;
+	n_beat = r_beat;
+	n_mask = r_mask;
+	n_is_wr = r_is_wr;
+	n_burst = r_burst;
+	n_sd = r_sd;
+	n_rsp_valid = 1'b0;
+	n_rsp_bad = 1'b0;
 	n_ticks = r_ticks;
-
-	n_mem_req_gnt = 1'b0;
-	n_fetches = r_fetches;
-	
+	t_acc = 1'b0;
+	t_rd_pulse = 1'b0;
+	t_wr_pulse = 1'b0;
 	case(r_state)
 	  IDLE:
-	    begin	       
-	       if(w_wr_req & w_bad_addr)
-		 begin
-		    n_addr = {w_axi_addr[31:4], 4'd1};
-		    n_tag = mem_req_tag;
-		    n_mem_req_gnt = 1'b1;
-		    n_state = WR_BAD;
-		    n_ticks = 'd0;
-		 end
-	       else if(w_rd_req & w_bad_addr)
-		 begin
-		    n_addr = {w_axi_addr[31:4], 4'd2};		    
-		    n_tag = mem_req_tag;
-		    n_mem_req_gnt = 1'b1;
-		    n_state = RD_BAD;
-		    n_ticks = 'd0;
-		 end
-	       else
-		 if(w_wr_req)
-		   begin
-		      n_addr = w_axi_addr;
-		      n_state = WR_CH;
-		      n_awvalid = 1'b1;
-		      n_tag = mem_req_tag;
-		      n_mem_req_gnt = 1'b1;
-		      n_store_data = mem_req_store_data;
-		      n_store_mask = mem_mask;
-		      n_axi_writes = r_axi_writes + 'd1;
-		      n_fetches = r_fetches + 'd1;
-		 end
-		 else if(w_rd_req)
-		   begin
-		      n_addr = w_axi_addr;	
-		      n_state = RD_CH;
-		      n_arvalid = 1'b1;
-		      n_rready = 1'b1;
-		      n_tag = mem_req_tag;		    
-		      n_mem_req_gnt = 1'b1;
-		      n_axi_reads = r_axi_reads + 'd1;
-		      n_fetches = r_fetches + 'd1;		    
-		   end
-	    end // case: IDLE
-	  WR_CH:
 	    begin
-	       if(M_AXI_AWVALID & M_AXI_AWREADY & M_AXI_WVALID & M_AXI_WREADY)
+	       if((w_rd | w_wr) & ~w_hazard)
 		 begin
-		    n_last_addr = r_addr;
-		    n_state = WR_RSP;
-		    n_awvalid = 1'b0;
+		    t_acc = 1'b1;
+		    n_is_wr = w_wr;
+		    n_burst = w_is_burst;
+		    n_len = w_is_burst ? 8'd3 : 8'd0;
+		    n_beat = 2'd0;
+		    n_mask = req_mask;
+		    n_sd = req_store_data;
+		    n_ticks = 5'd0;
+		    if(w_bad_addr)
+		      begin
+			 n_addr = {w_axi_addr[31:4], w_wr ? 4'd1 : 4'd2};
+			 n_state = BAD;
+		      end
+		    else
+		      begin
+			 n_addr = w_is_burst ? {w_axi_addr[31:6], 6'd0} : w_axi_addr;
+			 n_state = w_wr ? AW : AR;
+			 t_rd_pulse = w_rd;
+			 t_wr_pulse = w_wr;
+		      end
 		 end
 	    end
-	  WR_RSP:
+	  AR:
 	    begin
-	       if(M_AXI_BVALID)
+	       if(ar_fire)
 		 begin
-		    n_state = WAIT;
-		    n_mem_rsp_valid = 1'b1;		    
-		    // n_state = step_txn ? WR_DEAD : IDLE;
+		    n_state = RD;
 		 end
 	    end
-	  RD_CH:
+	  RD:
 	    begin
-	       if(M_AXI_ARREADY)
+	       if(r_valid)
 		 begin
-		    n_last_addr = r_addr;
-		    n_state = RD_RSP;
-		    n_arvalid = 1'b0;
+		    n_beat = r_beat + 2'd1;
+		    if(r_last)
+		      begin
+			 n_rsp_valid = 1'b1;
+			 n_state = WAIT;
+		      end
 		 end
 	    end
-	  RD_RSP:
+	  AW:
 	    begin
-	       if(M_AXI_RVALID)
+	       if(aw_fire)
 		 begin
-		    //n_state = step_txn ? RD_DEAD : IDLE;
-		    n_state =  WAIT;		    
-		    n_mem_rsp_valid = 1'b1;
-		    n_rready = 1'b0;		    
+		    n_state = WD;
 		 end
 	    end
-	  WR_BAD:
+	  WD:
 	    begin
-	       n_ticks = r_ticks + 'd1;
-	       if(r_ticks == 'd16)
+	       if(w_fire)
 		 begin
-		    n_mem_rsp_valid = 1'b1;
-		    n_mem_rsp_bad = 1'b1;
+		    n_beat = r_beat + 2'd1;
+		    if(w_last)
+		      begin
+			 n_state = WB;
+		      end
+		 end
+	    end
+	  WB:
+	    begin
+	       if(b_valid)
+		 begin
+		    n_rsp_valid = 1'b1;
 		    n_state = WAIT;
 		 end
-	    end	
-	  RD_BAD:
+	    end
+	  BAD:
 	    begin
-	       n_ticks = r_ticks + 'd1;
-	       if(r_ticks == 'd16)
+	       n_ticks = r_ticks + 5'd1;
+	       if(r_ticks == 5'd16)
 		 begin
-		    n_mem_rsp_valid = 1'b1;
-		    n_mem_rsp_bad = 1'b1;		    
-		    n_state =  WAIT;
-		 end	       
+		    n_rsp_valid = 1'b1;
+		    n_rsp_bad = 1'b1;
+		    n_state = WAIT;
+		 end
 	    end
 	  WAIT:
 	    begin
-	       n_state = mem_req_valid ?  WAIT : IDLE;
+	       n_state = req_valid ? WAIT : IDLE;
 	    end
-	endcase
+	  default:
+	    begin
+	       n_state = IDLE;
+	    end
+	endcase // case (r_state)
      end // always@ (*)
 
-
-
-   assign load_data = r_load_data;
-   
-   always@(posedge M_AXI_ACLK)
+   always@(posedge clk)
      begin
-	r_store_data <= n_store_data;
-	if((r_state == RD_RSP) & M_AXI_RVALID)
+	if(reset)
 	  begin
-	     r_load_data <= M_AXI_RDATA;
+	     r_state <= IDLE;
+	     r_addr <= 32'hdeadbee0;
+	     r_len <= 8'd0;
+	     r_beat <= 2'd0;
+	     r_mask <= 16'd0;
+	     r_is_wr <= 1'b0;
+	     r_burst <= 1'b0;
+	     r_rsp_valid <= 1'b0;
+	     r_rsp_bad <= 1'b0;
+	     r_ticks <= 5'd0;
 	  end
-	else if(r_state == RD_BAD)
+	else
 	  begin
-	     // POISON out-of-range reads (was 'd0) so a wild/corrupt-pointer read is
-	     // VISIBLE in the value, not indistinguishable from legit zero.  0xA5A5A5A5
-	     // is itself > addrmask, so it self-propagates through a wild pointer chain
-	     // (deref of an A5A5 ptr is another RD_BAD -> A5A5 again).
-	     r_load_data <= {16{8'hA5}};
+	     r_state <= n_state;
+	     r_addr <= n_addr;
+	     r_len <= n_len;
+	     r_beat <= n_beat;
+	     r_mask <= n_mask;
+	     r_is_wr <= n_is_wr;
+	     r_burst <= n_burst;
+	     r_rsp_valid <= n_rsp_valid;
+	     r_rsp_bad <= n_rsp_bad;
+	     r_ticks <= n_ticks;
 	  end
-     end // always @ (posedge M_AXI_ACLK)
-   
-   assign last_addr = r_addr;
-   assign last_data = r_load_data[31:0];
-
-endmodule
+	r_sd <= n_sd;
+	/* read beats land in their 128b slot (a 16B read uses slot 0); out-of-range
+	 * reads are POISONED with 0xA5 (> addrmask, so a wild pointer chain keeps
+	 * faulting visibly) exactly as the single-lane master did */
+	if((r_state == RD) & r_valid & (BURST == 0))
+	  begin
+	     r_data[127:0] <= r_data_in;
+	  end
+	else if((r_state == RD) & r_valid)
+	  begin
+	     case(r_beat)
+	       2'd0:
+		 begin
+		    r_data[127:0] <= r_data_in;
+		 end
+	       2'd1:
+		 begin
+		    r_data[255:128] <= r_data_in;
+		 end
+	       2'd2:
+		 begin
+		    r_data[383:256] <= r_data_in;
+		 end
+	       default:
+		 begin
+		    r_data[511:384] <= r_data_in;
+		 end
+	     endcase // case (r_beat)
+	  end
+	else if((r_state == BAD) & ~r_is_wr)
+	  begin
+	     r_data <= {64{8'hA5}};
+	  end
+     end // always@ (posedge clk)
+endmodule // axi_lane

@@ -31,7 +31,11 @@ int main(int argc, char **argv) {
   for(int i = 0; i < 4; i++) { tick(); }
   t->reset = 0;
 
-  srand(1);
+  srand(argc > 2 ? atoi(argv[2]) : 1);
+  /* argv[1] = max memory latency: a slow memory backs the record queue up so the
+   * writer's 64B bursts (4 records, opcode 6) get exercised */
+  const int max_lat = argc > 1 ? atoi(argv[1]) : 5;
+  long n_bursts = 0, n_singles = 0;
   std::deque<access_t> issued;          /* accesses in CPU order, for the ARM-side check */
   uint32_t expect_recno = 1, cons = 0, arm_prod_seen = 0;
   bool cpu_busy = false; access_t cur{}; uint64_t cpu_wait = 0, max_wait = 0;
@@ -69,12 +73,24 @@ int main(int argc, char **argv) {
     /* ---- memory: random latency, one outstanding ---- */
     t->mem_rsp_valid = 0;
     if(t->mem_req_valid) {
-      if(mem_lat < 0) { mem_lat = rand() % 5; }
+      if(mem_lat < 0) { mem_lat = rand() % max_lat; }
       else if(mem_lat-- == 0) {
         uint32_t a = (uint32_t)t->mem_req_addr;
-        CHECK(t->mem_req_opcode == 7, "store opcode");
-        uint8_t *l = line(a);
-        for(int b = 0; b < 16; b++) { if((t->mem_req_mask >> b) & 1) { l[b] = (uint8_t)(t->mem_req_store_data[b / 4] >> (8 * (b % 4))); } }
+        CHECK(t->mem_req_opcode == 7 || t->mem_req_opcode == 6, "store opcode %u", t->mem_req_opcode);
+        if(t->mem_req_opcode == 6) {
+          /* 64B burst: four ring slots, full strobes */
+          CHECK((a & 63) == 0, "burst not 64B aligned: %08x", a);
+          CHECK(a >= RING_PA && a + 64 <= RING_PA + RING_N * 16, "burst outside the ring: %08x", a);
+          for(int q = 0; q < 4; q++) {
+            uint8_t *l = line(a + 16 * q);
+            for(int b = 0; b < 16; b++) { l[b] = (uint8_t)(t->mem_req_store_data[(16 * q + b) / 4] >> (8 * (b % 4))); }
+          }
+          n_bursts++;
+        } else {
+          uint8_t *l = line(a);
+          for(int b = 0; b < 16; b++) { if((t->mem_req_mask >> b) & 1) { l[b] = (uint8_t)(t->mem_req_store_data[b / 4] >> (8 * (b % 4))); } }
+          n_singles++;
+        }
         t->mem_rsp_valid = 1; mem_lat = -1;
       }
     }
@@ -127,6 +143,7 @@ int main(int argc, char **argv) {
   printf("stores %ld loads %ld | held-store cycles %ld (ring near full %ld) | max CPU wait %llu cycles | records %u\n",
          n_stores, n_loads, n_held_full, n_ring_full, (unsigned long long)max_wait, expect_recno - 1);
   CHECK(n_ring_full > 300, "ring-full back-pressure was not exercised (%ld cycles)", n_ring_full);
+  printf("memory writes: %ld single 16B, %ld 64B bursts\n", n_singles, n_bursts);
   printf("%ld checks, %ld failures\n", g_checks, g_fail);
   delete t;
   return g_fail ? 1 : 0;

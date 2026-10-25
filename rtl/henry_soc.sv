@@ -79,6 +79,18 @@ module henry_soc
    input  logic                  mem_rsp_valid,
    input  logic                  mem_rsp_bad,
    input  logic [127:0]          mem_rsp_load_data,
+   /* lane 1 of the AXI master (AXI ID 1, concurrent with the CPU's lane 0 above):
+    * the DMA engine + gio_window ring writer / MC fill.  Same contract as lane 0
+    * (one request outstanding, valid drops between requests); opcodes 4/7 = 16B,
+    * 5/6 = 64B burst read/write with the data in [511:0]. */
+   output logic                  mem2_req_valid,
+   output logic [`PA_WIDTH-1:0]  mem2_req_addr,
+   output logic [511:0]          mem2_req_store_data,
+   output logic [4:0]            mem2_req_opcode,
+   output logic [15:0]           mem2_req_mask,
+   input  logic                  mem2_rsp_valid,
+   input  logic                  mem2_rsp_bad,
+   input  logic [511:0]          mem2_rsp_load_data,
 
    // console: merged SCC-UART + core-putchar stream, exposed for a host sink
    output logic [7:0]            putchar_fifo_out,
@@ -190,6 +202,8 @@ module henry_soc
    output logic [31:0]           gio_prod,           // debug: records published
    output logic [31:0]           vdma_stat0,         // MC VDMA usage: {non-fill starts[23:0], last mode[7:0]}
    output logic [31:0]           vdma_stat1,         // MC VDMA usage: {fill starts[15:0], other DMA reg writes[15:0]}
+   input  logic [4:0]            gfx_perf_sel,       // graphics-path counter select: [4:1] counter, [0] 0=low 32 / 1=high 16
+   output logic [31:0]           gfx_perf_data,      // read 0x02: the selected counter half
    output logic                  gio_pend,           // debug: a load is waiting for the ARM
    output logic [31:0]           gio_pend_seq,
    output logic [47:0]           enet_station,       // programmed station MAC (for RX filter)
@@ -597,7 +611,7 @@ module henry_soc
    wire [4:0]           w_sdn_req_opcode;
    wire [15:0]          w_sdn_req_mask;
    wire                 w_seng_rsp_valid;
-   wire [127:0]         w_seng_rsp_load_data;
+   wire [511:0]         w_seng_rsp_load_data;
    wire                 w_dma_owner_enet;   /* dma_engine: an ENET channel owns master 1 (logging) */
    wire                 w_m1_req_valid      = w_sdn_req_valid;
    wire [`PA_WIDTH-1:0] w_m1_req_addr       = w_sdn_req_addr;
@@ -628,7 +642,7 @@ module henry_soc
    wire                 w_trace_stall;    // dram_trace FIFO high-water -> pause retirement (lossless)
    wire                 w_trace_req_valid;
    wire [`PA_WIDTH-1:0] w_trace_req_addr;
-   wire [127:0]         w_trace_req_store_data;
+   wire [511:0]         w_trace_req_store_data;   /* 512: the ring writer's 64B bursts */
    wire [4:0]           w_trace_req_opcode;
    wire [15:0]          w_trace_req_mask;
 
@@ -652,11 +666,12 @@ module henry_soc
       .pc_range_en(trace_pcfilt),
       .asid(w_core_asid), .target_asid(trace_target_asid), .filter_en(trace_filter_en),
       .trace_req_valid(w_trace_req_valid),           .trace_req_addr(w_trace_req_addr),
-      .trace_req_store_data(w_trace_req_store_data), .trace_req_opcode(w_trace_req_opcode),
+      .trace_req_store_data(w_trace_req_store_data[127:0]), .trace_req_opcode(w_trace_req_opcode),
       .trace_req_mask(w_trace_req_mask),
-      .trace_rsp_valid(w_arb_rsp_valid[2]),          .trace_rsp_bad(mem_rsp_bad),
+      .trace_rsp_valid(w_arb_rsp_valid[2]),          .trace_rsp_bad(mem2_rsp_bad),
       .trace_ring_wptr(trace_ring_wptr), .trace_overflow(trace_overflow));
    /* gio_window needs arbiter master 2 too: the two cannot be built together */
+   assign w_trace_req_store_data[511:128] = '0;   /* the trace engine writes 16B */
    GIO_WINDOW_AND_DRAM_TRACE_BOTH_NEED_ARBITER_MASTER_2 u_master2_conflict();
 `else
    assign w_trace_stall          = 1'b0;
@@ -682,21 +697,44 @@ module henry_soc
    /* ENET and SCSI share master 1: one dma_engine behind one dma_snoop_shim.
     * Slots: CPU x5, DMA x2 (the two engines' former 1+1), master 2 (gio_window / MC
     * fill) x1. */
-   mem_arbiter #(.N(3), .NSLOT(8), .LG_N(2), .SLOT_MAP(16'b01_10_01_00_00_00_00_00)) u_arb
+   /* Two AXI lanes (two AXI IDs, concurrent): lane 0 = the CPU alone; lane 1 =
+    * master 1 (DMA) x2 slots + master 2 (gio_window / MC fill / trace) x1.  Each
+    * lane is still one-outstanding with the valid-low TURN cycle.  The master
+    * blocks a cross-lane access to a 64B line the other lane is writing (or a
+    * write to a line it is accessing).  w_arb_rsp_valid keeps the old 3-master
+    * numbering so the consumers below are unchanged. */
+   wire [1:0] w_arb1_rsp_valid;
+   mem_arbiter #(.N(1), .NSLOT(1), .LG_N(1), .SLOT_MAP(1'b0)) u_arb0
      (.clk(clk), .reset(reset),
-      .m_req_valid     ({w_trace_req_valid,      w_m1_req_valid,      w_cpu_dram_req}),
-      .m_req_addr      ({w_trace_req_addr,       w_m1_req_addr,       w_cpu_req_addr}),
-      .m_req_store_data({w_trace_req_store_data, w_m1_req_store_data, c_req_store_data}),
-      .m_req_opcode    ({w_trace_req_opcode,     w_m1_req_opcode,     c_req_opcode}),
-      .m_req_mask      ({w_trace_req_mask,       w_m1_req_mask,       c_req_mask}),
-      .m_rsp_valid     (w_arb_rsp_valid),
-      .m_rsp_load_data (),                // CPU/DMA read mem_rsp_load_data directly
+      .m_req_valid     (w_cpu_dram_req),
+      .m_req_addr      (w_cpu_req_addr),
+      .m_req_store_data(c_req_store_data),
+      .m_req_opcode    (c_req_opcode),
+      .m_req_mask      (c_req_mask),
+      .m_rsp_valid     (w_arb_rsp_valid[0]),
+      .m_rsp_load_data (),
       .m_rsp_bad       (),
       .mem_req_valid(mem_req_valid),           .mem_req_addr(mem_req_addr),
       .mem_req_store_data(mem_req_store_data), .mem_req_opcode(mem_req_opcode),
       .mem_req_mask(mem_req_mask),
       .mem_rsp_valid(mem_rsp_valid),           .mem_rsp_load_data(mem_rsp_load_data),
       .mem_rsp_bad(mem_rsp_bad));
+   mem_arbiter #(.N(2), .NSLOT(3), .LG_N(1), .SLOT_MAP(3'b100), .DW(512)) u_arb1
+     (.clk(clk), .reset(reset),
+      .m_req_valid     ({w_trace_req_valid,      w_m1_req_valid}),
+      .m_req_addr      ({w_trace_req_addr,       w_m1_req_addr}),
+      .m_req_store_data({w_trace_req_store_data, 384'd0, w_m1_req_store_data}),
+      .m_req_opcode    ({w_trace_req_opcode,     w_m1_req_opcode}),
+      .m_req_mask      ({w_trace_req_mask,       w_m1_req_mask}),
+      .m_rsp_valid     (w_arb1_rsp_valid),
+      .m_rsp_load_data (),
+      .m_rsp_bad       (),
+      .mem_req_valid(mem2_req_valid),           .mem_req_addr(mem2_req_addr),
+      .mem_req_store_data(mem2_req_store_data), .mem_req_opcode(mem2_req_opcode),
+      .mem_req_mask(mem2_req_mask),
+      .mem_rsp_valid(mem2_rsp_valid),           .mem_rsp_load_data(mem2_rsp_load_data),
+      .mem_rsp_bad(mem2_rsp_bad));
+   assign w_arb_rsp_valid[2:1] = w_arb1_rsp_valid;
 
    wire w_mem_rsp_cpu = w_arb_rsp_valid[0];   // master 0 = CPU
    wire w_mem_rsp_dma = w_arb_rsp_valid[1];   // master 1 = DMA (ENET + SCSI)
@@ -888,7 +926,7 @@ module henry_soc
    wire                 w_gio_req_valid;
    wire [`PA_WIDTH-1:0] w_gio_req_addr;
    wire [4:0]           w_gio_req_opcode;
-   wire [127:0]         w_gio_req_store_data;
+   wire [511:0]         w_gio_req_store_data;
    wire [15:0]          w_gio_req_mask;
    wire                 w_gio_rsp_valid;
    wire                 w_mcdma_req_valid;
@@ -1001,7 +1039,7 @@ module henry_soc
    assign w_trace_req_valid      = t_m2_mc ? w_mcdma_req_valid      : w_gio_req_valid;
    assign w_trace_req_addr       = t_m2_mc ? w_mcdma_req_addr       : w_gio_req_addr;
    assign w_trace_req_opcode     = t_m2_mc ? 5'd7                   : w_gio_req_opcode;
-   assign w_trace_req_store_data = t_m2_mc ? w_mcdma_req_store_data : w_gio_req_store_data;
+   assign w_trace_req_store_data = t_m2_mc ? {384'd0, w_mcdma_req_store_data} : w_gio_req_store_data;
    assign w_trace_req_mask       = t_m2_mc ? 16'hffff               : w_gio_req_mask;
    assign w_gio_rsp_valid        = w_arb_rsp_valid[2] & ~t_m2_mc;
    assign w_mcdma_rsp_valid      = w_arb_rsp_valid[2] &  t_m2_mc;
@@ -1045,7 +1083,7 @@ module henry_soc
       .dma_req_store_data(w_dma_req_store_data),
       .dma_req_mask(w_dma_req_mask),
       .dma_rsp_valid(w_mem_rsp_dma),
-      .dma_rsp_load_data(mem_rsp_load_data));
+      .dma_rsp_load_data(mem2_rsp_load_data[127:0]));
 
    // ---- SCSI control shim (WD33C93 + HPC3 SCSI DMA channel); host-served disk ----
    // Shares the HPC3 window sel; its rdata ORs into w_rd_hpc3 (disjoint offsets).
@@ -1132,7 +1170,7 @@ module henry_soc
       .dn_req_valid(w_sdn_req_valid), .dn_req_addr(w_sdn_req_addr),
       .dn_req_opcode(w_sdn_req_opcode), .dn_req_store_data(w_sdn_req_store_data),
       .dn_req_mask(w_sdn_req_mask),
-      .dn_rsp_valid(w_mem_rsp_dma), .dn_rsp_load_data(mem_rsp_load_data),
+      .dn_rsp_valid(w_mem_rsp_dma), .dn_rsp_load_data(mem2_rsp_load_data),
       .snp_req_valid(w_snoop_valid), .snp_req_addr(w_snoop_addr), .snp_req_wbinv(w_snoop_wbinv),
       .snp_req_ack(w_snoop_ack), .snp_done(w_snoop_done));
 
@@ -1219,6 +1257,54 @@ module henry_soc
    assign c_rsp_valid     = w_dev_rsp | w_mem_rsp_cpu;
    assign c_rsp_bad       = w_dev_rsp ? r_dev_bad : (w_mem_rsp_cpu & mem_rsp_bad);
    assign c_rsp_load_data = w_dev_rsp ? (r_dev_gio ? w_gio_rdata : r_dev_rdata) : mem_rsp_load_data;
+
+   // =====================================================================
+   //  Graphics-path counters (48b, free-running from reset; the ARM reads
+   //  deltas through gfx_perf_sel / read 0x02).  They split where a Newport
+   //  frame's time goes on the PL side:
+   //   0 cycles
+   //   1 CPU GIO stores accepted          2 cycles a CPU GIO access is outstanding
+   //   3 ring writer waiting on AXI       4 ring writes completed (records + prod)
+   //   5 VDMA busy (go .. done)           6 VDMA engine waiting on a memory read (incl. snoop)
+   //   7 VDMA record waiting on the ring  8 VDMA records accepted by the ring
+   // =====================================================================
+   localparam int N_GFX_PERF = 9;
+   logic [47:0] r_gfx_perf [0:N_GFX_PERF-1];
+   logic [N_GFX_PERF-1:0] t_gfx_inc;
+   logic        r_vdma_busy;
+   always_ff @(posedge clk) begin
+      if(reset)
+        r_vdma_busy <= 1'b0;
+      else if(w_vdma_go)
+        r_vdma_busy <= 1'b1;
+      else if(w_vdma_done)
+        r_vdma_busy <= 1'b0;
+   end
+   always_comb begin
+      t_gfx_inc[0] = 1'b1;
+      t_gfx_inc[1] = w_dev_accept & w_is_gio & ~w_is_load;
+      t_gfx_inc[2] = r_dev_busy & r_dev_gio;
+      t_gfx_inc[3] = w_gio_req_valid & ~w_gio_rsp_valid;
+      t_gfx_inc[4] = w_gio_req_valid & w_gio_rsp_valid;
+      t_gfx_inc[5] = r_vdma_busy;
+      t_gfx_inc[6] = w_eng_req_valid & (w_dma_owner == 2'd3) & ~w_seng_rsp_valid;
+      t_gfx_inc[7] = w_vdma_rec_valid & ~w_vdma_rec_ready;
+      t_gfx_inc[8] = w_vdma_rec_valid & w_vdma_rec_ready;
+   end
+   always_ff @(posedge clk) begin
+      for(int i = 0; i < N_GFX_PERF; i++) begin
+         if(reset)
+           r_gfx_perf[i] <= '0;
+         else if(t_gfx_inc[i])
+           r_gfx_perf[i] <= r_gfx_perf[i] + 48'd1;
+      end
+   end
+   always_comb begin
+      if(gfx_perf_sel[4:1] < 4'(N_GFX_PERF))
+        gfx_perf_data = gfx_perf_sel[0] ? {16'd0, r_gfx_perf[gfx_perf_sel[4:1]][47:32]} : r_gfx_perf[gfx_perf_sel[4:1]][31:0];
+      else
+        gfx_perf_data = 32'hdead0000 | {27'd0, gfx_perf_sel};
+   end
 
    // =====================================================================
    //  SoC console FIFO (8-deep) -- exposed on the putchar_fifo_* port.

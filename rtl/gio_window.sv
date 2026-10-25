@@ -20,7 +20,9 @@
 // published at PROD_PA after every READ record, whenever the queue drains, and at
 // least every PROD_EVERY records.  The CPU is held while the ring is full
 // (assigned - cons == RING_N).
-// One memory port (arbiter master 2); staging PAs are not snooped.
+// One memory port (arbiter master 2, AXI lane 1); staging PAs are not snooped.  When the
+// queue holds 4 records and the next slot is 64B-aligned, they go out as one 64B burst
+// write (opcode 6); otherwise one 16B write per record.
 // A second source, the MC VDMA (memory -> GIO), adds 8-byte VDMA STORE records (mask
 // 0xff), bracketed by a BEGIN marker (queued ahead of any CPU access after the start)
 // and an END marker (after the last doubleword).  The CPU is never held for the DMA --
@@ -67,14 +69,14 @@ module gio_window #(parameter logic [31:0] BASE       = 32'h1f0f0000,
     output logic                  mem_req_valid,
     output logic [`PA_WIDTH-1:0]  mem_req_addr,
     output logic [4:0]            mem_req_opcode,
-    output logic [127:0]          mem_req_store_data,
+    output logic [511:0]          mem_req_store_data,  // [127:0] for a 16B write, all 64B for a burst
     output logic [15:0]           mem_req_mask,
     input  logic                  mem_rsp_valid);
 
    localparam int RING_N = 1 << LG_RING_N;
    localparam int QN     = 4;            // queued records not yet in memory
 
-   typedef enum logic [1:0] {W_IDLE = 2'd0, W_REC = 2'd1, W_PROD = 2'd2} wstate_t;
+   typedef enum logic [1:0] {W_IDLE = 2'd0, W_REC = 2'd1, W_PROD = 2'd2, W_BURST = 2'd3} wstate_t;
 
    // ---- record queue ----
    logic [127:0] r_q [QN-1:0];
@@ -102,7 +104,7 @@ module gio_window #(parameter logic [31:0] BASE       = 32'h1f0f0000,
    logic         r_end, n_end;            // END marker to queue
    logic [7:0]   t_lanes_mask;
    logic [63:0]  t_lanes;
-   logic         t_space, t_enq, t_deq;
+   logic         t_space, t_enq, t_deq, t_deq4;
    logic [127:0] t_enq_rec;
    logic [31:0]  t_slot;
    logic [31:0]  t_ring_addr, t_prod_addr;
@@ -145,9 +147,10 @@ module gio_window #(parameter logic [31:0] BASE       = 32'h1f0f0000,
 	n_beg       = r_beg | dma_begin;
 	n_end       = r_end | dma_end;
 
-	if(r_beg && (r_q_cnt != 3'(QN)) && t_space)
+	if(r_beg && !r_end && (r_q_cnt != 3'(QN)) && t_space)
 	  begin
-	     /* BEGIN goes first: a CPU access this cycle waits one cycle as a held one */
+	     /* BEGIN goes first (but after the previous transfer's END): a CPU access
+	      * this cycle waits one cycle as a held one */
 	     n_assigned = r_assigned + 32'd1;
 	     t_enq      = 1'b1;
 	     t_enq_rec  = t_brec;
@@ -159,10 +162,28 @@ module gio_window #(parameter logic [31:0] BASE       = 32'h1f0f0000,
 		  n_held_rd  = !is_store;
 	       end
 	  end
+	else if(r_end && (!dma_valid || r_beg) && (r_q_cnt != 3'(QN)) && t_space)
+	  begin
+	     /* END goes ahead of any CPU access that arrives after the transfer finished:
+	      * the CPU sees DMA_RUN clear at the same pulse, so its next GIO access (e.g.
+	      * a GFXBUSY read) must reach the ARM after END.  Safe to hold the CPU here:
+	      * the transfer's last doubleword (and its snoops) are already done. */
+	     n_assigned = r_assigned + 32'd1;
+	     t_enq      = 1'b1;
+	     t_enq_rec  = t_erec;
+	     n_end      = dma_end;
+	     if(sel)
+	       begin
+		  n_held     = 1'b1;
+		  n_held_rec = t_rec;
+		  n_held_rd  = !is_store;
+	       end
+	  end
 	else if(sel)
 	  begin
-	     /* a new access: queue it now (recno = assigned + 1), or hold it */
-	     if(!r_beg && (r_q_cnt != 3'(QN)) && t_space)
+	     /* a new access: queue it now (recno = assigned + 1), or hold it (also while
+	      * a finished transfer's END is still waiting for queue room) */
+	     if(!r_beg && !r_end && (r_q_cnt != 3'(QN)) && t_space)
 	       begin
 		  n_assigned = r_assigned + 32'd1;
 		  t_enq = 1'b1;
@@ -183,7 +204,7 @@ module gio_window #(parameter logic [31:0] BASE       = 32'h1f0f0000,
 		  n_held_rd  = !is_store;
 	       end
 	  end
-	else if(r_held && !r_beg)
+	else if(r_held && !r_beg && !r_end)
 	  begin
 	     if((r_q_cnt != 3'(QN)) && t_space)
 	       begin
@@ -211,13 +232,6 @@ module gio_window #(parameter logic [31:0] BASE       = 32'h1f0f0000,
 	     t_enq_rec  = t_drec;
 	     dma_ready  = 1'b1;
 	  end
-	else if(r_end && !dma_valid && (r_q_cnt != 3'(QN)) && t_space)
-	  begin
-	     n_assigned = r_assigned + 32'd1;
-	     t_enq      = 1'b1;
-	     t_enq_rec  = t_erec;
-	     n_end      = dma_end;
-	  end
 
 	if(r_wait && (ans_seq == r_wait_seq))
 	  begin
@@ -235,6 +249,7 @@ module gio_window #(parameter logic [31:0] BASE       = 32'h1f0f0000,
 	n_published = r_published;
 	n_rd_unpub  = r_rd_unpub;
 	t_deq       = 1'b0;
+	t_deq4      = 1'b0;
 	t_slot      = r_written & 32'(RING_N - 1);   /* record r_written+1 goes to slot r_written */
 	t_ring_addr = RING_PA + (t_slot << 4);
 	t_prod_addr = PROD_PA & ~32'hf;
@@ -251,6 +266,10 @@ module gio_window #(parameter logic [31:0] BASE       = 32'h1f0f0000,
 		 begin
 		    n_wstate = W_PROD;
 		 end
+	       else if((r_q_cnt == 3'(QN)) && (r_written[1:0] == 2'd0))
+		 begin
+		    n_wstate = W_BURST;       /* 4 records filling one 64B ring line */
+		 end
 	       else if(r_q_cnt != 3'd0)
 		 begin
 		    n_wstate = W_REC;
@@ -260,7 +279,7 @@ module gio_window #(parameter logic [31:0] BASE       = 32'h1f0f0000,
 	    begin
 	       mem_req_valid      = 1'b1;
 	       mem_req_addr       = `PA_WIDTH'(t_ring_addr);
-	       mem_req_store_data = r_q[r_q_head];
+	       mem_req_store_data = {384'd0, r_q[r_q_head]};
 	       if(mem_rsp_valid)
 		 begin
 		    t_deq     = 1'b1;
@@ -276,7 +295,7 @@ module gio_window #(parameter logic [31:0] BASE       = 32'h1f0f0000,
 	    begin
 	       mem_req_valid      = 1'b1;
 	       mem_req_addr       = `PA_WIDTH'(t_prod_addr);
-	       mem_req_store_data = {96'd0, r_written} << (8 * PROD_PA[3:0]);
+	       mem_req_store_data = {384'd0, {96'd0, r_written} << (8 * PROD_PA[3:0])};
 	       mem_req_mask       = 16'h000f << PROD_PA[3:0];
 	       if(mem_rsp_valid)
 		 begin
@@ -285,15 +304,34 @@ module gio_window #(parameter logic [31:0] BASE       = 32'h1f0f0000,
 		    n_wstate    = W_IDLE;
 		 end
 	    end
+	  W_BURST:
+	    begin
+	       mem_req_valid      = 1'b1;
+	       mem_req_addr       = `PA_WIDTH'(t_ring_addr);   /* slot % 4 == 0: 64B-aligned */
+	       mem_req_opcode     = 5'd6;
+	       mem_req_store_data = {r_q[r_q_head + 2'd3], r_q[r_q_head + 2'd2],
+				     r_q[r_q_head + 2'd1], r_q[r_q_head]};
+	       if(mem_rsp_valid)
+		 begin
+		    t_deq4    = 1'b1;
+		    n_written = r_written + 32'd4;
+		    if((r_q[r_q_head][31:30] == 2'b01) || (r_q[r_q_head + 2'd1][31:30] == 2'b01) ||
+		       (r_q[r_q_head + 2'd2][31:30] == 2'b01) || (r_q[r_q_head + 2'd3][31:30] == 2'b01))
+		      begin
+			 n_rd_unpub = 1'b1;
+		      end
+		    n_wstate = W_IDLE;
+		 end
+	    end
 	  default:
 	    begin
 	       n_wstate = W_IDLE;
 	    end
 	endcase // case (r_wstate)
 
-	n_q_head = t_deq ? (r_q_head + 2'd1) : r_q_head;
+	n_q_head = t_deq4 ? r_q_head : (t_deq ? (r_q_head + 2'd1) : r_q_head);   /* +4 wraps to itself */
 	n_q_tail = t_enq ? (r_q_tail + 2'd1) : r_q_tail;
-	n_q_cnt  = r_q_cnt + (t_enq ? 3'd1 : 3'd0) - (t_deq ? 3'd1 : 3'd0);
+	n_q_cnt  = r_q_cnt + (t_enq ? 3'd1 : 3'd0) - (t_deq ? 3'd1 : 3'd0) - (t_deq4 ? 3'd4 : 3'd0);
      end // always_comb
 
    always_ff@(posedge clk)

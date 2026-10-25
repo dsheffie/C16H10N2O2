@@ -20,26 +20,27 @@ module mem_arbiter
   #(parameter int                       N        = 2,        // number of masters
     parameter int                       NSLOT    = 4,        // round-robin slots (sum of weights)
     parameter int                       LG_N     = 1,        // bits to index a master
-    parameter [NSLOT*LG_N-1:0]          SLOT_MAP = 4'b1000)  // slot s owner = SLOT_MAP[s*LG_N +: LG_N]
+    parameter [NSLOT*LG_N-1:0]          SLOT_MAP = 4'b1000,  // slot s owner = SLOT_MAP[s*LG_N +: LG_N]
+    parameter int                       DW       = 128)      // data width (512 for the 64B-burst lane)
    (input  logic                        clk,
     input  logic                        reset,
     // packed per-master request channels (master m = bits [m*W +: W])
     input  logic [N-1:0]                m_req_valid,
     input  logic [N*`PA_WIDTH-1:0]      m_req_addr,
-    input  logic [N*128-1:0]            m_req_store_data,
+    input  logic [N*DW-1:0]             m_req_store_data,
     input  logic [N*5-1:0]              m_req_opcode,
     input  logic [N*16-1:0]             m_req_mask,
     output logic [N-1:0]                m_rsp_valid,          // 1-hot to the granted owner
-    output logic [127:0]                m_rsp_load_data,      // broadcast; qualify by m_rsp_valid
+    output logic [DW-1:0]               m_rsp_load_data,      // broadcast; qualify by m_rsp_valid
     output logic                        m_rsp_bad,
     // external DRAM port (one outstanding, fire-and-response, valid drops between reqs)
     output logic                        mem_req_valid,
     output logic [`PA_WIDTH-1:0]        mem_req_addr,
-    output logic [127:0]                mem_req_store_data,
+    output logic [DW-1:0]               mem_req_store_data,
     output logic [4:0]                  mem_req_opcode,
     output logic [15:0]                 mem_req_mask,
     input  logic                        mem_rsp_valid,
-    input  logic [127:0]                mem_rsp_load_data,
+    input  logic [DW-1:0]               mem_rsp_load_data,
     input  logic                        mem_rsp_bad);
 
    localparam ARB_IDLE = 2'd0, ARB_BUSY = 2'd1, ARB_TURN = 2'd2;
@@ -110,7 +111,7 @@ module mem_arbiter
    // request mux -- variable base (the allowed use of +:)
    assign mem_req_valid      = ((r_arb_state == ARB_IDLE) & w_any_req) | (r_arb_state == ARB_BUSY);
    assign mem_req_addr       = m_req_addr      [w_cur_owner*`PA_WIDTH +: `PA_WIDTH];
-   assign mem_req_store_data = m_req_store_data[w_cur_owner*128       +: 128];
+   assign mem_req_store_data = m_req_store_data[w_cur_owner*DW        +: DW];
    assign mem_req_opcode     = m_req_opcode    [w_cur_owner*5         +: 5];
    assign mem_req_mask       = m_req_mask      [w_cur_owner*16        +: 16];
 

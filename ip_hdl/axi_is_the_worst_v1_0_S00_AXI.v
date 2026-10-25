@@ -136,6 +136,8 @@ module axi_is_the_worst_v1_0_S00_AXI #
     input  wire [31:0]			      gio_prod,          // read 0x20
     input  wire [31:0]			      vdma_stat0,        // read 0x22: MC VDMA {non-fill starts[23:0], last mode[7:0]}
     input  wire [31:0]			      vdma_stat1,        // read 0x23: MC VDMA {fill starts[15:0], other DMA reg writes[15:0]}
+    output wire [4:0]			      gfx_perf_sel,      // write 0x24 [4:0]: graphics-path counter select
+    input  wire [31:0]			      gfx_perf_data,     // read 0x02: selected graphics-path counter half
     input  wire				      gio_pend,          // read 0x21 [31]
     input  wire [31:0]			      gio_pend_seq,      // read 0x21 [30:0]
     input  wire [31:0]			      ext_flush_stat,    // {completed[15:0], dirty[13:0], 1'b0, busy}
@@ -481,6 +483,7 @@ module axi_is_the_worst_v1_0_S00_AXI #
    assign gio_ans_hi  = slv_reg33;
    assign gio_ans_seq = slv_reg34;
    assign gio_cons    = slv_reg35;
+   assign gfx_perf_sel = slv_reg36[4:0];
    assign gio_irq     = slv_reg42[15:0];
 
    
@@ -1368,7 +1371,7 @@ module axi_is_the_worst_v1_0_S00_AXI #
 	case ( axi_araddr[ADDR_LSB+OPT_MEM_ADDR_BITS:ADDR_LSB] )
 	  6'h00   : reg_data_out <= r_insn_cnt[31:0];
 	  6'h01   : reg_data_out <= status;
-	  6'h02   : reg_data_out <= 32'd0;
+	  6'h02   : reg_data_out <= gfx_perf_data;                     // graphics-path counter (select = write 0x24)
 	  6'h03   : reg_data_out <= rvstatus;
 	  6'h04   : reg_data_out <= slv_reg4; //control
 	  6'h05   : reg_data_out <= 32'd0;

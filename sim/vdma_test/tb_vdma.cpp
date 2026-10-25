@@ -71,7 +71,7 @@ static Vdma_engine *d;
 static long cyc = 0;
 static int64_t reply = -1;
 static uint32_t req_addr = 0, req_op = 0;
-static long n_loads = 0;
+static long n_loads = 0, n_bursts = 0;
 static std::vector<uint64_t> got;
 static uint32_t got_gio = 0;
 static int ready_pct = 70;
@@ -80,14 +80,20 @@ static bool g_verbose = false;
 static void step() {
   d->dn_rsp_valid = 0;
   if(reply == cyc) {
-    const uint32_t line = req_addr & ~15u;
-    if(req_op != 4 || line >= MEMSZ) {
+    /* op 4 = 16B line load (PTEs), op 5 = 64B line load (pixels, lane-1 burst) */
+    const uint32_t nb = (req_op == 5) ? 64 : 16;
+    const uint32_t line = req_addr & ~(nb - 1);
+    if((req_op != 4 && req_op != 5) || line + nb > MEMSZ || (req_addr & (nb - 1))) {
       printf("FAIL: bad access op %u addr %08x\n", req_op, req_addr);
       exit(1);
     }
-    for(int i = 0; i < 4; i++) {
-      d->dn_rsp_load_data[i] = (uint32_t)mem[line + 4*i] | ((uint32_t)mem[line + 4*i + 1] << 8) |
-        ((uint32_t)mem[line + 4*i + 2] << 16) | ((uint32_t)mem[line + 4*i + 3] << 24);
+    for(uint32_t i = 0; i < 16; i++) {
+      d->dn_rsp_load_data[i] = (4*i >= nb) ? 0xdeadbeefu :
+        ((uint32_t)mem[line + 4*i] | ((uint32_t)mem[line + 4*i + 1] << 8) |
+         ((uint32_t)mem[line + 4*i + 2] << 16) | ((uint32_t)mem[line + 4*i + 3] << 24));
+    }
+    if(req_op == 5) {
+      n_bursts++;
     }
     d->dn_rsp_valid = 1;
     reply = -1;
@@ -215,6 +221,7 @@ int main(int argc, char **argv) {
   }
   printf("transfers %d (physical %d, zoomed %d, negative stride %d), doublewords %ld, loads %ld, cycles %ld\n",
          NT, n_phys, n_zoom, n_negstride, total_recs, n_loads, cyc);
+  printf("memory loads %ld (64B bursts %ld)\n", n_loads, n_bursts);
   printf("PASS\n");
   delete d;
   return 0;

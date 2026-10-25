@@ -2042,6 +2042,7 @@ int main(int argc, char **argv) {
   // ---- reset ----
   tb->reset = 1; tb->resume = 0; tb->resume_pc = 0;
   tb->mem_rsp_valid = 0; tb->mem_rsp_bad = 0; tb->putchar_fifo_pop = 0;
+  tb->mem2_rsp_valid = 0; tb->mem2_rsp_bad = 0;
   tb->scc_rx_valid = 0; tb->scc_rx_byte = 0;
   for(int i = 0; i < 4; i++) tick();
 
@@ -2062,6 +2063,14 @@ int main(int argc, char **argv) {
   // merely when idle.  (Catches a missing arbiter turnaround that the old
   // reply_cyc==-1-only check silently let pass.)
   int prev_mem_req_valid = 0;
+  /* lane 1 of the AXI master (DMA engine + gio_window ring + MC fill), an
+   * independent one-outstanding port served concurrently with lane 0 (CPU) */
+  int64_t reply2_cyc = -1;
+  int prev_mem2_req_valid = 0;
+  uint64_t req2_addr = 0; uint32_t req2_op = 0; uint16_t req2_mask = 0; uint32_t req2_phys = 0;
+  uint32_t req2_sd[16];
+  bool req2_bad = false;
+  uint64_t lane1_ops[8] = {0,0,0,0,0,0,0,0};   /* accepted lane-1 requests by opcode */
   uint64_t req_addr = 0; uint32_t req_op = 0; uint16_t req_mask = 0;
   uint32_t req_sd[4] = {0,0,0,0};
   bool req_bad = false, req_is_halt = false;
@@ -2975,13 +2984,13 @@ int main(int argc, char **argv) {
       static uint64_t warn_at = 0;
       if(retired > g_save_at + 5000000 && retired >= warn_at) {
         fprintf(stderr, "[ckpt] WAITING %lluM past target: scsi_quiescent=%d reply_cyc=%lld "
-                "prev_mem_req_valid=%d\n", (unsigned long long)((retired-g_save_at)/1000000),
-                (int)g_scsi_quiescent, (long long)reply_cyc, prev_mem_req_valid);
+                "prev_mem_req_valid=%d reply2_cyc=%lld prev_mem2_req_valid=%d\n", (unsigned long long)((retired-g_save_at)/1000000),
+                (int)g_scsi_quiescent, (long long)reply_cyc, prev_mem_req_valid, (long long)reply2_cyc, prev_mem2_req_valid);
         warn_at = retired + 5000000;
       }
     }
     if(g_save_at && retired >= g_save_at && g_scsi_quiescent
-       && reply_cyc == -1 && prev_mem_req_valid == 0) {
+       && reply_cyc == -1 && prev_mem_req_valid == 0 && reply2_cyc == -1 && prev_mem2_req_valid == 0) {
       g_save_armed = true;   /* perform it at the TOP of the next cycle -- see below */
     }
     if(false) {
@@ -3173,6 +3182,67 @@ int main(int argc, char **argv) {
     }
     prev_mem_req_valid = tb->mem_req_valid;  // for the next-cycle 0->1 edge check
 
+    // ---- lane 1 (AXI ID 1): same contract, 16B ops 4/7 and 64B bursts 5/6 ----
+    tb->mem2_rsp_valid = 0;
+    tb->mem2_rsp_bad   = 0;
+    if(tb->mem2_req_valid && !prev_mem2_req_valid && reply2_cyc == -1) {   // accept on 0->1 edge only
+      uint32_t phys = (uint32_t)tb->mem2_req_addr & 0x1fffffffu;
+      req2_op = tb->mem2_req_opcode;
+      lane1_ops[req2_op & 7]++;
+      const bool burst = (req2_op == 5) || (req2_op == 6);
+      /* the AXI master moves aligned beats; a burst is forced 64B-aligned */
+      phys &= burst ? ~0x3fu : ~0xfu;
+      req2_phys = phys;
+      if(FPGA_ADDRESS_MAP) {
+        req2_addr = fpga_map(phys, &req2_bad);
+        if(req2_bad)
+          fprintf(stderr, "[bad_addr] lane1 cyc=%lu phys=0x%08x op=%u (FPGA mem_rsp_bad)\n",
+                  (unsigned long)cyc, phys, (unsigned)req2_op);
+      } else {
+        req2_addr = (uint64_t)tb->mem2_req_addr & MEM_MASK & (burst ? ~0x3full : ~0xfull);
+        req2_bad  = false;
+      }
+      req2_mask = tb->mem2_req_mask;
+      for(int i = 0; i < 16; i++) req2_sd[i] = tb->mem2_req_store_data[i];
+      { int lat = MEM_LAT_MIN + (int)(memlat_next() % MEM_LAT_SPAN);
+        reply2_cyc = (int64_t)cyc + (((req2_op == 4) || (req2_op == 5)) ? lat : 2*lat) + (burst ? 3 : 0); }
+    }
+    if(reply2_cyc == (int64_t)cyc) {
+      const bool burst = (req2_op == 5) || (req2_op == 6);
+      const int nbytes = burst ? 64 : 16;
+      if(req2_bad) {
+        tb->mem2_rsp_bad = 1;
+        for(int i = 0; i < 16; i++) tb->mem2_rsp_load_data[i] = 0xa5a5a5a5u;
+      }
+      else if(req2_op == 4 || req2_op == 5) {       // 16B / 64B line load
+        for(int i = 0; i < 16; i++) {
+          uint32_t v = 0;
+          if(4*i < nbytes) {
+            uint64_t a = (req2_addr + 4*i) & MEM_MASK;
+            v = (uint32_t)g_mem[a] | ((uint32_t)g_mem[a+1]<<8) |
+                ((uint32_t)g_mem[a+2]<<16) | ((uint32_t)g_mem[a+3]<<24);
+          }
+          tb->mem2_rsp_load_data[i] = v;
+        }
+      }
+      else if(req2_op == 7 || req2_op == 6) {       // masked 16B store / full 64B store
+        for(int i = 0; i < nbytes; i++) {
+          if(burst || ((req2_mask >> i) & 1)) {
+            uint64_t a = (req2_addr + i) & MEM_MASK;
+            uint8_t  by = (req2_sd[i>>2] >> (8*(i&3))) & 0xff;
+            g_mem[a] = by;
+            /* keep the checker's ISS memory RTL-authoritative for DMA writes, as
+             * lane 0's opcode-7 path does (this is where DMA writes now land) */
+            if(g_checker && g_ss_mem)
+              *g_ss_mem->get_raw_ptr((uint64_t)req2_phys + i) = by;
+          }
+        }
+      }
+      tb->mem2_rsp_valid = 1;
+      reply2_cyc = -1;
+    }
+    prev_mem2_req_valid = tb->mem2_req_valid;
+
     tb->clk = 0;
     tb->eval();                              // negedge
 
@@ -3209,6 +3279,7 @@ int main(int argc, char **argv) {
 
   tip_dump("final");
   tb->final();   /* run the RTL `final` blocks ([BISTAT]/[PRESCHK] snoop + probe stats) */
+  fprintf(stderr, "[tb] lane1 ops: 16B rd %lu wr %lu | 64B rd %lu wr %lu\n", (unsigned long)lane1_ops[4], (unsigned long)lane1_ops[7], (unsigned long)lane1_ops[5], (unsigned long)lane1_ops[6]);
   fprintf(stderr, "[tb] unaligned DRAM line requests: %llu\n", (unsigned long long)g_unaligned_mem_req);
   fprintf(stderr, "[scsi-rdchk] %ld READ chunks / %ld bytes checked: %ld chunks with %ld bad bytes\n",
           g_rdchk_reads, g_rdchk_bytes, g_rdchk_bad_reads, g_rdchk_bad_bytes);

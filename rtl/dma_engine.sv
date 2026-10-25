@@ -104,7 +104,7 @@ module dma_engine
    output logic [127:0]          dn_req_store_data,
    output logic [15:0]           dn_req_mask,
    input  logic                  dn_rsp_valid,
-   input  logic [127:0]          dn_rsp_load_data,
+   input  logic [511:0]          dn_rsp_load_data,  // [127:0] for 16B ops, all 64B for VDMA pixel loads
    output logic [1:0]            owner);            // channel of the access in flight (logging)
 
    /* staging layout (docs/arm-device-protocol.md) */
@@ -407,6 +407,39 @@ module dma_engine
    logic          r_v_done, n_v_done;
    logic          v_req_valid;
    logic [31:0]   v_req_addr;
+   /* VDMA 64B line buffer: the last pixel line fetched in this transfer */
+   logic [511:0]  r_v_lb;
+   logic          r_v_lb_v;
+   logic [25:0]   r_v_lb_tag;               // PA[31:6]
+   logic          t_v_lbhit, t_dn_rsp;
+   logic [511:0]  t_v_line_data;
+   wire  [25:0]   w_v_line = {r_v_pfn, r_v_mem[11:6]};
+   always_comb
+     begin
+	t_v_lbhit = r_v_lb_v & (r_v_lb_tag == w_v_line) & (r_v_state == V_LOAD);
+	t_v_line_data = t_v_lbhit ? r_v_lb : dn_rsp_load_data;
+     end
+   always_ff @(posedge clk)
+     begin
+	if(reset)
+	  begin
+	     r_v_lb_v <= 1'b0;
+	     r_v_lb_tag <= 26'd0;
+	  end
+	else if((r_v_state == V_IDLE) & v_go)
+	  begin
+	     r_v_lb_v <= 1'b0;            /* guest memory may have changed between transfers */
+	  end
+	else if((r_v_state == V_LOAD) & t_rsp[CH_V] & ~t_v_lbhit)
+	  begin
+	     r_v_lb_v <= 1'b1;
+	     r_v_lb_tag <= w_v_line;
+	  end
+	if((r_v_state == V_LOAD) & t_rsp[CH_V] & ~t_v_lbhit)
+	  begin
+	     r_v_lb <= dn_rsp_load_data;
+	  end
+     end // always_ff
    logic [4:0]    t_v_room, t_v_take, t_v_gsum;
    logic [3:0]    t_v_need;
    logic          t_v_hit;
@@ -427,7 +460,7 @@ module dma_engine
 	t_s_wsum      = {1'b0, r_s_wn} + t_s_take;
 	if(r_s_dir)
 	  begin
-	     t_s_rot_in = dn_rsp_load_data;
+	     t_s_rot_in = dn_rsp_load_data[127:0];
 	     t_s_rot_n  = r_s_wn - t_s_off;
 	  end
 	else
@@ -493,29 +526,32 @@ module dma_engine
 	       end
 	  end
 	t_own  = r_busy ? r_own : t_grant;
+	/* a VDMA pixel load that hits the 64B line buffer completes at once: it owns
+	 * the port (and the rotator) for the cycle but sends nothing downstream */
+	t_dn_rsp = dn_rsp_valid | ((t_own == CH_V) & t_v_lbhit);
 	n_busy = r_busy;
 	n_own  = r_own;
 	n_last = r_last;
 	if(r_busy)
 	  begin
-	     if(dn_rsp_valid)
+	     if(t_dn_rsp)
 	       begin
 		  n_busy = 1'b0;
 	       end
 	  end
 	else if(t_any)
 	  begin
-	     n_busy = ~dn_rsp_valid;
+	     n_busy = ~t_dn_rsp;
 	     n_own  = t_grant;
 	     n_last = t_grant;
 	  end
-	t_rsp = {(t_own == CH_V), (t_own == CH_R), (t_own == CH_T), (t_own == CH_S)} & {4{dn_rsp_valid}};
+	t_rsp = {(t_own == CH_V), (t_own == CH_R), (t_own == CH_T), (t_own == CH_S)} & {4{t_dn_rsp}};
 
 	/* the owner drives the rotator: scatter store data, or the gathered line */
 	case(t_own)
 	  CH_T:
 	    begin
-	       t_rot_in = dn_rsp_load_data;
+	       t_rot_in = dn_rsp_load_data[127:0];
 	       t_rot_n  = r_t_wn - t_t_off;
 	    end
 	  CH_R:
@@ -527,7 +563,11 @@ module dma_engine
 	    end
 	  CH_V:
 	    begin
-	       t_rot_in = dn_rsp_load_data;
+	       /* the 16B slice of the 64B line (from the line buffer on a hit) */
+	       t_rot_in = (r_v_mem[5:4] == 2'd0) ? t_v_line_data[127:0] :
+			  (r_v_mem[5:4] == 2'd1) ? t_v_line_data[255:128] :
+			  (r_v_mem[5:4] == 2'd2) ? t_v_line_data[383:256] :
+			  t_v_line_data[511:384];
 	       t_rot_n  = r_v_gn - r_v_mem[3:0];
 	    end
 	  default:
@@ -561,9 +601,10 @@ module dma_engine
 	    end
 	  CH_V:
 	    begin
-	       dn_req_valid      = v_req_valid;
-	       dn_req_addr       = {{(`PA_WIDTH-32){1'b0}}, v_req_addr};
-	       dn_req_opcode     = 5'd4;
+	       /* pixel loads fetch the whole 64B line (lane 1 burst); PTE loads stay 16B */
+	       dn_req_valid      = v_req_valid & ~t_v_lbhit;
+	       dn_req_addr       = {{(`PA_WIDTH-32){1'b0}}, (r_v_state == V_LOAD) ? {v_req_addr[31:6], 6'd0} : v_req_addr};
+	       dn_req_opcode     = (r_v_state == V_LOAD) ? 5'd5 : 5'd4;
 	       dn_req_store_data = 128'd0;
 	       dn_req_mask       = 16'hffff;
 	    end
@@ -733,7 +774,7 @@ module dma_engine
 	       s_req_opcode = 5'd4;
 	       if(t_rsp[CH_S])
 		 begin
-		    n_s_beat   = dn_rsp_load_data;
+		    n_s_beat   = dn_rsp_load_data[127:0];
 		    n_s_beat_v = 1'b1;
 		    n_s_fetch  = r_s_fetch + 24'd1;
 		    n_s_state  = S_R_STORE;
@@ -1227,7 +1268,7 @@ module dma_engine
 		    r_req_opcode = 5'd4;
 		    if(t_rsp[CH_R])
 		      begin
-			 n_r_beat   = dn_rsp_load_data;
+			 n_r_beat   = dn_rsp_load_data[127:0];
 			 n_r_beat_v = 1'b1;
 			 n_r_soff   = r_r_soff + 12'd16;
 			 n_r_state  = R_STORE;

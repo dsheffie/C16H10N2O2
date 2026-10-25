@@ -21,6 +21,9 @@
 // POST of its last write -- D2's "completion after the post-write invalidate".  Protocol rules:
 // INCLUSIVE_L2_PROTOCOL.md "DMA coherence by L2 snoop" (D1-D5).
 //
+// 64B accesses (opcode 5 = 64B read, 6 = 64B write, lane 1 of the AXI master)
+// snoop all four 16B lines in PRE (and POST for 6), one at a time.
+//
 // One snoop at a time: snp_req_valid is held until snp_req_ack, then the shim
 // waits for snp_done.  The L2 acks a snoop only in IDLE, after any earlier snoop
 // has completed, so the first snp_done after our ack is ours.
@@ -31,11 +34,11 @@ module dma_snoop_shim
    // ---- upstream: the DMA engine ----
    input  logic                    up_req_valid,
    input  logic [`PA_WIDTH-1:0]    up_req_addr,
-   input  logic [4:0]              up_req_opcode,      // 5'd4 line load, 5'd7 line store
+   input  logic [4:0]              up_req_opcode,      // 5'd4/5'd7 16B load/store, 5'd5/5'd6 64B load/store
    input  logic [127:0]            up_req_store_data,
    input  logic [15:0]             up_req_mask,
    output logic                    up_rsp_valid,
-   output logic [127:0]            up_rsp_load_data,
+   output logic [511:0]            up_rsp_load_data,
    // ---- downstream: the mem_arbiter master port ----
    output logic                    dn_req_valid,
    output logic [`PA_WIDTH-1:0]    dn_req_addr,
@@ -43,7 +46,7 @@ module dma_snoop_shim
    output logic [127:0]            dn_req_store_data,
    output logic [15:0]             dn_req_mask,
    input  logic                    dn_rsp_valid,
-   input  logic [127:0]            dn_rsp_load_data,
+   input  logic [511:0]            dn_rsp_load_data,
    // ---- the core's L2 snoop port ----
    output logic                    snp_req_valid,
    output logic [`PA_WIDTH-1:0]    snp_req_addr,
@@ -62,9 +65,14 @@ module dma_snoop_shim
    } state_t;
 
    state_t        r_state, n_state;
-   logic [127:0]  r_load_data, n_load_data;
+   logic [511:0]  r_load_data, n_load_data;
+   logic [1:0]    r_sub, n_sub;       /* 16B line being snooped within a 64B access */
 
-   wire [`PA_WIDTH-1:0] w_line = {up_req_addr[`PA_WIDTH-1:4], 4'd0};
+   wire                 w_is64 = (up_req_opcode == 5'd5) | (up_req_opcode == 5'd6);
+   wire                 w_is_wr = (up_req_opcode == 5'd7) | (up_req_opcode == 5'd6);
+   wire [`PA_WIDTH-1:0] w_line = w_is64 ? {up_req_addr[`PA_WIDTH-1:6], r_sub, 4'd0}
+                                        : {up_req_addr[`PA_WIDTH-1:4], 4'd0};
+   wire                 w_last_sub = ~w_is64 | (r_sub == 2'd3);
    /* ARM<->device staging (docs/arm-device-protocol.md): PA 0x1e000000-0x1effffff is
     * IP22 reserved GIO space, never mapped by the guest, so the core can never cache
     * it -- staging accesses skip both snoops */
@@ -76,11 +84,13 @@ module dma_snoop_shim
 	  begin
 	     r_state <= S_IDLE;
 	     r_load_data <= 'd0;
+	     r_sub <= 2'd0;
 	  end
 	else
 	  begin
 	     r_state <= n_state;
 	     r_load_data <= n_load_data;
+	     r_sub <= n_sub;
 	  end
      end // always_ff
 
@@ -88,6 +98,7 @@ module dma_snoop_shim
      begin
 	n_state = r_state;
 	n_load_data = r_load_data;
+	n_sub = r_sub;
 	up_rsp_valid = 1'b0;
 	up_rsp_load_data = r_load_data;
 	/* the access is presented downstream only in FWD; the engine holds it stable */
@@ -105,6 +116,7 @@ module dma_snoop_shim
 	       if(up_req_valid)
 		 begin
 		    n_state = w_staging ? S_FWD : S_PRE;
+		    n_sub = 2'd0;
 		 end
 	    end
 	  S_PRE:
@@ -119,7 +131,8 @@ module dma_snoop_shim
 	    begin
 	       if(snp_done)
 		 begin
-		    n_state = S_FWD;
+		    n_sub = r_sub + 2'd1;
+		    n_state = w_last_sub ? S_FWD : S_PRE;
 		 end
 	    end
 	  S_FWD:
@@ -128,7 +141,8 @@ module dma_snoop_shim
 	       if(dn_rsp_valid)
 		 begin
 		    n_load_data = dn_rsp_load_data;
-		    n_state = ((up_req_opcode == 5'd7) && !w_staging) ? S_POST : S_RSP;
+		    n_state = (w_is_wr && !w_staging) ? S_POST : S_RSP;
+		    n_sub = 2'd0;
 		 end
 	    end
 	  S_POST:
@@ -143,7 +157,8 @@ module dma_snoop_shim
 	    begin
 	       if(snp_done)
 		 begin
-		    n_state = S_RSP;
+		    n_sub = r_sub + 2'd1;
+		    n_state = w_last_sub ? S_RSP : S_POST;
 		 end
 	    end
 	  S_RSP:
