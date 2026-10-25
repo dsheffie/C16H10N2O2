@@ -24,6 +24,10 @@ module mc
     input  logic [31:0]  gio_err_addr,  // its physical address
     output logic         abort_en,      // CPUCTRL1.ABORT_EN: GIO time-outs enabled
     output logic         buserr,        // any error status bit set -> INT3 bus error (MC)
+    // ---- MEMCFG0/1 in CPU byte order (banks 0/1 and 2/3, 16 bits each, even bank high):
+    //      the SoC decodes the PROM's bank-probe window from them ----
+    output logic [31:0]  memcfg0,
+    output logic [31:0]  memcfg1,
     // ---- "virtual DMA" fill engine: one DRAM write port (shared arbiter master) ----
     output logic                  dma_req_valid,
     output logic [`PA_WIDTH-1:0]  dma_req_addr,
@@ -98,6 +102,8 @@ module mc
    /* stored registers are byte-swapped relative to the CPU's BE view: CPUCTRL1 bit 4
     * (ABORT_EN) is bit 28 of the stored word */
    assign abort_en = r_cpu_control[1][28];
+   assign memcfg0  = bswap32(r_memcfg[0]);
+   assign memcfg1  = bswap32(r_memcfg[1]);
    assign buserr   = (r_gio_err_stat != 32'd0) | (r_cpu_err_stat != 32'd0);
 
    function automatic logic [31:0] mc_rd(input logic [16:0] o);

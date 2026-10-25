@@ -251,7 +251,19 @@ module henry_soc
     * and Linux probes the graphics slot only after chip 1's PBDMA read bus-errors. */
    wire w_is_gio_empty = (((c_req_addr[31:0] >= 32'h1f000000) & (c_req_addr[31:0] < 32'h1fa00000)) |
 			  ((c_req_addr[31:0] >= 32'h1fb00000) & (c_req_addr[31:0] < 32'h1fb80000))) & ~w_is_gio;
-   wire w_is_dev  = w_is_mc | w_is_hpc3 | w_is_ioc | w_is_kbd | w_is_gio | w_is_gio_empty;
+   /* PROM memory sizing (ip24prom 0xbfc01070/0xbfc01640): the PROM makes ONE bank valid at
+    * base 0x20000000 (MEMCFG field base 0x80, 4 MB units) and probes it uncached -- walking
+    * ones (a mismatch = no SIMMs), then aliasing for the size.  henry backs banks 0/1 only
+    * (2 x 128 MB = the 256 MB at 0x08000000..0x17ffffff); banks 2/3 are empty.  In the probe
+    * window, bank 0/1 reach their DRAM (offset mod 128 MB, so the alias test sizes them at
+    * 128 MB) and anything else is empty memory -- loads read 0, stores vanish, no bus error.
+    * Without this every bank probed present and IRIX was told 512 MB, half of it unbacked. */
+   wire [31:0] w_memcfg0, w_memcfg1;   /* CPU order: bank0 [31:16], bank1 [15:0] */
+   wire w_hi_win   = (c_req_addr[`PA_WIDTH-1:28] == (`PA_WIDTH-28)'(2));
+   wire w_hi_bank0 = w_memcfg0[29] & (w_memcfg0[23:16] == 8'h80);
+   wire w_hi_bank1 = w_memcfg0[13] & (w_memcfg0[7:0] == 8'h80);
+   wire w_is_nomem = w_hi_win & ~w_hi_bank0 & ~w_hi_bank1;
+   wire w_is_dev  = w_is_mc | w_is_hpc3 | w_is_ioc | w_is_kbd | w_is_gio | w_is_gio_empty | w_is_nomem;
    wire w_is_load = (c_req_opcode == 5'd4);
 
 `ifdef SCSI_CLOBBER_TRACE
@@ -594,8 +606,12 @@ module henry_soc
    wire [15:0]          w_m1_req_mask       = w_sdn_req_mask;
 
    // CPU master address: apply the IP22 System Memory Alias before arbitration.
+   // ... and the PROM's bank-probe window onto the probed bank's DRAM (bank0 -> 0x08000000,
+   // bank1 -> 0x10000000; empty banks never get here, they are w_is_nomem devices).
    wire [`PA_WIDTH-1:0] w_cpu_req_addr = w_sysmem_alias
                           ? {c_req_addr[`PA_WIDTH-1:28], 1'b1, c_req_addr[26:0]}
+                          : w_hi_win
+                          ? {{(`PA_WIDTH-29){1'b0}}, w_hi_bank1, w_hi_bank0, c_req_addr[26:0]}
                           : c_req_addr;
 
    // ---- DRAM control-flow deep trace (master 2): streams a compressed userspace
@@ -951,6 +967,7 @@ module henry_soc
       .rdata(w_rd_mc),
       .gio_err(w_gio_timeout), .gio_err_addr({c_req_addr[31:4], t_first_lane}),
       .abort_en(w_mc_abort_en), .buserr(w_mc_buserr),
+      .memcfg0(w_memcfg0), .memcfg1(w_memcfg1),
       .dma_req_valid(w_mcdma_req_valid), .dma_req_addr(w_mcdma_req_addr),
       .dma_req_store_data(w_mcdma_req_store_data), .dma_rsp_valid(w_mcdma_rsp_valid),
       .v_go(w_vdma_go), .v_memadr(w_vdma_memadr), .v_size(w_vdma_size), .v_stride(w_vdma_stride),
@@ -1149,7 +1166,7 @@ module henry_soc
       .ip5(w_int3_ip5), .ip6(w_int3_ip6));
 
    wire [127:0] w_rd_ioc = w_rd_iocdev | w_rd_int3;
-   wire [127:0] w_dev_sel_rdata = w_is_gio_empty ? 128'd0 :
+   wire [127:0] w_dev_sel_rdata = (w_is_gio_empty | w_is_nomem) ? 128'd0 :
 				  w_is_mc ? w_rd_mc : (w_is_ioc ? w_rd_ioc : (w_rd_hpc3 | w_rd_scsi | w_rd_enet));
 
    /* a gio_window access completes when the window says so (stores once queued,
