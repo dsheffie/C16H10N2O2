@@ -1,4 +1,8 @@
 [submodule "r9999"]
 	path = r9999
 	url = git@github.com:dsheffie/r9999.git
-	branch = inclusive-l2-v2-rebase
+	branch = main
+[submodule "ultra96v2_driver"]
+	path = ultra96v2_driver
+	url = git@github.com:dsheffie/naive-driver-for-rv64-on-ultra96v2.git
+	branch = main

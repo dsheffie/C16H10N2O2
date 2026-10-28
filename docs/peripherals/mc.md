@@ -68,7 +68,7 @@ gets bit 27 set, so phys `0x0–0x7ffff` lands on `0x08000000–0x0807ffff` (`he
   data bus error, via `henry_soc.sv:1258` and the r9999 L2's `UNCACHE_LOAD` path); cached fills just get the
   poison.
 
-The ARM-side `scsi_fpga_map` in `driver/scsi_arm.h` must stay in sync with this fold.
+The board driver's copies of this fold (`cimg_fpga_map` in `ultra96v2_driver/axi.cc`, used for checkpoint resume) must stay in sync with it.
 
 ## Role in Henry
 
