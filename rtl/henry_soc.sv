@@ -22,9 +22,9 @@
 // -----------------------------------------------------------------------------
 `include "machine.vh"
 
-// WD33C93 + HPC3 SCSI control shim (scsi_shim.sv) for the host-served disk path.
-// MUTUALLY EXCLUSIVE with hpc3.sv `ENABLE_HPC3_DMA -- both claim the HPC3 DMA
-// channel window @0x10000.  Uncomment here AND comment ENABLE_HPC3_DMA in hpc3.sv.
+// WD33C93 + HPC3 SCSI control shim (scsi_shim.sv); the ARM serves the disk image
+// through the staging rings.  MUTUALLY EXCLUSIVE with hpc3.sv `ENABLE_HPC3_DMA
+// (off) -- both claim the HPC3 DMA channel window @0x10000.
 // Seeq 8003 + HPC3 ENET DMA control shim (enet_shim.sv).  Shares the HPC3 window
 // with scsi_shim (disjoint offsets); ENET IRQ -> IOC2 local0 bit3; MC DMA -> local0 bit4.
 // Device data moves through the staging rings (docs/arm-device-protocol.md): the
@@ -311,19 +311,18 @@ module henry_soc
    // =====================================================================
    // INT3 (IOC2 interrupt mux) drives the 5 CPU hardware interrupt pins.
    wire w_int3_ip2, w_int3_ip3, w_int3_ip4, w_int3_ip5, w_int3_ip6;
-   // ---- DMA-coherence snoop (task #51) -------------------------------------
+   // ---- DMA-coherence snoop ------------------------------------------------
    // A DMA master writes DRAM behind the CPU caches, and IRIX cannot invalidate
    // r9999's L2 (Config.SC hides it -> the kernel issues zero SD ops), so nothing
    // in software can drop a stale L2 line for an address a device just wrote.
-   // snoop_fifo collects every DMA line-store address and feeds the L2's snoop
-   // port, which synthesizes a MEM_INVL per entry.
+   // dma_snoop_shim owns the core's snoop port: it write-back-invalidates each
+   // line in the inclusive L2 (which probes the L1D) before a DMA access, and
+   // again after a DMA write.
    wire                 w_snoop_valid;
    wire [`PA_WIDTH-1:0] w_snoop_addr;
    wire                 w_snoop_ack;
    wire                 w_snoop_done;   /* the L2 finished the snoop (inclusive-L2 core) */
    wire                 w_snoop_wbinv;  /* snoop op: 1 = WBINV, 0 = DROP/discard */
-   /* two dma_snoop_shims (ENET, SCSI) share the snoop port */
-   wire                 w_snoop_full;
 
    /* ================= ARM-requested whole-cache flush =================
     * The core already has the flush + invalidate sequencer behind ext_flush_req /
@@ -854,19 +853,6 @@ module henry_soc
    // so w_m1_req_addr/opcode still describe the completing access this cycle.
    // opcode 5'd7 = line store (5'd4 = line load, which needs no invalidate).
    wire w_dma_store_done  = w_mem_rsp_dma  & (w_m1_req_opcode   == 5'd7);
-   /* The arbiter grants one master at a time, so at most one of these can be true
-    * in a cycle -- no arbitration needed on the FIFO push port. */
-   /* DISABLE_DMA_SNOOP: build-time A/B knob for the DMA->L2 snoop.  Default is
-    * unchanged (snoop ON); pass +define+DISABLE_DMA_SNOOP to hold the FIFO push low
-    * so the L2 never sees a DMA invalidate.  Added to run the controlled pair against
-    * the 4MB-L2 kernel panic -- proving whether the snoop is load-bearing needs an
-    * otherwise byte-identical build with it off. */
-`ifdef DISABLE_DMA_SNOOP
-   wire                 w_snoop_push = 1'b0;
-`else
-   wire                 w_snoop_push = w_dma_store_done;
-`endif
-   wire [`PA_WIDTH-1:0] w_snoop_push_addr = w_m1_req_addr;
 
    /* LOG_DMA_PA: log every DMA line-store PA (SCSI + ENET) so a corrupt value read
     * back from memory can be checked against DMA traffic to the SAME physical line.
@@ -874,9 +860,7 @@ module henry_soc
     * to `ld s2,48(sp)' -- s2 was READ FROM MEMORY, not computed, so the question is
     * whether DMA (or a stale line) clobbered that stack slot.  Answering it needs the
     * set of physical addresses DMA actually wrote.
-    * Deliberately taken off *_store_done (the arbiter RESPONSE, one pulse per completed
-    * line store) and NOT off the snoop push -- the push is compiled out by
-    * DISABLE_DMA_SNOOP, and the log must work in BOTH arms of that A/B.
+    * Taken off *_store_done: the arbiter RESPONSE, one pulse per completed line store.
     * Sim-only ($display); no effect on the synthesizable path. */
 `ifdef LOG_DMA_PA
    /* henry_soc has no cycle counter of its own; keep a local one so the log is
@@ -904,11 +888,6 @@ module henry_soc
      end // always_ff
 `endif
 
-   /* ENABLE_DMA_SNOOP: the DMA->L2 snoop FIFO is OPT-IN (off by default).  The core
-    * ties its L2 snoop request to 0 (r9999 core_l1d_l1i, task #51), so the L2 never
-    * acks: this FIFO filled after 16 DMA line stores and then silently dropped every
-    * push -- dead logic.  DMA coherence is the ARM-requested flush's job. */
-   assign w_snoop_full  = 1'b0;
 
    // =====================================================================
    //  Device request FSM: one outstanding at a time (matches the core bus).

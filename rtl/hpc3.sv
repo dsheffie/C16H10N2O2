@@ -11,9 +11,9 @@
 //
 // The mem-to-mem DMA copy engine (datapath bring-up / arbiter exercise) lives in
 // dma_memcpy.sv and is gated by `ENABLE_HPC3_DMA below: it is NOT the real HPC3
-// SCSI channel and the host-served (ARM/DPI) disk path does not need it, so the
-// SoC build can compile it out (the DMA master then ties off, the arbiter sees a
-// lone CPU master).  Default ON so the dma_memcpy isolation test stays exercised.
+// SCSI channel and conflicts with scsi_shim's use of the HPC3 DMA window, so the
+// SoC build compiles it out (the DMA master then ties off).  Default OFF; define it
+// only for the dma_memcpy isolation test.
 // -----------------------------------------------------------------------------
 `include "machine.vh"
 //`define ENABLE_HPC3_DMA 1
