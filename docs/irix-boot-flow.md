@@ -140,8 +140,8 @@ The slab/zone allocator (**`kmem_zone_init`**, `kmem_zone_alloc`, `kmem_zalloc`)
 
 Cache maintenance (`cache_operation`, `clean_dcache`/`clean_icache` and their refill helpers) and the kernel **timer** subsystem (`ktimer_init`) initialize. Then the **console** is chosen: **`cn_init` → `gfx_earlyinit` → `tp_dogui`** decides graphical vs serial, and the framebuffer family is probed — `gr2_earlyinit` (absent), then **`ng1_earlyinit` → `newportProbe`**. `badaddr` is the safe "does hardware respond?" probe (read with the bus-error handler armed). On success **`newportInit` → `newportInitInfo` → `initNg1Cursor`** bring the Newport up ([`graphics/index.md`](graphics/index.md)).
 
-!!! warning "Henry/RTL gotcha"
-    Henry's **`newportProbe` returns 0** (no board) where MAME's returns nonzero — IRIX doesn't detect the Newport. First *permanent* RTL-vs-MAME divergence; real but separate from the Phase-9 blocker (MAME_QUESTIONS Q6 round-2). Note that Henry has no graphics model and **raises no bus errors** here. `henry_soc.sv` decodes only MC, HPC3 and IOC2; the graphics/GIO windows (`0x1f000000–0x1f9fffff`) go to the AXI memory port, which maps them onto a 16 MB DRAM window. So `badaddr` probes there succeed and read DRAM contents rather than faulting.
+!!! warning "Henry/RTL gotcha (resolved 2026-10)"
+    When this trace was compared, Henry's **`newportProbe` returned 0** (no board) where MAME's returns nonzero, so IRIX didn't detect the Newport. That was the first *permanent* RTL-vs-MAME divergence, real but separate from the Phase-9 blocker (MAME_QUESTIONS Q6 round-2). At the time Henry had no graphics model and raised no bus errors: the graphics/GIO windows went to DRAM, so `badaddr` probes there succeeded and read DRAM contents. Both have changed. The REX3 window at `0x1f0f0000` is now served by an ARM-side Newport model through `rtl/gio_window.sv`, and IRIX probes the board and brings up the 4Dwm desktop on silicon ([Newport on henry](newport-on-henry.md)). Empty GIO space now times out at the MC, and with `CPUCTRL1.ABORT_EN` an uncached load there takes a Data Bus Error ([Bus errors](bus-errors.md)); a `DISABLE_NEWPORT` build leaves the REX3 window undecoded, so the probe bus-errors and IRIX uses the serial console.
 
 ## Phase 12 — Hardware-settle delay
 
@@ -437,7 +437,7 @@ All **190** functions in first-appearance order within each phase. *first @insn*
 | 2,953,281 | 13 | `tp_dogui` | Decides whether to bring up the graphical (vs serial) console. |
 | 2,953,306 | 2 | `gr2_earlyinit` | GR2/Express graphics early-init probe (returns absent on this Indy). |
 | 2,953,310 | 58 | `ng1_earlyinit` | Newport (NG1) graphics early-init: loops candidate slots calling `newportProbe`/`newportInit`. |
-| 2,953,361 | 70 | `newportProbe` | Probes for a Newport board by reading its REX3/board registers; returns nonzero if present. (RTL returns 0 — see MAME_QUESTIONS Q6 round-2.) |
+| 2,953,361 | 70 | `newportProbe` | Probes for a Newport board by reading its REX3/board registers; returns nonzero if present. (Henry's RTL returned 0 until the 2026-10 Newport work — see the Phase 11 note and MAME_QUESTIONS Q6 round-2.) |
 | 2,953,396 | 24 | `setgioconfig` | Programs a GIO slot's configuration register. |
 | 2,953,422 | 9 | `is_sysad_parity_enabled` | Checks whether SysAD-bus parity checking is enabled (gates `badaddr` probing). |
 | 2,953,436 | 77 | `badaddr` | Probes an address for bus-error presence (read with the bus-error handler armed) — the safe way to test if hardware responds. |

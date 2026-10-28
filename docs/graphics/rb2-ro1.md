@@ -1,14 +1,15 @@
 ---
 title: RB2 & RO1 — Frame buffer & raster output (Newport)
-status: draft / future-work
+status: reference; RB2 semantics implemented in the ARM-side Newport model (2026-10-18)
 source: SGI Newport RB2 + RO1 specs (rb2.pdf, ro1.pdf)
 ---
 
 # RB2 (frame buffer) & RO1 (raster output) — Henry/Newport block spec
 
 > Intro: the back-end of the Newport pixel pipeline — RB2 is the formatter/LogicOp glue between REX3 and the
-> VRAM framebuffer (random port), RO1 reads the VRAM serial port for scanout toward XMAP9. **Not implemented in
-> Henry** (no Newport logic in the RTL).
+> VRAM framebuffer (random port), RO1 reads the VRAM serial port for scanout toward XMAP9. **On Henry neither
+> chip is in the RTL**: the ARM-side Newport model draws into a DRAM framebuffer and scans it out in software
+> (see [Newport on henry](../newport-on-henry.md)).
 
 Two small gate arrays sit at the tail of the Newport graphics board. **RB2** ("RAM Buffer 2") is the
 read/write formatter + LogicOp engine that fronts the VRAM frame buffer; **RO1** ("ReOrganizer 1")
@@ -108,22 +109,23 @@ mode backend" diagram p.9 for VRAM→RO1→XMAP9→CMAP1, with VC2 supplying `se
 
 ## Henry relevance
 
-- **Status (current): not implemented.** Henry models no Newport chip. Accesses to the Newport aperture
-  are not decoded as a device and fall through to plain DRAM — they do not bus-error (see
-  [the overview](index.md#henry-relevance)). Nothing here is on the boot path — RB2/RO1 are pure display
-  back-end and have no host-visible registers of their own (RB2's write-mask/draw registers are loaded by
-  REX3 over `RB2SEL`, not by the host).
-- **Future (graphics console):** this pair defines the back half of any "wannabe Indy" display.
-  RB2 is the **framebuffer-storage + LogicOp/format** model (4-bank × 2-pixel VRAM, RGB/CI + overlay
-  planes, the 16 raster ops, double-buffer/write-mask semantics REX3 expects). RO1 is the **scanout**
-  model (serial read, overlay/color merge, scanline de-stagger, FIFO clock-crossing, and the VC2
-  `serial_enable`/`display_enable` handshake) that produces XMAP9-ready pixels. A Henry display path
-  would re-implement RB2's formatter/LogicOp over its own framebuffer RAM and RO1's merge+scanout over
-  a scanout FIFO — most of the staggering/serial-VRAM complexity is an artifact of 1990s VRAM and can
-  collapse into a simpler linear-framebuffer + scanout-DMA on modern memory. The 2026-10-02 feasibility
-  study (`NEWPORT_FEASIBILITY.md`, study only) takes that route in software: the RB2 LogicOp/write-mask
-  semantics live inside an ARM-side software REX3 drawing into a 1344×1024 CI8 framebuffer in DRAM, and
-  RO1's role is replaced by software scanout to VNC or DisplayPort.
+- **Status (2026-10): RB2 semantics live in the ARM-side Newport model; RO1 is replaced by software
+  scanout.** No Newport chip is in the PL. The driver's model (`sgi_newport`, a condensed MAME
+  `newport.cpp`; henry copy `sim/newport/sgi_newport.cc`) implements RB2's LogicOp, write-mask and
+  plane formatting while REX3 draws into a linear framebuffer in ARM memory: an RGB/CI plane plus a
+  separate CID/auxiliary plane, pitch 1344 (1280 + 64) and 1088 lines (`FB_W`/`FB_H` in
+  `sgi_newport.hh`). There is no VRAM stagger or serial port: `render()` reads that framebuffer
+  directly and the board's display is an X window on the ARM, viewed over VNC. See
+  [Newport on henry](../newport-on-henry.md).
+- RB2/RO1 have no host-visible registers of their own (RB2's write-mask/draw registers are loaded by
+  REX3 over `RB2SEL`, not by the host), so nothing here is on the boot path.
+- **Per-plane write mask:** a bug inherited from MAME was found here on silicon. Pop-up-plane writes
+  landed in the overlay byte until the model got a per-plane mask (`plane_mask()`: CID `0x33`,
+  PUP `0xcc`, OLAY `0xffff00`); see
+  [Newport on henry](../newport-on-henry.md#two-model-bugs-found-on-silicon).
+- **Feasibility study (2026-10-02, `NEWPORT_FEASIBILITY.md`):** proposed this software route (RB2
+  semantics inside an ARM-side software REX3, RO1 replaced by software scanout to VNC or
+  DisplayPort). The built design follows it, with VNC.
 
 ## Sources
 

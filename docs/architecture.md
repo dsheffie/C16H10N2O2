@@ -13,7 +13,7 @@ system that boots IRIX. This page is the system-level view; each block has its o
 
 | Block | Role | Spec |
 |---|---|---|
-| **r9999** | Out-of-order MIPS III CPU core, presents as an **R4400** (`PRId 0x0440`). 16 KB L1i + 16 KB L1d (incoherent), 128 KB L2 hidden from software (`Config.SC=1`). | [CPU integration](cpu-integration.md), [microarchitecture](r9999-microarchitecture.md) |
+| **r9999** | Out-of-order MIPS III CPU core, presents as an **R4400** (`PRId 0x0440`). 32 KB 2-way L1i (not kept coherent with D-side stores) + 16 KB VA-indexed L1d, 128 KB inclusive L2 hidden from software (`Config.SC=1`). | [CPU integration](cpu-integration.md), [microarchitecture](r9999-microarchitecture.md) |
 | **MC** | Memory controller: DRAM banks + sizing, the GIO64 bus arbiter, error/refresh/timers, the graphics (V)DMA master. | [MC](peripherals/mc.md) |
 | **HPC3** | Peripheral/DMA controller: SCSI ×2, Ethernet, PBUS; the ds1386 RTC/NVRAM and serial EEPROM. | [HPC3](peripherals/hpc3.md), [SCSI disk](peripherals/scsi_disk_theory_of_operation.md) |
 | **IOC2** | I/O controller: the **Z8530 serial console**, the INT3 interrupt controller, the 8254 timer, keyboard/mouse, parallel. | [IOC2](peripherals/ioc2.md), [SCC](peripherals/scc.md) |
@@ -30,18 +30,19 @@ else through to DRAM:
 | Henry module | Implements | Notes |
 |---|---|---|
 | `mc.sv` | MC registers @ `0x1fa00000` | `MEMCFG0` reset value describes 128 MB @ `0x08000000`; the `henry_arcs` FSBL reprograms it to `0x3f203f40` (2 × 128 MB = 256 MB) before the kernel runs |
-| `hpc3.sv` | HPC3 registers @ `0x1fb80000` (minus IOC2) | incl. the ds1386 RTC/NVRAM @ `+0x60000` |
+| `hpc3.sv` | HPC3 registers @ `0x1fb80000` (minus IOC2) | incl. the ds1386 clock registers @ `+0x60000` (a running 100 Hz BCD clock); the bbRAM at `0x1fbe0040–0x1fbe7fff` is left to DRAM, which the host populates |
 | `ioc.sv` | IOC2 @ `0x1fbd9800` | Z8530 SCC console (Tx + Rx FIFO), i8254 |
 | `int3.sv` | INT3 interrupt mux (IOC2 `+0x80`) | separate module, instantiated in `henry_soc.sv` |
 | `scsi_shim.sv` | WD33C93 + HPC3 SCSI channel | register model; the DMA engine walks the `{BP,BC,DP}` chain and the ARM serves the disk image through the staging rings ([protocol](arm-device-protocol.md)) |
-| `enet_shim.sv` | Seeq 8003 + HPC3 ENET | register model; `enet_ring_dma.sv` walks the descriptor chains and the ARM moves frames through the staging rings ([protocol](arm-device-protocol.md)) |
+| `enet_shim.sv` | Seeq 8003 + HPC3 ENET | register model; the ENET channels of `dma_engine.sv` walk the descriptor chains and the ARM moves frames through the staging rings ([protocol](arm-device-protocol.md)) |
 | `dma_engine.sv` | the SoC's one DMA engine | channels SCSI, ENET TX, ENET RX and MC VDMA (`CH_V`), behind one `dma_snoop_shim` so guest-memory accesses are coherent with the L1/L2 |
 | `gio_window.sv` | ARM-served GIO window | REX3 @ `0x1f0f0000` and the IOC2 8042: accesses (and VDMA data) become records in a staging-region ring that the ARM's device models consume ([Newport on henry](newport-on-henry.md)) |
-| `mem_arbiter.sv` | DRAM arbitration | weighted round-robin, one request outstanding: CPU + the SoC DMA master ports (DMA engine, GIO window ring) |
+| `mem_arbiter.sv` | DRAM arbitration | two instances, one per AXI lane (two AXI IDs, concurrent): lane 0 is the CPU alone; lane 1 is a weighted round-robin of the DMA engine (2 slots) and the GIO window ring / MC fill (1 slot), with 64 B bursts. Each lane has one request outstanding |
 | `ip_hdl/axi_is_the_worst_*.v` | AXI4 master to PS DRAM + AXI-Lite control/debug registers | packaged as the Vivado user IP |
 
 The IP22 512 KB **System Memory Alias** (physical `0x0–0x7ffff` → `0x08000000`) is applied in `henry_soc.sv`
-to CPU accesses before arbitration. In `0x1f000000–0x1fffffff`, the REX3 window and the 8042 go to `gio_window`, and
+to CPU accesses before arbitration, as is the PROM's memory-bank probe window at `0x20000000` (banks 0/1 reach
+their DRAM; empty banks read 0). In `0x1f000000–0x1fffffff`, the REX3 window and the 8042 go to `gio_window`, and
 the rest of GIO space is decided "empty" by the MC (a bus error with `CPUCTRL1.ABORT_EN`, see
 [Bus errors](bus-errors.md)). Other addresses fall through to the AXI master, which maps a 16 MB window into shared
 DRAM. The boot-PROM range is DRAM-backed this way: the host (`henry_tb` in sim, the ARM driver on the FPGA) loads the ARCS first-stage
@@ -82,8 +83,8 @@ ops (I-cache invalidate for code coherence; D-cache invalidate-*without*-writeba
 single most important cross-block contract — see [Cache, coherence & TLB](coherence-cache-tlb.md).
 
 **How Henry keeps DMA coherent (current).** All device DMA (SCSI, Ethernet, VDMA) goes through `dma_engine.sv`,
-whose guest-memory accesses pass a `dma_snoop_shim` (write back + invalidate the line in the core's caches, then
-access DRAM). The ARM exchanges data with the engine through staging rings and never touches guest memory after
+whose guest-memory accesses pass a `dma_snoop_shim` (write back + invalidate the line in the core's caches through
+the inclusive L2's snoop port, access DRAM, and snoop again after a write). The ARM exchanges data with the engine through staging rings and never touches guest memory after
 boot, so no flushes are needed ([ARM device protocol](arm-device-protocol.md)).
 
 **Earlier (flush-based) builds.** Before the snooped engine, the SCSI and Ethernet "DMA" was done by the **ARM** writing and
@@ -98,8 +99,10 @@ but they are not sufficient on their own, so the ARM driver also asks the core t
   falls back to the whole-cache flush.
 
 Every L1D flush (CACHE op, page op, whole flush, DMA invalidate) starts only once the L1D is fully drained
-(`w_l1d_drained` in `r9999/l1d.sv`). The DMA→L2 snoop FIFO (`snoop_fifo.sv`) exists but is **opt-in and
-inert** (`ENABLE_DMA_SNOOP`; the core ties its L2 snoop port off). Details and silicon history are in
+(`w_l1d_drained` in `r9999/l1d.sv`). In those builds the DMA→L2 snoop FIFO (`snoop_fifo.sv`) was opt-in and
+inert (the core tied its L2 snoop port off). It is no longer instantiated: the core's snoop port now belongs to
+`dma_snoop_shim`. The injected-flush hardware (`ext_flush_*` in `henry_soc.sv`) is still wired, but the
+staging-ring driver does not need it. Details and silicon history are in
 [Cache, coherence & TLB](coherence-cache-tlb.md).
 
 ## Interrupts

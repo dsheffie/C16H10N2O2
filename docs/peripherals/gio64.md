@@ -1,6 +1,6 @@
 ---
 title: GIO64 — expansion/graphics bus
-status: draft (MAME-validated; henry RTL status audited 2026-10-18 against branch dma-engine)
+status: draft (MAME-validated; henry RTL status audited 2026-10-27 against henry main eea6ecb)
 source: SGI GIO bus spec (gio64.pdf); MAME golden reference; henry rtl/henry_soc.sv, rtl/mc.sv, rtl/gio_window.sv
 ---
 
@@ -40,6 +40,9 @@ arbiter never actually runs.
   records in a staging-region ring, loads are held until the ARM's Newport model answers. IRIX probes the board
   and `hinv` reports an Indy graphics board. The IOC2 8042 (`0x1fbd9843/7`) is served the same way. See
   [Newport on henry](../newport-on-henry.md).
+- **`DISABLE_NEWPORT` build knob:** the REX3 window is not decoded, so it falls into empty GIO and times out
+  like an Indy with no graphics board; the Newport interrupts are tied off and MC VDMA completes at once. The
+  8042 still uses the window (`henry_soc.sv`, the `DISABLE_NEWPORT` block above `u_gio`).
 - **Empty GIO** = `[0x1f000000, 0x1fa00000)` minus the REX3 window, plus HPC3 chip 1 `[0x1fb00000, 0x1fb80000)`
   (`w_is_gio_empty` in `henry_soc.sv`). With `CPUCTRL1.ABORT_EN` set (the ARCS shim sets it, as SGI's PROM does)
   a load completes with an error: the MC latches `GIO_ERROR_ADDR/STAT`, and r9999 takes a precise data bus error
@@ -47,7 +50,7 @@ arbiter never actually runs.
   [Bus errors](../bus-errors.md).
 - **On-chip devices:** MC (`0x1fa00000–0x1fafffff`), HPC3 (`0x1fb80000–0x1fbfffff`) and the IOC2 carve-out.
 - **The boot PROM** at `0x1fc00000` still goes to the external memory bus, where the AXI master folds it into a
-  DRAM shadow that holds the ARCS image.
+  DRAM shadow that holds the PROM image (the henry_arcs FSBL, or SGI's own Indy PROM).
 - **GIO masters:** the MC's VDMA (memory → GIO) is implemented as a channel of henry's DMA engine and delivers its
   data into the same `gio_window` ring ([VDMA](vdma.md)). There is no GIO64 bus protocol in the RTL.
 - **Interrupts:** Newport's vertical retrace is an ARM-driven INT3 Local1 bit 7; the 8042 uses mappable bit 4.
@@ -117,8 +120,8 @@ read STATUS but it cannot raise an interrupt). Reservation:
 
 Lines are shared across devices, so drivers must tolerate spurious calls. On IP22 these route through **IOC2**,
 are OR'd onto the **GIO/INT3** aggregate, and surface in CP0 `Cause.IP` (exact bit mapping lives in the IOC2
-spec). Henry has no GIO devices ⇒ **no GIO interrupt is ever asserted**; nothing to wire beyond the IOC2 input
-staying deasserted. ✅
+spec). Henry has no real GIO interrupt lines: the ARM's Newport model drives INT3 Local1 bits (bit 7 =
+vertical retrace) through `gio_irq[7:0]`, and these are tied to 0 in a `DISABLE_NEWPORT` build.
 
 ## DMA & endianness
 
@@ -128,7 +131,8 @@ sub-block ordering. On IP22 the MC's **VDMA** graphics engine and HPC3 are the r
 
 Endianness: GIO64 carries a 32-bit byte address; one byte-count-cycle bit selects big/little endian. **Big-endian
 (IRIX default): byte 0 → AD[31:24]** (and for 64-bit, byte 0 → AD[63:56]). Bit numbering is always little-endian
-(bit 0 = LSB). Henry implements **no DMA master and no slave data path** ⇒ endianness is irrelevant here. ✅
+(bit 0 = LSB). Henry has no GIO64 bus: the only "GIO master" is the MC VDMA channel, which writes 8-byte lane
+records (lane i = the byte at GIO address + i) into the `gio_window` ring for the ARM ([VDMA](vdma.md)).
 
 ## Arbitration
 

@@ -1,6 +1,6 @@
 ---
 title: DMUX — data mux
-status: draft (henry status audited 2026-10-04 against main @209e6f6)
+status: draft (henry status audited 2026-10-27 against main @eea6ecb)
 source: SGI IP22 DMUX spec (dmux1.pdf)
 ---
 
@@ -25,9 +25,11 @@ r9999 already provides intrinsically:
   (32 data + 4 parity) between them, crosses the clock domains with FIFOs, and does the interleave/word-swap
   muxing. Two DMUX parts are used per machine, each handling 36 bits (dmux1.pdf p.1).
 - In Henry, data moves through r9999's L1/L2 → the 16-byte-line memory bus → `henry_soc.sv`'s device decode and
-  `mem_arbiter`. There are three device slaves (MC, HPC3, IOC2 register shims), the DMA masters, and one external
-  AXI memory port. There is **no GIO64 bus or bridge at all** (see [GIO64](gio64.md)), and no asynchronous
-  36-bit gate-array boundary to bridge. The function DMUX performs has no separate existence.
+  `mem_arbiter`. There are three device slaves (MC, HPC3, IOC2 register shims), the ARM-served `gio_window`
+  (Newport and the 8042), the DMA masters, and one external AXI memory master with two lanes (lane 0 = CPU,
+  lane 1 = DMA engine, `gio_window` ring and MC fill; since eea6ecb). There is **no GIO64 bus or bridge at all**
+  (see [GIO64](gio64.md)), and no asynchronous 36-bit gate-array boundary to bridge. The function DMUX performs
+  has no separate existence.
 - DMUX exposes **zero memory-mapped registers**. IRIX never addresses it. Nothing in the boot/PROM/kernel path
   reads or writes a "DMUX register," so there is no register model to implement (the *MC* registers that *control*
   DMUX — e.g. the FIFO high-water mark — live in the MC, and are documented in `mc.md`).
@@ -107,7 +109,7 @@ the `giostb`/command stream for GIO packing). DMUX just routes bytes when told.
 
 The **"MUX HWM" / CPU-write-FIFO high-water mark** referenced from the MC spec lives in MC's CPUCTRL1 (see
 `mc.md`, where `MC fifo HWM[3:0]` defaults to `0xC` on real silicon; henry's `mc.sv` resets CPUCTRL1 to 0 and
-treats it as plain storage). That is the MC telling itself how full to let *DMUX's*
+treats it as plain storage, except that CPUCTRL1 bit 4 (`ABORT_EN`) enables GIO time-outs). That is the MC telling itself how full to let *DMUX's*
 32-entry CPU write FIFO get before it deasserts `cpu_wrrdy_n` to throttle the processor (dmux1.pdf p.4: "When the
 fifo is full the MC chip will deassert the processor cpu_wrrdy_n signal"). So the HWM is an MC register about a
 DMUX resource — and in Henry it's purely an MC-side concern. From the GIO64 side, MC throttles GIO bus masters
@@ -128,8 +130,9 @@ with `slvdly` when DMUX's GIO write/read FIFOs back up.
      produce. Henry's load/store and GIO paths must return the correct bytes. (Compare with the MC big-endian
      alias note in `mc.md` — same theme: get the lanes right.)
   2. **Parity** can be ignored. DMUX parity exists to *detect DRAM faults*; on simulated/SoC memory there are no
-     bit flips, and the parity-error interrupt path is maskable. henry models no parity: the MC error registers
-     read 0, and the INT3 bus-error inputs are tied 0.
+     bit flips, and the parity-error interrupt path is maskable. henry models no parity, so no parity error is
+     ever reported. The MC error registers exist, but only GIO time-outs set them (`GIO_ERROR_ADDR/STAT`;
+     `CPU_ERROR_STAT` is never set), and the INT3 MC bus-error input carries only those time-outs.
 - The known DMUX silicon bug (bad-parity-on-`par_flush` corrupting the GIO FIFO, IDE-then-SCSI failure, p.37) is
   a hardware erratum with no bearing on a clean Henry datapath — do not replicate it.
 

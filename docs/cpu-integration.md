@@ -7,13 +7,14 @@ status: draft (MAME-validated)
 
 > r9999 presents **PRId = R4400 (`0x0440`: imp `0x04`, rev `0x40`)** → IRIX takes the **R4000/R4400
 > baseline path** (default UTLB/exception handlers, `*_r4000` clocks, Watch regs cleared; all
-> r4600/r5000/RM/r10k code is dead for us). `Config` advertises 16 KB I$/D$ with **16-byte lines**
-> (`DB=0`) and **no secondary cache** (`SC=1`). The integer / 64-bit / system / atomic ISA is
+> r4600/r5000/RM/r10k code is dead for us). `Config` (`0x0002e483`) advertises 16 KB I$/D$ with **16-byte
+> lines** (`IB=DB=0`) and **no secondary cache** (`SC=1`). (The L1I is physically 32 KB 2-way; each way is
+> 16 KB, and `Config` still reports 16 KB.) The integer / 64-bit / system / atomic ISA is
 > **COMPLETE** for IRIX 6.5.22, the **FP subsystem is DONE** (Gap 1), `cache` is honored (Gap 2), and
 > the `wirepda` TLB fault is fixed (Gap 3) — **all three gaps are CLOSED and IRIX boots to multi-user
 > on Henry silicon**. The analysis below was validated against IRIX 6.5.22 driven in MAME
 > (`indy_4610` = r4600be / mips3); it is kept as the record of *why* each piece is needed.
-> Henry is a pseudo-IP22 "wannabe Indy" SoC; r9999 is the CPU core (git submodule, @ `5c89b70`).
+> Henry is a pseudo-IP22 "wannabe Indy" SoC; r9999 is the CPU core (git submodule, @ `788c412`).
 
 Detailed working notes live in the submodule:
 `r9999/IRIX_KERNEL_GAPS.md` (static kernel instruction working set) and
@@ -90,18 +91,19 @@ E-punted to soft-float.)
 
 **Validation:** `tests/fpu/*` co-sim clean + directed; the FPU Linux kernel boots to `/init`
 (lazy-FPU, no "orphaned FPU"); an `awk` double-precision self-test ran correctly on Henry **silicon**
-at FPU bring-up (when `sqrt` still went via soft-float). The FPU is part of every henry build; the
-current bitstream (r9999 `5c89b70`, `ENABLE_DEBUG_WATCHPOINT` on) closes at **WNS +0.120 ns @ 100 MHz**
-(see [FPGA stats](fpga_stats.md)). See `r9999/FPU_PORT_STUDY.md`, `r9999/FPU_ROUNDING_EXCEPTIONS.md`.
+at FPU bring-up (when `sqrt` still went via soft-float). The FPU is part of every henry build; per-bitstream
+timing is on [FPGA stats](fpga_stats.md) (e.g. the 2026-10-18 big-core Newport bitstream `7d953110` closes at
+WNS +0.145 ns @ 100 MHz). See `r9999/FPU_PORT_STUDY.md`, `r9999/FPU_ROUNDING_EXCEPTIONS.md`.
 
 ---
 
 ## Gap 2 — CLOSED: `cache` is fully decoded + flush-wired  (was a latent NOP bug)
 
-r9999 has separate **L1i + L1d** over a shared 128 KB L2 that is **transparent to software** (hidden
+r9999 has separate **L1i + L1d** over a shared 128 KB inclusive L2 that is **transparent to software** (hidden
 from the kernel via `Config.SC=1` → kernel sees "R4000PC", so all ~30 static secondary/L2
-`cache_sel=2/3` sites are gated out — confirmed **0 dynamic**; no L2 modeling needed). It is *not*
-snooped by DMA on Henry — see the last bullet below. The live coherence axis is **L1i vs.
+`cache_sel=2/3` sites are gated out — confirmed **0 dynamic**; no L2 modeling needed). Henry's device DMA
+reaches it through the DMA engine's snoop shim, which probes the L1D via the inclusive L2 — see the last
+bullet below. The live coherence axis is **L1i vs.
 D-side stores**: the kernel **writes code** through L1d/L2 (runtime CPU patching at boot —
 `R4000_jump_war`/`mtext_fixup`; loadable modules — `doelfrelocs`), and L1i then holds a **stale**
 copy. So the I-cache `cache` ops **must be honored, not NOP'd**.
@@ -119,9 +121,11 @@ copy. So the I-cache `cache` ops **must be honored, not NOP'd**.
   `VA & 0x1fffffff`, wrong for mapped EAs → stale superblock → `EWRONGFS`). Hit-Invalidate drops the
   line **without** writeback (the DMA-in case). They are admitted only at the ROB head.
 - ✅ **Every other `cache` op** is a serializing `CACHE_OP` handled at the ROB head (`CACHE_FLUSH`
-  state): **I-cache ops → a whole-L1i flush** (the correct over-approximation — the I-cache is never
-  dirty; the L2 flush is chained after it), and **other D-cache ops (Index-type) → a per-line
-  writeback/invalidate** (`flush_cl`) at `EA & 0x1fffffff`. This is what makes runtime CPU patching /
+  state): **I-cache ops → invalidate the one L1I set the EA indexes, both ways** (a superset of what each
+  op needs, since the I-cache is never dirty; no L2 work), and **other D-cache ops (Index-type) → a
+  per-line writeback/invalidate** (`flush_cl`) at `EA & 0x1fffffff`. A D `cache` op acts on exactly one
+  16-byte line. The I-side was a whole-L1I flush until r9999 `93b1514`; IRIX's per-line I-clean loop made
+  that ~29% of all samples under Xsgi. This is what makes runtime CPU patching /
   module loads code-coherent. Index-Store-Tag / Fill are therefore *not* no-ops; they fold into these
   two over-approximations (r9999's caches reset clean, and cache size comes from `Config`, not a tag
   probe).
@@ -130,10 +134,13 @@ copy. So the I-cache `cache` ops **must be honored, not NOP'd**.
   both pipe stages empty, no retired store pending). Without that, a flush could consume a fill
   response as a flush beat and wedge the next `DRAIN`/`EXCEPTION_DRAIN` (an IRIX hang on silicon,
   fixed in r9999 `5c89b70`).
-- **Henry-only: injected flushes for ARM-side DMA.** Because Henry's SCSI/ENET data is moved by the
-  ARM, the SoC can also *inject* flushes into the core like an interrupt: `XFLUSH` (whole L1D + L2)
-  and the page ops `XPG_WBINV` / `XPG_INV`, driven by AXI control writes from the ARM driver (see
-  [Architecture](architecture.md)). IRIX on Henry needs these on top of its own `cache` ops.
+- **Henry-only: device DMA is coherent in hardware.** SCSI, Ethernet and VDMA data move through
+  `dma_engine.sv`, whose accesses pass a `dma_snoop_shim` that write-back-invalidates each line through the
+  inclusive L2's snoop port (before the access, and again after a write). So IRIX's own `cache` ops are
+  all it needs. Earlier builds had the ARM move the data and *inject* flushes into the core like an
+  interrupt (`XFLUSH`, whole L1D + L2, and the page ops `XPG_WBINV` / `XPG_INV`, from AXI control
+  writes); that hardware is still wired but the staging-ring driver does not use it (see
+  [Architecture](architecture.md)).
 
 ---
 
@@ -192,7 +199,9 @@ Cross-ref: `r9999/MAME_QUESTIONS.md` Q1 (full capture + single-step trace; calle
   (last-wins/overwrite) rather than asserting a machine-check.
 - **Physical address width:** IRIX on IP22 needs 29 bits (512 MB ceiling); the highest PA the kernel
   forms is the device/PROM region `0x1f000000–0x1fffffff`. r9999 carries **36-bit** physical addresses
-  (`PA_WIDTH=36`); a TLB PFN beyond that raises an Address Error on the D-side.
+  (`PA_WIDTH=36`), but its TLBs store only `TLB_PA_WIDTH=30` PA bits (zero-filled on read), so the IP24
+  PROM's bank probe at `0x20000000` still translates. A PFN with bits above that aliases low; there is no
+  PA-range check.
 - **PRId-gated R4000 workarounds:** IRIX applies the R4000 set (`R4000_jump_war`, `init_mfhi_war`, …)
   — generally conservative/harmless on a clean core. **Verify** that the two that assume *buggy* R4000
   behavior — `R4000_jump_war` (page-boundary branch errata) and `init_mfhi_war` (hi/lo read hazard) —
@@ -209,7 +218,7 @@ Cross-ref: `r9999/MAME_QUESTIONS.md` Q1 (full capture + single-step trace; calle
 | 64-bit MIPS-III (`d*`, `ld/sd`, `ldl`…`sdr`) | implemented | — |
 | System CP0 (`mtc0/mfc0/dmtc0/dmfc0`, `tlb*`, `eret`, `sync`, `syscall`, `break`) | implemented | — |
 | Atomics (`ll/sc/lld/scd`) | implemented | — |
-| **`cache` op decode + I/D flush wiring** | **DONE** — was `cache`→NOP (latent bug) | **Gap 2 CLOSED** — full op-field decode, kernel-gated (user → CpU); D Hit-ops = D-TLB-translated LSU ops; I-ops → whole-L1i flush; other D-ops → per-line `flush_cl` |
+| **`cache` op decode + I/D flush wiring** | **DONE** — was `cache`→NOP (latent bug) | **Gap 2 CLOSED** — full op-field decode, kernel-gated (user → CpU); D Hit-ops = D-TLB-translated LSU ops; I-ops → invalidate one L1I set; other D-ops → per-line `flush_cl` |
 | **FP regfile 32×64b + `Status.CU1/FR` (FR=1)** | **DONE** (`fp_regfile.sv`; FR R/W reset 1, CU1 R/W reset 0, FIR=R4000) | **Gap 1.1 — CLOSED** |
 | **FP moves** `mtc1/mfc1/dmtc1/dmfc1`, `cfc1/ctc1` | **DONE** (full exec) | **Gap 1.2 — CLOSED** |
 | **FP load/store** `lwc1/swc1/ldc1/sdc1` (precise BD-slot faults) | **DONE** (precise BD-slot faults) | **Gap 1.3 + 1.7 — CLOSED** |

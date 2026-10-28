@@ -348,7 +348,7 @@ MAME's `perform_dma` is a working reference (about 100 lines).
 The measured access rates (QEMU, icount-stamped) and the ARM-hybrid recommendation are in
 `NEWPORT_FEASIBILITY.md` and the project memory note on Newport feasibility.
 
-## 7. What henry observed on silicon (2026-10-17/18)
+## 7. What henry observed on silicon (2026-10-17 to 10-25)
 
 Running IRIX 6.5 to the 4Dwm desktop on henry's ARM-served Newport confirmed the table above and added
 these points:
@@ -368,5 +368,14 @@ these points:
   the overlay byte (a black bar in the Background panel).
 - **GFXBUSY during DMA:** reporting busy faithfully while a DMA runs correlated with IRIX bus-error panics on
   henry; runs without it (`NP_NO_GFXBUSY=1`) are stable. Root cause open.
-- **XL24 timing comes from the `monitor` variable.** A 24-bit board (CMAP board revision 0) takes its
-  timing from the ARCS `monitor` environment variable; without `monitor=h`, IRIX picks 1024×768.
+- **XL24 timing comes from the `monitor` variable.** A 24-bit board takes its timing from the ARCS
+  `monitor` environment variable; without `monitor=h`, IRIX picks 1024×768.
+- **The PROM decodes the CMAP revision byte** (2026-10-25): bit 7 = 8-bit board, bits 6:4 = board
+  revision, and it trusts the 8/24-bit flag only at board revision ≥ 2. MAME's XL24 value `0x02` (board
+  revision 0) made it report "Indy 8-bit"; the model now uses CMAP0 `0x22` and CMAP1 `0xa2` (CMAP1's upper
+  nibble is the monitor-ID sense, `0xa` = 1280×1024) (henry `635a15d`).
+- **The retrace handler's STATUS load is latency-critical** (2026-10-20). Under Doom, the `STATUS` read in
+  the retrace ISR waited behind 500–2100 queued VDMA records in the ring, 6% of the MIPS core's time; the
+  driver now answers it ahead of the backlog. The same handler re-probes the Presenter panel every 64 frames
+  (`fp_reinit` → `ng1_i2cPanelID`) and spins on BACKBUSY with no bound, so the model clears the absent-panel
+  BACKBUSY after 8 `STATUS` reads instead of MAME's 1 ms of wall clock (henry `f1c75e2`).

@@ -1,6 +1,6 @@
 ---
 title: REX3 — Raster Engine (Newport)
-status: draft / future-work
+status: reference; implemented as an ARM-served software model (2026-10-18)
 source: SGI Newport REX3 spec (rex3.pdf)
 ---
 
@@ -269,8 +269,11 @@ the GO bit during save/restore.
 
 **Henry today: an ARM-served software REX3, working on silicon (2026-10-18).** The
 recommended design below was built: `rtl/gio_window.sv` logs every REX3 store into a DDR
-ring and holds loads until the ARM answers. All reads go to the ARM (no PL shadow registers yet),
-and a full ring stalls the CPU. Layers 2–3 run as `sgi_newport`, a condensed MAME `newport.cpp`
+ring and holds loads until the ARM answers. All reads go to the ARM (no PL shadow registers),
+and a full ring stalls the CPU. Reads are answered in ring order, with one exception added on
+2026-10-20 in the board driver: a held REX3 `STATUS` read is answered ahead of a backlog of queued
+VDMA records when no transfer is open before it (the retrace handler's `STATUS` load used to wait
+behind hundreds of them). Layers 2–3 run as `sgi_newport`, a condensed MAME `newport.cpp`
 with span kernels, on an A53. MC graphics DMA and the retrace interrupt exist. Two drawing
 rules missing from the MAME model mattered for a real desktop and are now modeled:
 
@@ -336,7 +339,7 @@ All page citations are to `/home/dsheffie/code/sgi/docs/indy_docs/newport/rex3.p
 (SGI Newport REX3 Specification, Rev 1.0, Aug 1993). Also used: MAME
 `src/devices/bus/gio64/newport.cpp` (REX3 window at slot + `0xf0000`), Linux
 `arch/mips/sgi-ip22/ip22-gio.c` (Newport probe), Henry `rtl/henry_soc.sv` +
-`ip_hdl/axi_is_the_worst_v1_0_M00_AXI.v` (status), `NEWPORT_FEASIBILITY.md` (plan).
+`rtl/gio_window.sv` (status), `NEWPORT_FEASIBILITY.md` (plan).
 
 - **p.5** — part number, general description, features.
 - **p.6** — Newport architecture (Fig 1 components), REX3 architecture (3 logical

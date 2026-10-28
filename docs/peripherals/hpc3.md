@@ -1,7 +1,7 @@
 ---
 title: HPC3 — Peripheral/DMA controller
-status: draft (MAME + live-IRIX-trace validated; henry RTL status audited 2026-10-04 against main @209e6f6)
-source: SGI IP22 HPC3 spec (hpc3.pdf); MAME golden reference; live IRIX 6.5 MAME boot trace (2026-06-19); henry rtl/hpc3.sv, rtl/scsi_shim.sv, rtl/scsi_dma.sv, rtl/enet_shim.sv, rtl/henry_soc.sv
+status: draft (MAME + live-IRIX-trace validated; henry RTL status audited 2026-10-27 against main eea6ecb)
+source: SGI IP22 HPC3 spec (hpc3.pdf); MAME golden reference; live IRIX 6.5 MAME boot trace (2026-06-19); henry rtl/hpc3.sv, rtl/scsi_shim.sv, rtl/enet_shim.sv, rtl/dma_engine.sv, rtl/dma_snoop_shim.sv, rtl/henry_soc.sv
 ---
 
 # HPC3 — Peripheral / DMA Controller (Henry block spec)
@@ -24,36 +24,41 @@ EEPROM interface. HPC3 runs GIO64 at 33 MHz; it is a bus slave for all PIO and a
 ## What henry implements (current RTL)
 
 henry has no GIO64 bus and no real HPC3. `henry_soc.sv` decodes the HPC3 window as
-`pa[31:19] == 0x1fb8>>3` minus the IOC2 carve-out `0x1fbd9800–0x1fbd98ff` (`rtl/henry_soc.sv:255-257`), and
-hands every access in it to three register slaves at once. Their read data is ORed together
-(`henry_soc.sv:1028`), so they must claim disjoint offsets:
+`pa[31:19] == 0x1fb8>>3` minus the IOC2 carve-out `0x1fbd9800–0x1fbd98ff` and the ds1386 bbRAM
+`0x1fbe0040–0x1fbe7fff` (plain DRAM, see the ds1386 section) (`rtl/henry_soc.sv:248-259`). It hands every access in the window to three register slaves at once.
+Their read data is ORed together (`henry_soc.sv:1208`), so they must claim disjoint offsets:
 
 | Module | Offsets it owns | What it is |
 |--------|-----------------|------------|
-| `rtl/hpc3.sv` | `0x30000` intstat, `0x30004` gio.misc, `0x30008` EEPROM, `0x11010/0x11014` SCSI0 dma/pio cfg, `0x5c000` PBUS DMA cfg (8 × stride 0x200), `0x5d000` PBUS PIO cfg (16 × stride 0x100), ds1386 clock + MAC bytes @`0x60000` | storage + constants |
-| `rtl/scsi_shim.sv` | HD0 channel `0x10000` cbp/nbdp, `0x11000` bc/ctrl; WD33C93 across `0x40000–0x47fff` | WD33C93A + HPC3 SCSI0 channel register model; disk served by the host |
-| `rtl/enet_shim.sv` | ENET RX `0x14000/0x15000`, TX `0x16000/0x17000`, reset/CLRIRQ `0x15014`/`0x17014`, CRBDP `0x18000`/`0x1a000`; Seeq 8003 `0x54000–0x5401f` | Seeq + HPC3 ENET channel register model; frames moved by `enet_ring_dma` + the ARM's staging rings |
+| `rtl/hpc3.sv` | `0x30000` intstat, `0x30004` gio.misc, `0x30008` EEPROM, `0x11010/0x11014` SCSI0 dma/pio cfg, `0x5c000` PBUS DMA cfg (8 × stride 0x200), `0x5d000` PBUS PIO cfg (16 × stride 0x100), ds1386 clock regs 0x00–0x0f @`0x60000–0x6003f` | storage + constants + running clock |
+| `rtl/scsi_shim.sv` | HD0 channel `0x10000` cbp/nbdp, `0x11000` bc/ctrl; WD33C93 across `0x40000–0x47fff` | WD33C93A + HPC3 SCSI0 channel register model; data moved by `dma_engine`, disk served by the ARM |
+| `rtl/enet_shim.sv` | ENET RX `0x14000/0x15000`, TX `0x16000/0x17000`, reset/CLRIRQ `0x15014`/`0x17014`, CRBDP `0x18000`/`0x1a000`; Seeq 8003 `0x54000–0x5401f` | Seeq + HPC3 ENET channel register model; frames moved by `dma_engine` + the ARM's staging rings |
 
 Everything else in the window **reads 0 and swallows writes**. That covers the PBUS DMA channels, the HD1
-(SCSI1) channel, the FIFO ports, `bus_error`, the PROM, the rest of the bbRAM/NVRAM, and the `0x3000c` half of
-the intstat split. Device accesses never bus-error: the response is always good (`henry_soc.sv:1059`).
+(SCSI1) channel, the FIFO ports, `bus_error`, the PROM, the bbRAM above `0x67fff`, and the `0x3000c` half of
+the intstat split. HPC3-window accesses never bus-error: only an empty-GIO load gets a bad response
+(`henry_soc.sv:1221`, [Bus errors](../bus-errors.md)).
 
 Where henry departs from the reference text below:
 
 - **SCSI DMA.** The guest-facing registers are reproduced faithfully enough for unmodified IRIX and Linux
-  `wd93` drivers. The data movement is split between the `scsi_dma` engine (arbiter master 1) and a host
-  service. Full detail: [SCSI disk theory of operation](scsi_disk_theory_of_operation.md) §10. The engine
-  moves **16-byte beats**, not single bytes on DRQ. It needs **16-byte-aligned** descriptors and buffers.
-  It stops on `EOX`, on a null `DP`, or after 255 descriptors (`rtl/scsi_dma.sv:160-168`). A zero-count
-  descriptor is simply skipped (`scsi_dma.sv:120`). The SCSI-rx last-byte-stuck bug is **not** modelled.
-- **ENET.** `enet_shim.sv` owns the Seeq/HPC3 registers. `enet_ring_dma.sv` walks the guest descriptor
-  rings, writes back BC/CRBDP and raises the IRQ; the ARM (or `henry_tb`) only moves frames between the
-  staging slots and the tap. See [the ARM ↔ device protocol](../arm-device-protocol.md).
+  `wd93` drivers. The data movement is split between the SCSI channel of `dma_engine` (arbiter master 1,
+  through `dma_snoop_shim`) and the ARM, which exchange data through staging rings
+  ([ARM ↔ device protocol](../arm-device-protocol.md)). Full detail:
+  [SCSI disk theory of operation](scsi_disk_theory_of_operation.md) §10. The engine moves **16-byte beats**,
+  not single bytes on DRQ. Descriptors must be 16-byte aligned; buffers may start at any byte (the engine
+  rotates and lane-masks, `rtl/dma_engine.sv:7-16`). It stops on `EOX`, on a null `DP`, or after 255
+  descriptors (`dma_engine.sv:866-867`). A zero-count descriptor is simply skipped (`dma_engine.sv:732`).
+  The SCSI-rx last-byte-stuck bug is **not** modelled.
+- **ENET.** `enet_shim.sv` owns the Seeq/HPC3 registers. The ENET TX and RX channels of `dma_engine.sv` walk
+  the guest descriptor rings and write back BC/CRBDP; completion raises the IRQ through `enet_shim`. The ARM
+  (or `henry_tb`) only moves frames between the staging slots and the tap. See [the ARM ↔ device protocol](../arm-device-protocol.md).
 - **Interrupts.** Only two HPC3-side sources are wired. WD33C93 INTRQ goes to IOC2 local0 bit1, and the ENET
-  channel IRQ goes to local0 bit3 (`henry_soc.sv:1020`). Both reach CPU IP2. `dma_complete_int` (local1
+  channel IRQ goes to local0 bit3 (`henry_soc.sv:1199`). Both reach CPU IP2. `dma_complete_int` (local1
   HPC-DMA), `bus_error_int`, and SCSI1 are not driven.
 - **Coherence.** The r9999 core has an L2 that IRIX cannot see. The guest's L1 cache ops are therefore *not*
-  sufficient on their own. See the coherence section below.
+  sufficient on their own; henry makes device DMA coherent in hardware instead. See the coherence section
+  below.
 - **Chip bugs.** None of the "known chip bugs" listed at the end of this page are reproduced.
 
 ## Role in Henry
@@ -66,9 +71,9 @@ interrupt path back to the r9999 core.
 
 On a real Indy, HPC3 is a GIO64 slave for PIO register/PROM/FIFO access and a GIO64 master that walks
 descriptor chains and reads/writes **physical DRAM directly with no coherence hardware**. In henry the "GIO64
-master" is either the `scsi_dma` engine (arbiter master 1) or the host writing shared DRAM directly. The boot
-environment comes from the henry ARCS firmware, not from a populated ds1386 NVRAM. Only the clock and the
-station-MAC bytes are modelled; see the ds1386 section.
+master" is `dma_engine` (arbiter master 1, through `dma_snoop_shim`); the ARM never touches guest memory after
+boot. `hpc3.sv` models only the ds1386 clock registers; the NVRAM above them is plain DRAM that the ARM (or
+`henry_tb`) fills; see the ds1386 section.
 
 ## DMA model — descriptor format + pure-physical addressing
 
@@ -213,15 +218,15 @@ fifo entirely**, so the zero-length terminator is harmless.
 **What henry's SCSI0 channel actually does (`rtl/scsi_shim.sv`)**
 
 - **Decode.** `cbp`/`nbdp` are the two words of line `0x10000`, and `bc`/`ctrl` are the two words of line
-  `0x11000` (`scsi_shim.sv:131-132`). All four are byte-swapped (`bswap32`) on the bus. HD1 (`+0x2000`) is not
+  `0x11000` (`scsi_shim.sv:132-133`). All four are byte-swapped (`bswap32`) on the bus. HD1 (`+0x2000`) is not
   decoded and reads 0.
 - **`ctrl` storage.** `ctrl` keeps the low 8 bits the guest wrote. `ACTIVE` is cleared by hardware when the
-  command completes (`scsi_shim.sv:242`). `FLUSH`, `CRESET`, `AMASK` and `ENDIAN` are stored but have **no
+  command completes (`scsi_shim.sv:245`). `FLUSH`, `CRESET`, `AMASK` and `ENDIAN` are stored but have **no
   effect**. Teardown still terminates, because `ACTIVE` drops at completion.
 - **`ctrl` bit 0 (IRQ).** Bit 0 reads the shim's channel-IRQ latch. The latch is set at completion only if
-  the *guest-written* `bc` register had XIE (bit 29) set (`scsi_shim.sv:260`). Reading `ctrl` clears it.
+  the *guest-written* `bc` register had XIE (bit 29) set (`scsi_shim.sv:263`). Reading `ctrl` clears it.
 - **`bc` read.** Returns the last value the guest wrote. It is not a live count.
-- **Stray bits from `hpc3.sv`.** `hpc3.sv` also decodes `0x11000/0x11004` (`hpc3.sv:101-102`), and its read
+- **Stray bits from `hpc3.sv`.** `hpc3.sv` also decodes `0x11000/0x11004` (`hpc3.sv:124-125`), and its read
   data is ORed in *without* the byte swap. While the engine is busy, extra bits can appear in `ctrl`. After
   the CPU's load swap they land in bits [29:24]. The guest drivers do not look at those bits.
 - **`dmacfg`/`piocfg`.** `0x11010`/`0x11014` are plain storage in `hpc3.sv`. IRIX's pbus/SCSI init reads them
@@ -286,21 +291,24 @@ This is the actual hardware path that the r9999 cache-op findings came from, and
 On a real Indy that contract is complete. **In henry it is not complete on its own.** r9999 has an L2 behind
 the primary caches, and IRIX cannot see it: `Config.SC` reports no secondary cache. IRIX therefore issues no
 secondary-cache ops, and it skips primary invalidates it believes are unnecessary. DMA data written behind the
-caches can then be shadowed by a stale L2 line. henry provides two hardware hooks for this:
+caches can then be shadowed by a stale L2 line. henry handles this in hardware:
 
-- **ARM-requested flushes (the mechanism in use).**
+- **Snooped device DMA (the mechanism in use).** Every guest-memory access of `dma_engine` (SCSI, ENET TX/RX,
+  MC VDMA) goes through `dma_snoop_shim` (`henry_soc.sv:1164`). For each line the shim asks the r9999
+  inclusive L2, over the core's snoop port, to write back and invalidate it (PRE), does the access, and for
+  writes snoops the line again (POST) before the engine may report completion (`rtl/dma_snoop_shim.sv:1-28`).
+  Staging-ring accesses (PA `0x1e000000`+) pass unsnooped. With this, the ARM never touches guest memory and
+  needs no flushes ([ARM ↔ device protocol](../arm-device-protocol.md)).
+- **ARM-requested flushes (still in the RTL).**
   - **Whole-cache flush.** AXI control bit 2 (`ext_flush_ctl`) starts a write-back + invalidate of the L1D
     and L2.
   - **Page list.** The ARM pushes up to 16 physical page numbers (AXI write `0x3C`), then writes "go"
     (`0x3D`, bit0 = drop-without-writeback). henry runs one core page operation per page. If the list
     overflows, henry does the whole-cache flush instead.
   - **Status and logic.** Status/cycle counts read back at AXI `0x25`/`0x24`. The logic is
-    `rtl/henry_soc.sv:303-455`, and `ip_hdl/axi_is_the_worst_v1_0_S00_AXI.v:474-494` holds the AXI side.
-  - **Who calls it.** The host's DMA service must issue these around each deposit.
-- **DMA→L2 snoop FIFO.** This is **opt-in** (`ENABLE_DMA_SNOOP`, off by default, `henry_soc.sv:844`). The
-  core ties its L2 snoop request off, so the FIFO is inert even when it is compiled in.
+    `rtl/henry_soc.sv:328-479`, and `ip_hdl/axi_is_the_worst_v1_0_S00_AXI.v:454-472` holds the AXI side.
 
-The DMA paths themselves (the `scsi_dma` engine, and the host writing shared DRAM) never probe the caches.
+The older DMA→L2 snoop FIFO (`snoop_fifo.sv`) is no longer instantiated (`henry_soc.sv:907-911`).
 
 ✅ **Empirically confirmed (live IRIX 6.5 MAME trace, 2026-06-19).** During disk I/O the IRIX *kernel* issues a
 flood of D-cache ops — **102,509** in one ~13M-insn window, of which **99.5 % are `Hit_Writeback_Invalidate_D`**
@@ -311,7 +319,8 @@ SCSI DMA — it sidesteps coherence by treating its buffers as uncached. So IRIX
 coherence model above: **cached DMA buffers + `Hit_Writeback_Invalidate_D`** (writeback before a device-read
 DMA so the device sees current data; invalidate before the CPU reads a device-write buffer so it doesn't get
 stale cache lines). This is direct hardware-trace evidence that r9999's L1d cache ops are load-bearing for DMA
-correctness, and that the HPC3 master path must hit DRAM with **no** cache probe.
+correctness on a real Indy, whose HPC3 master path hits DRAM with **no** cache probe. (henry's DMA path does
+probe, through `dma_snoop_shim`; see above.)
 
 ## I/O sub-map
 
@@ -345,7 +354,8 @@ Offsets from base `0x1fb80000`. (✅ = matches MAME golden ref; ⚠️ = MAME co
 | `0x48000–0x4ffff` (HD1) | — | not decoded |
 | `0x54000–0x5401f` (Seeq) | `enet_shim.sv` | live |
 | `0x5c000/0x5d000` (PBUS cfg) | `hpc3.sv` | storage, read back |
-| `0x60000` page (ds1386) | `hpc3.sv` | fixed clock + MAC bytes only |
+| `0x60000–0x6003f` (ds1386 regs 0x00–0x0f) | `hpc3.sv` | running clock |
+| `0x60040–0x67fff` (bbRAM) | — | not an HPC3 access: plain DRAM (`henry_soc.sv:253-258`) |
 
 ✅ **SCSI window (region 0x40000..0x47fff; reconciled 2026-06-29 against the SGI spec).** The WD33C93 is
 decoded across the **whole HD0 device region 0x40000–0x47fff (HD1 0x48000–0x4ffff)** with `port=((offs-0x40000)>>2)&1`,
@@ -381,16 +391,15 @@ byte of the word. This is the SGI NVRAM that holds the boot-monitor environment:
 On a real Indy the IP22 PROM reads its boot parameters here. The ds1386 *internal* register/NVRAM layout
 (clock registers, NVRAM bytes) follows the Dallas datasheet, not the HPC3 spec.
 
-**henry does not model the NVRAM.** henry boots through its own ARCS firmware rather than the SGI PROM, so no
-NVRAM environment is needed. In `rtl/hpc3.sv` (`hpc_rd`, lines 115-151), only these ds1386 addresses return
-data; every other bbRAM read returns 0 and every write is ignored:
+**henry splits the ds1386 in two.**
 
-- **Clock** (below).
-- **Station MAC.** The bytes live at `0x604e8, 0x604ec, …, 0x604fc` (bbRAM base `0x60100` + reg 250×4). They
-  are hard-coded constants for **`08:00:69:12:34:56`**, with each byte in `[31:24]`. They were made constant
-  because the kernel clears that bbRAM region during boot, and IRIX reads the MAC much later.
-- **FSBL MAC write.** The FSBL also writes the MAC there. That write lands in `r_enet_eaddr`, which nothing
-  reads back.
+- **Clock registers 0x00–0x0f** (`0x60000–0x6003f`) are modelled in `rtl/hpc3.sv` (below).
+- **The NVRAM above them** (`0x1fbe0040–0x1fbe7fff`) is not decoded by henry, so CPU accesses fall through to
+  DRAM at the device-window offset, like the PROM image (`henry_soc.sv:253-258`). The ARM populates it, so the
+  real SGI PROM can keep its environment there. The station MAC **`08:00:69:12:34:56`** is one byte per word
+  at `0x1fbe04e8, …, 0x1fbe04fc`, in the low byte of the big-endian word; `henry_tb` seeds it there
+  (`sim/henry_tb.cpp:1554-1564`). (Before the move to DRAM, `hpc3.sv` returned these MAC bytes as constants.)
+- `0x68000–0x7ffff` still reaches `hpc3.sv` and reads 0.
 
 **⚠️ The clock registers are NOT optional — the IRIX kernel hangs on garbage time (verified 2026-06-20).**
 After SCSI/disk init the kernel reads the ds1386 wall clock and runs `rtodc()` (RTC→date conversion). With the
@@ -402,11 +411,13 @@ minutes `0x60008`, hours `0x60010`, day-of-week `0x60018`, date `0x60020`, month
 command/status `0x6002c` (polled). All values BCD; month/date must be 1-based and valid or the conversion
 underflows.
 
-**henry's clock is constant.** It reads 00:00:00, day-of-week 1, date 1, month 1, year BCD **`0x90`**
-(`hpc3.sv:115-131`). IRIX's `rtodc()` decodes the year as 1940 + BCD, so this reads as **2030-01-01**. The
-year was moved forward from BCD 00 (1970). With the old value the clock was older than the `/var/sysgen`
-mtimes, so IRIX re-ran "Automatically reconfiguring the operating system" on every boot. With a 2030 clock it
-reconfigures once. The clock does not advance, and writes to it are ignored.
+**henry's clock runs.** It resets to 00:00:00, day-of-week 1, date 1, month 1, year BCD **`0x90`**
+(`hpc3.sv:307-319`) and ticks every 1/100 s (`RTC_DIV` = 1,000,000 core clocks at 100 MHz) with a BCD carry
+chain through hundredths, seconds, minutes, hours, day, date, month and year (`hpc3.sv:224-293`). Byte or word
+stores to regs 0x00–0x0f set it (`hpc3.sv:294-305`). The SGI PROM calibrates the CPU against the seconds tick.
+IRIX's `rtodc()` decodes the year as 1940 + BCD, so the reset value reads as **2030-01-01**. The year was moved
+forward from BCD 00 (1970). With the old value the clock was older than the `/var/sysgen` mtimes, so IRIX re-ran
+"Automatically reconfiguring the operating system" on every boot. With a 2030 clock it reconfigures once.
 
 ## Serial EEPROM (NMC93CS56) @0x30008
 
@@ -442,12 +453,15 @@ HPC3 supplies the enet-tx/enet-rx DMA channels (the `EOXP`/`IPG`/`TXD` `BC` fiel
 WD33C93 generates its own interrupts, so the HPC3 `XIE` per-descriptor interrupt is often redundant for SCSI.
 
 henry does **not** reuse MAME's device models. Both devices are RTL register shims (`scsi_shim.sv`,
-`enet_shim.sv`) that raise a doorbell to a host service:
+`enet_shim.sv`); `dma_engine.sv` moves the data between guest memory and staging rings, and a host service
+moves it between the staging rings and the media:
 
-- **On the FPGA** the service is the ARM PS, using `driver/scsi_arm.h` and `driver/enet_arm.h`.
-- **In simulation** it is `henry_tb`, using `sim/scsi_service.h` and `sim/enet_service.h`.
+- **On the FPGA** the service is the ARM PS (the `axilite-mips` driver, outside this repo).
+- **In simulation** it is `henry_tb`. The staging-ring code, `sim/ring_service.h`, is the same source the
+  board driver uses.
 
-The host holds the disk image and the tap device.
+The host holds the disk image and the tap device. (`driver/scsi_arm.h`/`driver/enet_arm.h` in this repo are
+from the older host-served protocol, in which the ARM read and wrote guest memory.)
 
 ### Ethernet in henry (`enet_shim.sv`)
 
@@ -459,8 +473,9 @@ The host holds the disk image and the tap device.
   status byte.
 - **Reset/CLRIRQ** is at `0x15014` (RX) / `0x17014` (TX). A write clears the ENET IRQ. A read returns `0x2`
   while an IRQ is pending.
-- **CRBDP** is at `0x18000` (RX) / `0x1a000` (TX). It returns the descriptor pointer that the host service
-  maintains. TX publishes it in both words of the line, because IRIX's `ec` TX reap reads both.
+- **CRBDP** is at `0x18000` (RX) / `0x1a000` (TX). It returns the descriptor pointer that `dma_engine`
+  maintains (`rx_crbdp`/`tx_crbdp`). TX publishes it in both words of the line, because IRIX's `ec` TX reap
+  reads both.
 - **Seeq 8003.** The registers sit at `0x54000 + 4·N`, with the byte in the MSB of the word.
   - Writes: regs 0–5 set the station address when the TX-command bank is 0; reg 6 is the RX command; reg 7
     is the TX command.
@@ -468,14 +483,15 @@ The host holds the disk image and the tap device.
 
 **Flow:**
 
-- **TX.** A `ctrl` write with ACTIVE on the TX channel bumps the TX doorbell and snapshots `nbdp`. The host
-  walks the chain, sends the frame to the tap, and echoes the doorbell.
+- **TX.** A `ctrl` write with ACTIVE on the TX channel bumps the TX doorbell and snapshots `nbdp`. The
+  `dma_engine` TX channel walks the chain and gathers each packet into a staging slot; the ARM sends it to the
+  tap. At chain end `henry_soc` echoes the doorbell back to the shim (`henry_soc.sv:824-847`).
 - **TX completion.** On the echo, the shim clears ACTIVE and raises the IRQ. It also **advances TX `nbdp` to
-  the host's TX end pointer** (`enet_shim.sv:190`). This is the `r_tx_nbdp` fix for the IRIX `if_ecintr`
+  the engine's `tx_crbdp`** (`enet_shim.sv:202-204`). This is the `r_tx_nbdp` fix for the IRIX `if_ecintr`
   NULL-deref panic.
 - **RX.** A `ctrl` ACTIVE write on the RX channel bumps the RX-arm sequence number and publishes the ring
-  head. Each inbound frame is deposited by the host, which then bumps the RX sequence number; the shim then
-  raises the IRQ.
+  head. The ARM stages each inbound frame; the `dma_engine` RX channel deposits it at the next guest
+  descriptor, and each delivery bumps the RX sequence number, so the shim raises the IRQ.
 - **IRQ routing.** The IRQ goes to IOC2 local0 bit3, i.e. CPU IP2.
 
 **AXI side** (`axi_is_the_worst_v1_0_S00_AXI.v`):
@@ -483,7 +499,7 @@ The host holds the disk image and the tap device.
 - Reads (debug): `0x39` TX doorbell, `0x3C` TX chain head, `0x3D` RX arm, `0x3E` RX ring head.
 - Writes: the staging-ring doorbells `0x18`–`0x1c` ([protocol](../arm-device-protocol.md)).
 
-`enet_ring_dma` completes the chains itself; the ARM never reads or writes guest DRAM.
+`dma_engine` completes the chains itself; the ARM never reads or writes guest DRAM.
 
 ## Interrupts
 
@@ -502,13 +518,13 @@ All of these route through **IOC2 → INT2/INT3 → MC → r9999 CP0 Cause IP** 
 doc). Per-channel DMA interrupt status is readable from two HPC3 registers (the split `intstat` @0x30000 /
 @0x3000c — see known bugs).
 
-**henry wiring** (`henry_soc.sv:1020`):
+**henry wiring** (`henry_soc.sv:1199`):
 
 - **ENET.** The ENET IRQ goes to `local0[3]`.
 - **SCSI0.** WD33C93 INTRQ goes to `local0[1]`, which is the SCSI completion signal the drivers wait on. A
   second term is ORed onto the same bit: `hpc3.sv`'s `scsi0_hpc_intr`, a latch of the engine's end-of-chain
   XIE pulse.
-  - ⚠️ **Suspect RTL.** In `hpc3.sv:186-189` both the set and the clear of this latch sit inside the
+  - ⚠️ **Suspect RTL.** In `hpc3.sv:176-177` both the set and the clear of this latch sit inside the
     `sel & is_store` branch. The latch is therefore set only if the 1-cycle engine pulse coincides with an
     HPC3 store. The "clear on `ctrl` read" condition (`~is_store`) can never be true there, so once set the
     latch stays set until reset.
@@ -525,8 +541,10 @@ What henry actually provides, and boots IRIX with:
    return what was written. `gio.misc` is also storage.
 3. **ds1386 clock.** It must be a valid BCD time, or `rtodc()` spins. The NVRAM itself is not needed.
 4. **Station MAC.** It comes from the bbRAM bytes and the serial EEPROM, which `if_ec` reads.
-5. **One SCSI channel + WD33C93** across `0x40000–0x47fff`, with host-served disk I/O.
-6. **ENET** through the Seeq/HPC3 shim, with a host-served tap. This is needed for networking, not for boot.
+5. **One SCSI channel + WD33C93** across `0x40000–0x47fff`, with `dma_engine` moving the data and the ARM
+   serving the disk image through staging rings.
+6. **ENET** through the Seeq/HPC3 shim and `dma_engine`, with an ARM-served tap. This is needed for
+   networking, not for boot.
 
 Audio (HAL2), parallel, floppy, SCSI1 and the PBUS DMA channels are read-as-0 / write-absorb.
 
@@ -556,7 +574,7 @@ drivers boot regardless.
 - DMA/PIO config-register fields at 0x5c000/0x5d000 (PBUS access timing) — PROM writes them; treat as R/W
   storage until a real PBUS device cares.
 - Ethernet `IPG`/`TXD`/`EOXP` semantics and the enet-rx byte-count write-back. In henry these are handled
-  by `enet_ring_dma`, which implements ROWN (bit 14) and ETXD (bit 15) in `BC`.
+  by the ENET channels of `dma_engine`, which implement ROWN (bit 14) and ETXD (bit 15) in `BC`.
 - HAL2 audio, parallel port, floppy (PC8477) — out of scope for first boot.
 
 ## Sources
@@ -567,8 +585,8 @@ drivers boot regardless.
 - `~/code/r9999/IP22_CHIP_REGISTERS.md` (HPC3 section + corrections #8/#9) — sub-map, SCSI-window correction
   (0x40000/0x48000), bbRAM window 0x60000–0x7ffff, ds1386 byte-per-word ×4, EEPROM bit-bang, coherence finding.
 - MAME IP22/Indy driver — golden reference for FIFO-port offsets, ds1386, WD33C93 and Seeq device models.
-- henry RTL (ground truth for what is built): `rtl/hpc3.sv`, `rtl/scsi_shim.sv`, `rtl/scsi_dma.sv`,
-  `rtl/enet_shim.sv`, `rtl/enet_ring_dma.sv`, `rtl/henry_soc.sv`; AXI side
-  `ip_hdl/axi_is_the_worst_v1_0_S00_AXI.v`; host services `driver/scsi_arm.h`, `driver/enet_arm.h`.
+- henry RTL (ground truth for what is built): `rtl/hpc3.sv`, `rtl/scsi_shim.sv`, `rtl/enet_shim.sv`,
+  `rtl/dma_engine.sv`, `rtl/dma_snoop_shim.sv`, `rtl/henry_soc.sv`; AXI side
+  `ip_hdl/axi_is_the_worst_v1_0_S00_AXI.v`; host service `sim/ring_service.h` (shared with the board driver).
 - [SCSI disk theory of operation](scsi_disk_theory_of_operation.md): the end-to-end SCSI path and the henry
   shim, engine and host split.

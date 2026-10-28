@@ -6,7 +6,7 @@
       interp_mips/sgi_hpc.cc  / sgi_hpc.hh    (HPC3 SCSI DMA channel + IOC2/INT2)
   That model boots IRIX 6.5 to a mounted root device (validated against a live
   IRIX/MAME boot trace).  This is the spec the henry RTL port follows; section 10
-  describes what henry actually builds (shim + scsi_dma engine + host disk service).
+  describes what henry actually builds (shim + dma_engine SCSI channel + staging rings + host disk service).
 -->
 
 # IP22 SCSI Disk Path — Theory of Operation (WD33C93A + HPC3 SCSI DMA + disk)
@@ -258,21 +258,21 @@ WRITE(10) is the mirror: PH_DATA_OUT, DMA pumps DRAM→device, `finish()` drains
 
 ---
 
-## 10. Henry RTL port — shim + DMA engine + host disk back-end (as built, audited 2026-10-04 on main @209e6f6)
+## 10. Henry RTL port — shim + DMA engine + staging rings + ARM disk service (as built, audited 2026-10-27 on main @eea6ecb)
 
 The FPGA has **no SCSI bus and no disk image in RTL**, and IRIX's/Linux's driver can't be modified. The design
 keeps everything in §1–§7 **guest-visible** identical, so the stock driver is satisfied. The disk *media* lives
 off-chip in the host: the Zynq PS on the FPGA, `henry_tb` in sim.
 
-The RTL supports **two data paths**, and they are used differently in sim and on the board:
+There is **one data path**, the same in sim and on the board: the on-chip `dma_engine` SCSI channel is the only
+agent that touches guest memory, and it exchanges data with the host through **staging rings** in DRAM at PA
+`0x1e000000`+ ([ARM ↔ device protocol](../arm-device-protocol.md)). The host never reads or writes guest
+memory. (Until 2026-10 there were two paths: a 16-byte-beat FIFO over AXI-Lite in sim, and a board driver that
+walked the chain and deposited data in guest DRAM directly. Both are gone.)
 
-| | Who writes the guest's buffers | Used by |
-|---|---|---|
-| **Beat conduit** | the on-chip `scsi_dma` engine, over the arbiter, from 16-byte beats the host pushes | `sim/henry_tb.cpp` (READ and WRITE) |
-| **Direct deposit** | the host, walking the `{BP,BC,DP}` chain in the shared-DRAM mmap (`scsi_move`) | the in-repo board driver `driver/scsi_arm.h` |
-
-Shared contract, sim + FPGA: `sim/scsi_service.h` holds the disk backend, `scsi_service_run` and `scsi_move`.
-`sim/henry_scsi.h` holds the `scsi_req_t`/`scsi_rsp_t` mailbox layout.
+Shared contract, sim + FPGA: `sim/scsi_service.h` holds the disk backend and `scsi_service_run` (CDB decode),
+`sim/henry_scsi.h` holds the `scsi_req_t`/`scsi_rsp_t` mailbox layout, and `sim/ring_service.h` holds the
+staging-ring code, which is the same source the board driver uses.
 
 - **WD33C93 = control shim in RTL (`rtl/scsi_shim.sv`).**
   - **What it models.** The register file and SASR/SCMD PIO semantics (§1.1: byte 3 = SASR, byte 7 = SCMD,
@@ -285,45 +285,46 @@ Shared contract, sim + FPGA: `sim/scsi_service.h` holds the disk backend, `scsi_
     it pulses `dma_go` to start the engine. Without ACTIVE it just waits for the host reply.
   - **RESET.** RESET (`COMMAND=0x00`) posts SCSI Status 0 + INTRQ for the driver's reset poll.
   - **Not modelled.** HD1 (SCSI1). The `ctrl` FLUSH/CRESET bits are stored but have no effect.
-- **HPC3 SCSI DMA channel = the `scsi_dma` engine (`rtl/scsi_dma.sv`, `ENABLE_SCSI_DMA` on, arbiter master 1).**
-  - **Walk.** On `dma_go` it walks the guest's chain **through the `mem_arbiter`**, i.e. on the same ordered
-    DRAM port the CPU uses. It reads one 16-byte line per descriptor, so NBDP must be 16-byte aligned.
-  - **Data.** READ drains the beat FIFO → `mem[BP]`, 16 bytes per store, with the final partial beat
-    byte-masked. WRITE loads `mem[BP]` → `disk_wr` beats.
-  - **Limits.** BP must also be 16-byte aligned (phase-1 scope). A zero-count descriptor is skipped. The walk
-    stops on `EOX`, a null `DP`, or after 255 descriptors.
-  - (henry_soc.sv's header comment still says this engine is "RETIRED"/not instantiated; that comment is
-    stale — `ENABLE_SCSI_DMA` is defined and the engine is instantiated.)
-- **Beat conduit (`rtl/scsi_beat_fifo.sv` + S00 slave regs).** The engine's disk side is a 16-byte-beat FIFO.
-  - **Why a FIFO.** A per-cycle disk-beat handshake can't cross AXI-lite, so the engine **stalls** when the
-    FIFO is empty and resumes as the host trickles beats in.
-  - **READ conduit on the FPGA.** The host writes each beat to regs `0x20-0x23`; the push fires on the `0x23`
-    write. It polls `0x25` bit0 = FIFO-full for flow control.
-  - **WRITE direction.** `scsi_disk_wr_en/data` are **not wired to the AXI wrapper**. On the FPGA, WRITE data
-    can only reach the host by the direct-deposit path.
+- **HPC3 SCSI DMA channel = the SCSI channel of `dma_engine` (`rtl/dma_engine.sv`, arbiter master 1).**
+  The engine also runs ENET TX/RX and MC VDMA on the same memory port. It replaced `scsi_dma` + `scsi_stage`
+  (`dma_engine.sv:1-32`).
+  - **Walk.** On `dma_go` it walks the guest's `{BP,BC,DP}` chain. Every guest access goes through
+    `dma_snoop_shim` and then the `mem_arbiter`, the same DRAM port the CPU uses. It reads one 16-byte line per
+    descriptor, so NBDP must be 16-byte aligned.
+  - **Data.** READ takes staged 16-byte beats from `0x1e800000` and scatters them into `mem[BP]`; WRITE
+    gathers `mem[BP]` into beats at `0x1ec00000` (past 4 MB the beats are dropped and the entry is flagged
+    truncated). BP may start at any byte: the engine rotates and lane-masks each beat (`dma_engine.sv:7-16`).
+  - **Limits.** A zero-count descriptor is skipped (`dma_engine.sv:732`). The walk stops on `EOX`, a null
+    `DP`, or after 255 descriptors (`dma_engine.sv:866-867`).
+  - **Completion entry.** Each chain posts one entry `{bytes, chain head, flags|dir|trunc, req_seq}` to the
+    SCSI completion ring at `0x1e003000` and bumps `scsi_cq_prod`. Flags: done, starved (a READ wanted more
+    than was staged), or aborted (the shim cancelled first).
+- **Staging-ring doorbells (S00 slave regs).** The host writes `0x1b` = beats staged for a READ chain, then
+  `0x1c` = the request's `req_seq`; the engine accepts the count only for the chain with that seq. The host
+  writes `0x1a` = SCSI completions consumed.
 - **Host = the disk.**
-  - **Request.** It polls the doorbell, reads the request over the mailbox, and does the disk I/O
+  - **Request.** It polls the doorbell, reads the request over the mailbox, and runs `scsi_service_run`
     (`pread` / COW overlay).
-  - **Moving the data.** `henry_tb` streams READ data as beats and captures WRITE beats. `driver/scsi_arm.h`
-    instead calls `scsi_move`: it reads the descriptor chain and reads/writes guest DRAM directly. The
-    engine still runs on the board: it reads the descriptor, stalls waiting for beats that never come, and
-    is cancelled at completion (below).
-  - **Reply.** The host posts `scsi_rsp_*` and echoes the doorbell **last**.
-  - **Disk-less safe.** With no image, the host answers `ST_SELECTION_TIMEOUT` (0x42), so a disk-less guest
-    (Linux from initramfs) completes its scan.
-- **Chunked transfers (`FAITHFUL_SCSI`, defined in `scsi_shim.sv:6`).** The host may reply with scsi_status
-  `0x48`/`0x49` (§6 PAUSE). The shim then raises INTRQ with Command Phase `0x46` and count 0, but *not*
-  command-complete. The guest reprograms the DMA and re-issues `SEL_ATN_XFER`, and the host resumes from its
-  saved `{buf,pos}`. Both `henry_tb` and `driver/scsi_arm.h` implement the resume.
+  - **Moving the data.** READ: it stages the remaining bytes of the command at `0x1e800000` and rings the
+    doorbells above. WRITE: it waits for the chain's completion entry and copies `bytes` out of
+    `0x1ec00000` to the disk.
+  - **Reply.** After the completion entry for its `req_seq` arrives, the host posts `scsi_rsp_*` and echoes
+    the doorbell **last**.
+  - **Disk-less safe.** For an absent target the host answers `ST_SELECTION_TIMEOUT` (0x42), so a disk-less
+    guest (Linux from initramfs) completes its scan.
+- **Chunked transfers (`FAITHFUL_SCSI`, defined in `scsi_shim.sv:6`).** When a chain moved fewer bytes than
+  the command needs, the host replies with scsi_status `0x48`/`0x49` (§6 PAUSE). The shim then raises INTRQ
+  with Command Phase `0x46` and count 0, but *not* command-complete. The guest reprograms the DMA and
+  re-issues `SEL_ATN_XFER`, and the host resumes from its saved `{buf,pos}` (`sim/henry_tb.cpp:2870-2935`).
 
-**Completion** (`scsi_shim.sv:147`, PH_BUSY at `:328-346`). The shim only completes once its phase machine is
+**Completion** (`scsi_shim.sv:148`, PH_BUSY at `:335-349`). The shim only completes once its phase machine is
 back to idle **and** the host has echoed the doorbell:
 
 - **Normal.** In `PH_BUSY` it leaves on the engine's `dma_done`, so INTRQ can't fire before the last beat has
   landed.
 - **Cancel.** It also leaves when the host has replied while the engine is blocked waiting for a beat
-  (`dma_rd_stalled`: direct-deposit, short / no-data / unknown-opcode / selection-timeout). It then cancels
-  the engine and completes with the host's residual.
+  (`dma_rd_stalled`: a short / no-data / unknown-opcode / selection-timeout transfer). It then cancels the
+  engine and completes with the host's residual.
 - **Selection timeout (0x42).** Only status + INTRQ are posted, not phase 0x60.
 - **XIE.** The HPC3 channel IRQ (`ctrl` bit0) is set at completion only if the guest-written `bc` register had
   XIE.
@@ -335,27 +336,26 @@ back to idle **and** the host has echoed the doorbell:
   `0x35` `{to_device[16], lun[15:8], dest[7:0]}`. The WD33C93 transfer count (`xfer_len`) is **not** exposed.
 - **Reply writes:** `0x0D` rsp_seq (echo LAST), `0x0F` residual, `0x10` `{tgt_status[15:8], scsi_status[7:0]}`,
   `0x11` `sel_delay`.
-- **Beat conduit:** write `0x20-0x23` = one 16-byte READ beat (push on `0x23`); read `0x25` bit0 = FIFO-full.
+- **Staging-ring doorbells:** writes `0x1a` scsi_cq_cons, `0x1b` scsi_rd_beats, `0x1c` scsi_rd_seq. The old
+  beat-conduit registers (`0x20-0x23`, FIFO-full in `0x25` bit0) are gone.
 - **Debug:** read `0x38` = shim state (`#resets/#SASR-rd/#SCMD-wr/#SASR-wr` saturating counters +
   phase/CIP/BSY/INTRQ/SASR). Read `0x3F` = hand-bumped RTL build revision (`0xYYYYMMDD`-style; main currently
-  returns `0x2026072b`).
+  returns `0x20261018`).
 
 **Ordering / coherence.**
 
-- **Beat conduit.** The engine's stores go through the same `mem_arbiter` as the CPU's L2 misses, and
-  completion is gated on `dma_done`, so DRAM ordering is by construction. That does **not** make the data
-  visible to the CPU caches: the engine never probes L1/L2. The DMA→L2 snoop FIFO is opt-in
-  (`ENABLE_DMA_SNOOP`), and the core ties its snoop input off.
-- **Direct deposit.** The host writes DRAM behind the PL entirely.
-- **What keeps the CPU side correct, in both cases:**
-  - The guest's own `dma_cache_inv`/`wb_inval` handles the L1.
-  - Because IRIX cannot see r9999's L2 (`Config.SC` = 0), the **ARM-requested flush** covers it. That is
-    either the page list (AXI writes `0x3C` page, `0x3D` go/drop) or a whole L1D+L2 write-back/invalidate
-    (AXI control bit 2). See [HPC3 cache coherence](hpc3.md#cache-coherence-none-in-hardware-the-mandatory-software-contract).
-- ⚠️ The in-repo `driver/scsi_arm.h` does **not** issue those flushes. The board-side driver used for IRIX
-  runs lives outside this repo, and it is the one expected to issue them.
+- **Ordering.** The engine's accesses go through the same `mem_arbiter` as the CPU's L2 misses, and
+  completion is gated on `dma_done`, so DRAM ordering is by construction.
+- **Coherence.** `dma_snoop_shim` makes the engine coherent with the r9999 caches: before each guest access it
+  has the inclusive L2 write back and invalidate the line (L1D included), and after a write it invalidates the
+  line again, so the CPU's next read misses to the device data (`rtl/dma_snoop_shim.sv:1-28`). This covers the
+  L2 that IRIX cannot see (`Config.SC` = 0). Staging accesses skip the snoop. No ARM-requested flush is needed;
+  that hook is still in the RTL ([HPC3 cache coherence](hpc3.md#cache-coherence-none-in-hardware-the-mandatory-software-contract)).
+- The guest's own `dma_cache_inv`/`wb_inval` still runs; it is harmless.
 
-Validated in Verilator on the beat-conduit path: engine unit test, directed `scsi_read`/`scsi_write`/`scsi_chunked`
+Directed bare-metal tests for this path under `henry_tb`: `tests/diskverify` (DMA coherence against dirty
+cache lines) and `tests/dmaalign` (buffers that do not start on a cache line). Before the staging rings the
+path was validated on the beat conduit with an engine unit test, directed `scsi_read`/`scsi_write`/`scsi_chunked`
 round-trips (`r9999/tests/henry/`), and a live IRIX boot to the banner.
 
 **Sizing (from the §11 boot profile):** small-transfer dominated — median **4 KB**, 90%+ ≤ 32 KB — so the doorbell round-trip must make the 4 KB case cheap. The tail runs to ~256–512 KB, chunked by the HPC3 descriptor chain at **≈252 KB** (§2, §6). The engine walks the real chain, so multi-descriptor scatter-gather falls out for free. Absent-target IDs (2–7) draw a selection-timeout, LUN≠0 CHECK-CONDITIONs (§11) — both from `scsi_service_run`.
@@ -410,4 +410,4 @@ Measured over one IRIX 6.5.22 boot — PROM power-on → root mount → rc-scrip
 - Validated against a live IRIX 6.5 boot (MAME `wd33c9x.cpp`/`hpc3.cpp` as the oracle).
 - `interp_mips/IRIX_SCSI_PROFILE.md` — the §11 boot workload profile (command mix, target/LUN, transfer-size distribution, chunked-DMA cap) + reproduction/regeneration scripts.
 - Companion: [HPC3](hpc3.md) (HPC3 block spec), [IOC2](ioc2.md) (INT2/local0 → IP mux).
-- henry RTL: `rtl/scsi_shim.sv`, `rtl/scsi_dma.sv`, `rtl/scsi_beat_fifo.sv`, `rtl/henry_soc.sv` (arbiter master 1, IRQ wiring); host side `driver/scsi_arm.h`, `sim/henry_tb.cpp`, `sim/scsi_service.h`, `sim/henry_scsi.h`.
+- henry RTL: `rtl/scsi_shim.sv`, `rtl/dma_engine.sv`, `rtl/dma_snoop_shim.sv`, `rtl/henry_soc.sv` (arbiter master 1, IRQ wiring); host side `sim/ring_service.h` (shared with the board driver), `sim/henry_tb.cpp`, `sim/scsi_service.h`, `sim/henry_scsi.h`.

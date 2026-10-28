@@ -1,6 +1,6 @@
 ---
 title: VC2 — Video timing & cursor (Newport)
-status: draft / future-work
+status: reference; implemented as part of the ARM-side Newport model (2026-10-18)
 source: SGI Newport VC2 spec (vc2.pdf)
 ---
 # VC2 — Video Timing & Cursor Controller (Henry/Newport block spec)
@@ -9,9 +9,9 @@ source: SGI Newport VC2 spec (vc2.pdf)
 > crosshair) for the Newport graphics board. It interprets tables held in its own external SRAM:
 > a programmable video-timing state machine, a DID run-length stream, and a cursor pixel pattern.
 > It is **not** programmed directly by the host — it sits on REX3's Display Control Bus (DCB), and
-> the host pokes its registers/RAM through REX3. **Not implemented in Henry** (no VC2 or REX3/DCB
-> logic in the RTL; Henry boots headless on the serial console). This page is reference +
-> future-work for a display console.
+> the host pokes its registers/RAM through REX3. **On Henry, VC2 is software on the Zynq ARM**,
+> part of the Newport model behind the ARM-served GIO window (no VC2 logic in the RTL); see
+> [Newport on henry](../newport-on-henry.md). This page is the chip reference.
 
 Part: VC2, SGI 099-8918-001, Toshiba TC160G, 144 PQFP, ~27.5k gates (vc2.pdf p.2).
 
@@ -154,22 +154,21 @@ redo bring-up steps 1–4; DID and cursor tables/registers retain their values.
 
 ## Henry relevance
 
-- **Status (now): not implemented.** Henry models no Newport chip; there is no REX3, so no DCB and
-  no VC2. (Accesses to the Newport aperture fall through to plain DRAM rather than bus-erroring —
-  see [the overview](index.md#henry-relevance).) No vertical-retrace interrupt is generated: the IOC2
-  Local1 sources, including VRETRACE, are tied to 0 in `henry_soc.sv`. Boot does not depend on VC2.
-- **Future (graphics console):** required for a real display. VC2 is the piece that turns frame
-  pointers + tables into CRT sync/blank, the hardware cursor, and per-pixel window DIDs. A Henry
-  graphics block would need (a) a REX3-equivalent DCB master to reach VC2, (b) the external table
-  SRAM, and (c) the XMAP9/CMAP/RAMDAC downstream. The hardware cursor and DID-based window IDs are
-  the host-visible features X/IRIX would drive. Until that whole pipeline exists, VC2 is a
-  reference spec only.
-- **Feasibility study (2026-10-02, `NEWPORT_FEASIBILITY.md`, study only):** the recommended hybrid
-  design does *not* rebuild VC2 as hardware. VC2 register/RAM state (cursor, DID tables) would live
-  in an ARM-side software model fed by the DCB writes, scanout would composite the VC2 cursor in
-  software, and the PL would supply a 60 Hz timer as the vertical-retrace interrupt (gated by DCR
-  bit 0, VINTR enable). The study found IRIX *requires* that interrupt: the kernel's retrace handler
-  does cursor, buffer-swap and gamma work, and IRIS GL `swapbuffers` waits on it.
+- **Status (2026-10): implemented in software on the ARM.** No VC2 is built in the PL. The
+  driver's Newport model (`sgi_newport`, a condensed MAME `newport.cpp`; the henry copy is
+  `sim/newport/sgi_newport.cc`) receives the DCB accesses to VC2 through REX3 and keeps its
+  registers and table RAM. Scanout (`render()`) walks the VC2 DID tables per scanline and
+  composites the VC2 glyph cursor in software. See [Newport on henry](../newport-on-henry.md).
+- **Vertical retrace:** the model's `vblank()` sets REX3 STATUS VRINT and raises INT3 `local1`
+  bit 7 when VC2 Display Control bit 0 (VINTR enable) is set; the ARM drives the line through
+  `gio_window`'s ARM-written IRQ level register. A REX3 STATUS read acknowledges it. With the
+  `DISABLE_NEWPORT` build knob the Newport `local1` sources are tied to 0 (`rtl/henry_soc.sv`).
+- **Feasibility study (2026-10-02, `NEWPORT_FEASIBILITY.md`):** recommended exactly this split:
+  no VC2 hardware, VC2 state in an ARM-side model fed by the DCB writes, the cursor composited in
+  software, and a 60 Hz retrace interrupt gated by DCR bit 0 (the study put that timer in the PL;
+  it ended up on the ARM). The study found IRIX
+  *requires* that interrupt: the kernel's retrace handler does cursor, buffer-swap and gamma work,
+  and IRIS GL `swapbuffers` waits on it.
 
 ## Sources
 

@@ -1,6 +1,6 @@
 ---
 title: Boot sequence & console
-status: draft (MAME-validated; Henry FSBL/console re-checked 2026-10-04 against henry 209e6f6 / r9999 5c89b70)
+status: draft (MAME-validated; Henry FSBL/console re-checked 2026-10-27 against henry eea6ecb / r9999 788c412)
 ---
 # Boot sequence & console
 
@@ -52,8 +52,9 @@ a live firmware. The collapsed handoff is: **shim → /unix `start` with `a0=arg
   - Registers also carry sash leftovers (`t0=0x11 t1=7 …`) but the shim can enter with a clean GPR
     file. MAME's entry Status is **`SR = 0x30004801`** (reset Status `0x70400004`: KX=0, ERL=1, 32-bit
     kernel). **Henry's FSBL does not write Status**: the kernel starts with r9999's reset values
-    (`ERL=1`, `BEV=1`, `CU0=1`, `FR=1`, KX=0; `exec.sv` reset block) and sets its own. The FSBL zeroes
-    `a3`, `v0`/`v1` and `t0`–`t9`; the other GPRs keep their reset state.
+    (`ERL=1`, `BEV=1`, `CU0=1`, `FR=1`, KX=0; `exec.sv` reset block) and sets its own. The FSBL's body is
+    C, so it enters with `a3` = the entry address, `sp` = its scratch stack, and the other GPRs holding
+    whatever the C code left; the kernel's prologue sets its own `gp`/`sp`.
 - **`start` prologue (verified disassembly):** sets `gp = 0x88332bf0`, loads `sp = *(0x8832bfa0)`,
   immediately `sw`s the three boot args to gp-relative globals — `a0→_argc`, `a1→_argv`,
   **`a2→_envirn`** (`0x8832d7c0`) — then `jal`s its first C routine
@@ -75,8 +76,8 @@ MAC) or the kernel dies in early init. With a placeholder MAC the kernel boots b
 harmless for bring-up. Set this first; it is the single most common reason a fresh boot wedges.
 
 **Henry today:** the FSBL plants `eaddr=08:01:02:03:04:05` in `envp`, but its `GetEnvironmentVariable`
-stub returns **`08:00:69:12:34:56`** (a real SGI OUI) for every name, and the FSBL also writes that MAC
-into the ds1386 bbRAM (`0xbfbe04e8…`). The HPC3 NMC93CS56 EEPROM model returns it from words 125–127
+stub returns **`08:00:69:12:34:56`** (a real SGI OUI) for every name except `monitor`, and the FSBL also
+writes that MAC into the ds1386 bbRAM (`0xbfbe04e8…`, which on Henry is plain DRAM). The HPC3 NMC93CS56 EEPROM model returns it from words 125–127
 (`hpc3.sv`), so the kernel's Ethernet driver sees a valid station address and networking can come up.
 
 ## Console — NOT via ARCS
@@ -138,9 +139,9 @@ The system is coming up.
 
 The PROM-phase lines ("Running power-on diagnostics…", "press &lt;Esc&gt;") are **PROM** code writing
 the Z8530; the "IRIX Release 6.5 IP22…" banner onward is the **kernel's** serial driver writing the
-Z8530. (Henry has no SGI PROM, so the PROM-phase lines won't appear. Its FSBL prints one heartbeat
-line, `r9999 PROM: CPU alive, handing off to the kernel`, plus some MAC/EEPROM readback hex left in as
-TEMP DEBUG in `henry_arcs.S`; the kernel banner follows.) Full MAME capture:
+Z8530. (With the `henry_arcs` FSBL the PROM-phase lines won't appear: it prints one heartbeat line,
+`r9999 PROM: CPU alive, handing off to the kernel`, and the kernel banner follows. Booting the real SGI
+PROM with `henry_tb --prom` prints the PROM's own output.) Full MAME capture:
 `~/code/mame/irix_serial_console.txt`.
 
 ## Minimum for Henry to print "IRIX is alive"

@@ -1,6 +1,6 @@
 ---
 title: Express / XZ — hardware-geometry graphics (Indy's other option)
-status: draft / future-work
+status: reference only (not implemented)
 source: Harrell & Fouladi, "Graphics Rendering Architecture for a High Performance Desktop Workstation" (ACM, 1993); sgistuff.net Express page
 ---
 
@@ -12,10 +12,10 @@ source: Harrell & Fouladi, "Graphics Rendering Architecture for a High Performan
 > "Elan-class" board: a SIMD array of floating-point **Geometry Engines** feeding a
 > hyper-pipelined **Raster Engine**.
 >
-> **Not implemented in Henry, and not planned** — Henry models no graphics hardware and boots
-> headless on the serial console (see [the overview](index.md#henry-relevance) for what the GIO
-> graphics aperture actually does today). This page is reference only: it captures the architecture and maps it onto the real Indy ASICs. If you
-> ever wanted Henry to do graphics, **Newport is the far smaller target** — Express adds a microcoded
+> **Not implemented in Henry, and not planned** — Henry's graphics board is an ARM-served
+> **Newport** (see [the overview](index.md#henry-relevance) and
+> [Newport on henry](../newport-on-henry.md)). This page is reference only: it captures the architecture and maps it onto the real Indy ASICs.
+> **Newport was the far smaller target**, which is why henry built it — Express adds a microcoded
 > SIMD FP array *and* a command-FIFO front-end on top of a REX3-class rasterizer.
 
 The canonical architecture reference is **Harrell & Fouladi, "Graphics Rendering Architecture for a High
@@ -211,10 +211,11 @@ antialiasing, genlock/stereo. (Indigo² uses the analogous **GR3** boards: XZ = 
 
 ## Henry relevance
 
-**Status (current): not implemented.** Henry has no HQ2/GE7/RE3 model. As for Newport, the GIO graphics
-aperture is not decoded as a device; accesses fall through to plain DRAM rather than bus-erroring (see
-[the overview](index.md#henry-relevance)), so a probe of `MYSTERY` would read whatever that DRAM holds.
-Nothing here is on the boot path.
+**Status (2026-10): not implemented.** Henry has no HQ2/GE7/RE3 model. In slot 0 only the REX3 window
+(`0x1f0f0000–0x1f0f1fff`) is decoded, for the ARM-served Newport; the rest of GIO space is empty and an
+access times out like an empty slot on an Indy (a load bus-errors when `CPUCTRL1.ABORT_EN` is set; see
+[Bus errors](../bus-errors.md)). So a probe of the HQ2 `MYSTERY` register (slot + `0x6A07C`) finds no
+Express board. Nothing here is on the boot path.
 
 **Future (graphics console):** Express is a **much bigger lift than Newport**, in roughly this order:
 
@@ -225,7 +226,7 @@ Nothing here is on the boot path.
 3. An **RE3-class rasterizer** (comparable in scope to REX3) plus the **ZRB4** hardware Z-buffer.
 4. The output chain (VC1 / XMAP / RAMDAC).
 
-For a Henry graphics path, **Newport remains the recommended target** precisely because it omits items
+Henry's graphics path is **Newport** (built as an ARM-served model) precisely because it omits items
 1–2 (and 3's hardware Z). This page exists to document the high-end alternative and to tie the Harrell &
 Fouladi paper to gfxinfo-visible Indy silicon — not as a build recommendation.
 

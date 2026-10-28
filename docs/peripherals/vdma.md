@@ -1,7 +1,7 @@
 ---
 title: VDMA — Virtual DMA (graphics/GIO master)
 status: implemented for memory -> GIO (dma_engine CH_V), 2026-10-18
-source: SGI IP22 Virtual DMA spec (vdma.pdf); henry status audited 2026-10-18 against branch dma-engine (rtl/mc.sv, rtl/dma_engine.sv)
+source: SGI IP22 Virtual DMA spec (vdma.pdf); henry status audited 2026-10-27 against henry main eea6ecb (rtl/mc.sv, rtl/dma_engine.sv, rtl/gio_window.sv)
 ---
 
 # VDMA — Virtual DMA (Henry block spec)
@@ -25,12 +25,16 @@ Draft 1.5 (1992).
   - **Engine.** Channel `CH_V` (3) of `rtl/dma_engine.sv`, the DMA engine shared with SCSI and ENET. It runs the
     linecount/zoomcount/bytecount loop with `stride`/`DMA_COUNT` semantics copied from indysim's `dma_perform`.
     Each 8-byte group becomes a `VDMA STORE` record in the Newport `gio_window` ring, bracketed by BEGIN/END
-    markers ([Newport on henry](../newport-on-henry.md#mc-vdma-memory-gio)).
+    markers ([Newport on henry](../newport-on-henry.md#mc-vdma-memory-gio)). Since eea6ecb the pixel loads fetch
+    whole 64 B lines (AXI lane 1 burst) into a one-line buffer; PTE loads stay 16 B.
   - **Registers** (`rtl/mc.sv`): the DMA TLB `0x180–0x1bc`, `DMA_CTL`/`DMA_CAUSE`/`DMA_COUNT`, the descriptor
     registers, and the final `MEMADR` written back at completion. `DMA_CTL` bit 4 enables the completion
     interrupt on INT3 `local0` bit 4.
-  - **Not modeled:** GIO → memory, fill mode and the `0x2070` start alias complete at once without moving data;
-    the µTLB/PTE fault causes are not raised.
+  - **Fill to memory** (mode `FILL|TO_HOST`, physical addresses, zoom 1, upward) runs on a separate fill
+    engine in `rtl/mc.sv`; the SGI PROM uses it for its power-on memory clear. Its writes are not snooped.
+  - **Not modeled:** GIO → memory and any other mode complete at once without moving data. Writes to the
+    `0x2070` start alias are only counted (AXI-Lite `0x22`/`0x23`), not acted on. The µTLB/PTE fault causes
+    are not raised; an address no µTLB entry maps is used as physical.
   - **Validation:** `sim/vdma_test` (RTL against indysim's `dma_perform`, 3000 random transfers × 6 seeds) and
     `tests/vdma` under `henry_tb` (39/39 doublewords, IRQ/CAUSE/MEMADR).
 - ⚠️ **The PTE-page field is `TLB_LO[25:6]`, like a PTE's PFN.** MAME masks the entry with `0x003fffc0`, dropping
@@ -161,7 +165,8 @@ linecount→zoomcount→bytecount walk with `stride`/`linewidth` address arithme
 ## Henry implementation notes
 What henry built, against the list a VDMA model needs:
 1. **The blitter loop** over `GIO_MEMADR`/`GIO_SIZE`/`GIO_STRIDE`/`GIO_MODE`: in `dma_engine` channel `CH_V`.
-   It sinks to the ARM-served Newport through the `gio_window` ring, not a GIO64 bus.
+   It sinks to the ARM-served Newport through the `gio_window` ring, not a GIO64 bus. The ring writer batches
+   four records into one 64 B burst when the slot is aligned (eea6ecb).
 2. **TLB + page-table walk:** 4 software-loaded entries (4 MB each) and a leaf PTE load per page, with the last
    page cached; the PTE page comes from `TLB_LO[25:6]` (see above).
 3. **Faults:** not modeled. IRIX's transfers have not faulted so far.

@@ -1,6 +1,6 @@
 ---
 title: Minimum MMIO to the IRIX boot banner
-status: draft (functional-sim validated, MAME-corroborated; Henry-RTL notes added 2026-10-04 against henry 209e6f6)
+status: draft (functional-sim validated, MAME-corroborated; Henry-RTL notes re-checked 2026-10-27 against henry eea6ecb)
 source: interp_mips functional ISS (first model to reach the banner); MAME golden reference; r9999/MAME_QUESTIONS.md Q1–Q7
 ---
 
@@ -37,12 +37,14 @@ All device MMIO lives in **phys `0x1f000000`–`0x1fffffff`** (kseg1 `0xbf…`).
 return 0 (probed-empty); that is itself load-bearing (the kernel probes many empty GIO/PBUS slots and must
 read back 0).
 
-**Henry RTL:** `henry_soc.sv:250-257` decodes only MC (`0x1fa00000–0x1fafffff`), HPC3
-(`0x1fb80000–0x1fbfffff`) and IOC2 (`0x1fbd9800–0x1fbd98ff`, carved out of HPC3). Anything else in the
-device range, including the graphics and GIO slot windows, goes to the AXI memory port. The M00 master maps
-it onto a 16 MB DRAM window that also holds the PROM, so those reads return DRAM contents (zero unless
-written), writes stick, and **nothing bus-errors** (the core ignores `mem_rsp_bad`; INT3 `buserr` is tied
-to 0). Inside HPC3, unmodeled registers read 0.
+**Henry RTL:** the address decode at the top of `henry_soc.sv` sends MC (`0x1fa00000–0x1fafffff`), HPC3
+(`0x1fb80000–0x1fbfffff`) and IOC2 (`0x1fbd9800–0x1fbd98ff`, carved out of HPC3) to their models. The REX3
+window (`0x1f0f0000–0x1f0f1fff`) and the IOC2 8042 go to the ARM-served `gio_window` (unless built with
+`DISABLE_NEWPORT`). The rest of GIO space (`0x1f000000–0x1f9fffff`) and HPC3 chip 1 (`0x1fb00000–0x1fb7ffff`)
+are **empty**: the MC times the access out, and with `CPUCTRL1.ABORT_EN` a load takes a precise data bus
+error while a store is absorbed ([Bus errors](bus-errors.md)). The ds1386 bbRAM (`0x1fbe0040–0x1fbe7fff`) and
+the boot PROM are left to the AXI port, whose M00 master maps the device range onto a 16 MB DRAM window. Inside
+HPC3, unmodeled registers read 0.
 
 | Block | Phys base | Boot role | Minimum to banner |
 |---|---|---|---|
@@ -122,7 +124,7 @@ writes and read back sanely**:
 | `0x30000` | `0x1fbb0000` | `istat0` — interrupt status `[4:0]` |
 | `0x30004` | `0x1fbb0004` | `gio_misc` |
 | `0x30008` | `0x1fbb0008` | NMC93CS56 serial EEPROM (bit-banged; Henry returns MAC `08:00:69:12:34:56` from words 125–127) |
-| `0x60000`… | `0x1fbe0000`… | ds1386 RTC + bbRAM (Henry: fixed BCD time; station MAC in bbRAM at `0x604e8`) |
+| `0x60000`… | `0x1fbe0000`… | ds1386 RTC + bbRAM (Henry: a running 100 Hz BCD clock in `hpc3.sv`; the bbRAM is DRAM, with the station MAC at `0x604e8`) |
 | `0x00000`–`0x0ffff` | … | PBUS DMA channel registers (storage) |
 | `0x10000`–`0x1ffff` | … | HD0/HD1/ENET DMA registers (storage) |
 | `0x58000`–`0x5bfff` | … | PBUS PIO data ports (probe) |
@@ -149,8 +151,8 @@ misses these will still wall before the banner:
 - **PRId and Config.** The interp_mips run that first reached the banner used **PRId = `0x00002020`
   (R4600)** and **Config = `0x0002e4b3`** (16K I$/16K D$, 32-byte lines). `start` branches on PRId's IMP
   field; Config drives `cachecolormask` (a wrong mask hangs `pagecoloralign`). **Henry's RTL presents
-  PRId = `0x00000440` (R4400) and Config = `0x0002e4a3`**: the same cache sizes, but DB=0 advertises a
-  16-byte L1 line so IRIX's `dma_cache_inv` strides by r9999's real line size (`exec.sv` CP0 r16).
+  PRId = `0x00000440` (R4400) and Config = `0x0002e483`**: the same cache sizes, but IB=DB=0 advertises
+  16-byte I and D lines, r9999's real line size (`exec.sv` CP0 r16).
 - **CP0 Count/Compare timer interrupt** (IP[7]).
 - **The sash→/unix handoff in RAM**: ARCS SPB/romvec/env at phys `0x1000`, **plus the `argc/argv/envp`
   arrays** (`a0=argc, a1=argv, a2=envp` as kseg0 pointers). ⚠️ This **corrects** the older
@@ -163,8 +165,8 @@ misses these will still wall before the banner:
 
 - **Newport graphics** (REX3/VC2/XMAP9/RB2/RO1) — only for `console=g`; serial console skips it entirely.
 - **GIO64 cards / VDMA / DMUX** — probed-empty (read 0) is sufficient.
-- **RTC (ds1386)** — touched but not banner-critical. (Henry models it anyway: `hpc3.sv` returns a fixed
-  BCD time so IRIX's `rtodc()` doesn't spin later.)
+- **RTC (ds1386)** — touched but not banner-critical. (Henry models it anyway: `hpc3.sv` runs a settable
+  100 Hz BCD clock, which the real SGI PROM calibrates against.)
 - **Working SCSI/DMA** — first needed at root mount, after the banner.
 
 ## Sources & cross-refs

@@ -51,7 +51,9 @@ hardware datapath**:
 - **Divide (HW, iterative):** **`DIV.D` (128 — double divide is exercised)** runs on **`uni_divider.sv`**,
   the unified iterative unit shared with the integer `div`/`ddiv` family (instance `d0` in `exec.sv`). It
   is a restoring recurrence, one op in flight, variable latency; an FP div/sqrt pops from the FP queue
-  only when the unit is free and returns through the FP writeback port.
+  only when the unit is free and returns through the FP writeback port. The FP iteration count depends
+  on precision: 56 quotient bits for `DIV.D` and 55 root bits for `SQRT.D`, but only 27 / 26 for the
+  `.S` forms (r9999 `7e687ab`; in-loop `div.s` went from 65 to 36 cycles).
 - **Convert / round (HW):** `CVT.D.S`, `CVT.S.D`, `CVT.D.W` (502), `CVT.D.L` (672), `CVT.S.W`,
   **`TRUNC.W.D` (2,349)**, `TRUNC.L.D` (538) — single-cycle `fpu_f2i`/`fpu_i2f`/`fpu_f2f`.
 - **Compare (HW):** `C.LT.{S,D}` (C.LT.S = 6,819, the hottest compare), `C.LE.{S,D}` (C.LE.S = 2,070),

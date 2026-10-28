@@ -1,7 +1,7 @@
 ---
 title: Firmware — the ARCS shim ("Henry's PROM")
-status: draft (MAME-validated; Henry FSBL section checked 2026-10-04 against r9999/arcs/henry_arcs.S @ 5c89b70)
-source: r9999/IRIX_CPU_REQUIREMENTS.md (P0-A/B/C); ARCS section of r9999/IP22_CHIP_REGISTERS.md; arcs_spec.pdf (ARC 1.2); r9999/arcs/henry_arcs.S
+status: draft (MAME-validated; Henry FSBL section checked 2026-10-27 against r9999/arcs/henry_arcs.S + henry_fw.c @ 788c412)
+source: r9999/IRIX_CPU_REQUIREMENTS.md (P0-A/B/C); ARCS section of r9999/IP22_CHIP_REGISTERS.md; arcs_spec.pdf (ARC 1.2); r9999/arcs/henry_arcs.S, henry_fw.c, henry_newport.c
 ---
 
 # Firmware — the ARCS shim
@@ -19,26 +19,38 @@ source: r9999/IRIX_CPU_REQUIREMENTS.md (P0-A/B/C); ARCS section of r9999/IP22_CH
 
 ## Henry's FSBL (`henry_arcs`)
 
-What Henry actually ships is **one** first-stage boot loader, `r9999/arcs/henry_arcs.S` (built to
-`henry_arcs.bin` by `r9999/arcs/Makefile`), that boots **both IP22 Linux and IRIX**. It replaces the
-older stub-style `arcs_irix.S` / `arcs_fw.S`. The host loads it at the PROM, physical `0x1fc00000`
-(`henry_tb --arcs`, default address; the ARM driver on the FPGA), loads the kernel ELF into DRAM, and
-patches the kernel entry into the word at **`0xBFC00008`** (`arcs_kentry_slot`, default `0x88005960`).
-The core resets to `0xBFC00000`, and the FSBL then:
+What Henry actually ships is **one** first-stage boot loader, `henry_arcs` (built to `henry_arcs.bin` by
+`r9999/arcs/Makefile`), that boots **both IP22 Linux and IRIX**. Only the reset vector, the MC early init,
+the stack setup, the final jump and the SPB/romvec/argv data are assembly (`r9999/arcs/henry_arcs.S`); the
+body and the romvec callbacks are C (`henry_fw.c`, plus the Newport bring-up in `henry_newport.c`). It
+replaces the older stub-style `arcs_irix.S` / `arcs_fw.S`. The host loads it at the PROM, physical
+`0x1fc00000` (`henry_tb --arcs`, default address; the ARM driver on the FPGA), loads the kernel ELF into
+DRAM, and patches the kernel entry into the word at **`0xBFC00008`** (`arcs_kentry_slot`, default
+`0x88005960`). The core resets to `0xBFC00000`, and the FSBL then:
 
 1. **Programs `MEMCFG0 = 0x3f203f40`** (2 × 128 MB banks = 256 MB), so IRIX `hinv` sees all of RAM.
-2. **Copies the SPB/romvec block** from the PROM to kseg1 `0xA0001000` (phys `0x1000`; Henry's
-   low-512 KB System Memory Alias, `henry_soc.sv:544-597`, puts it in DRAM at `0x08001000`, below the
-   kernel `_text` at `0x08004000`).
-3. Prints the heartbeat `r9999 PROM: CPU alive, handing off to the kernel` over the SCC (polls RR0 at
-   `0xbfbd9830`, writes the data byte at `0xbfbd9837`).
-4. Writes the station MAC `08:00:69:12:34:56` into the ds1386 bbRAM at `0xbfbe04e8…` (one byte per word).
-   It then prints that and the NMC93CS56 EEPROM words 125–127 back as hex (a `TEMP DEBUG` block still in
-   the source).
-5. Copies the `argv`/`envp` blob (the MAME strings below) to kseg0 `0x88fff000`.
-6. Sets `a0 = 8`, `a1 = argv`, `a2 = envp`, zeroes `a3`, `v0`/`v1` and `t0`–`t9`, and `jr`s to the patched
-   entry. It does **not** write Status, `gp` or `sp`: the kernel starts with r9999's reset Status
-   (`ERL=1`, `BEV=1`, `CU0=1`, `FR=1`) and sets up its own `gp`/`sp`.
+2. **Sets `CPUCTRL1.ABORT_EN`** (bit 4), so an access to empty GIO space completes with a bus error
+   instead of hanging (IRIX's and Linux's GIO probes need it; see [Bus errors](bus-errors.md)).
+3. Sets `sp` to a stack at kseg0 `0x88ffe000` and calls the C body `fsbl_main`, which:
+    1. prints the heartbeat `r9999 PROM: CPU alive, handing off to the kernel` over the SCC (polls RR0 at
+       `0xbfbd9830`, writes the data byte at `0xbfbd9837`);
+    2. **copies the SPB/romvec block** from the PROM to kseg1 `0xA0001000` (phys `0x1000`; Henry's
+       low-512 KB System Memory Alias, `w_sysmem_alias` in `henry_soc.sv`, puts it in DRAM at `0x08001000`,
+       below the kernel `_text` at `0x08004000`);
+    3. writes the station MAC `08:00:69:12:34:56` into the ds1386 bbRAM at `0xbfbe04e8…` (one byte per
+       word, in the word's low byte);
+    4. probes the Newport REX3 window and, if a board answers, programs the VC2 timing, XMAP9 mode and
+       REX3 raster/clip state that Linux's `newport_con` expects firmware to have set (compiled out with
+       `-DNEWPORT_DISABLE`);
+    5. copies the `argv`/`envp` blob (the MAME strings below, plus `monitor=h`) to kseg0 `0x88fff000`;
+    6. calls `jump_kernel` with `a0 = 8`, `a1 = argv`, `a2 = envp`, `a3` = the patched entry, which
+       `jr`s to it.
+
+It does **not** write Status or `gp`: the kernel starts with r9999's reset Status (`ERL=1`, `BEV=1`,
+`CU0=1`, `FR=1`) and sets up its own `gp`/`sp`. Other GPRs hold whatever the C body left in them.
+
+Henry's device models also run the **real SGI IP24 PROM** (`henry_tb --prom <bin>`; the device fixes it
+needed are henry `5a0f112` and `ae2b7ab`). The rest of this page is about the `henry_arcs` path.
 
 Its romvec (in the copied SPB block) is small:
 
@@ -49,7 +61,7 @@ Its romvec (in the copied SPB block) is small:
 | 10 | GetChild | root component (`SGI-IP22`) for a NULL query, else NULL |
 | 18 | GetMemoryDescriptor | one FreeContiguous descriptor: base `0x08004000`, 128 MB − 16 KB (Linux uses it) |
 | 27 | Write | writes bytes to the CP0 reg-7 putchar console |
-| 30 | GetEnvironmentVariable | returns `"08:00:69:12:34:56"` for **every** name (`-DSINGLE_USER` build: a name starting with `i`, i.e. `initstate`, returns `"SINGLE"`) |
+| 30 | GetEnvironmentVariable | a name starting with `mon` (`monitor`) returns `"h"` (the 1280×1024 monitor; XL24 needs it); every other name returns `"08:00:69:12:34:56"` (`-DSINGLE_USER` build: a name starting with `i`, i.e. `initstate`, returns `"SINGLE"`) |
 | all others, incl. 34 FlushAllCaches | `stub_default`: return 0 |
 
 The SPB it plants matches the layout below except that `RestartBlock`, `GeneralException` and
@@ -103,7 +115,7 @@ first C routine `0x880255e8(a0,a1,a2,a3=0x880059b0)`. Everything else IRIX needs
 ```
 
 The kernel sets `gp`/`sp` itself in the prologue, so there is no need to pre-seed them (Henry's FSBL
-leaves them untouched).
+leaves `gp` untouched and enters with its own scratch-stack `sp`, which the prologue overwrites).
 
 ---
 
@@ -198,7 +210,7 @@ tree; a garbage COMPONENT pointer crashes early probing. ARCS status codes are P
 The kernel's single call is `GetEnvironmentVariable(a0=NULL)` — likely fetching the env-block base or an init
 probe (exact return semantics: open item). The general answer is to walk the env block (next section) by name and
 return a pointer to the value string (or NULL if absent). Henry's FSBL takes a shortcut: it returns the MAC string
-for every name. The [boot-flow trace](irix-boot-flow.md#phase-3-mlreset-platform-reset-system-identity) shows the
+for every name except `monitor`. The [boot-flow trace](irix-boot-flow.md#phase-3-mlreset-platform-reset-system-identity) shows the
 kernel's call coming from `init_sysid` → `arcs_getenv("eaddr")`, so the shortcut is enough.
 
 `PrivateVector` (13 SGI extensions @ `0xa0001c00`) — semantics TBD; not observed called by the kernel. A table of

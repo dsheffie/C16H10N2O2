@@ -1,14 +1,14 @@
 ---
 title: XMAP9 — Colormap / pixel mux (Newport)
-status: draft / future-work
+status: reference; implemented in the ARM-side Newport model (2026-10-18)
 source: SGI Newport XMAP9 spec (xmap9.pdf, Rev 2.1, 1993-10-29)
 ---
 
 # XMAP9 — Colormap / Pixel Mapping (Henry/Newport block spec)
 
 > Intro: XMAP9 takes framebuffer pixel values (read out of VRAM by the RO1 reorganizers) and maps them through
-> pixel-mode logic toward the CMAP and RAMDAC. Programmed via REX3's DCB. **Not implemented in Henry** (no
-> Newport logic in the RTL). This is the backend of the Newport graphics subsystem: it picks which "plane"
+> pixel-mode logic toward the CMAP and RAMDAC. Programmed via REX3's DCB. **On Henry, XMAP9 is software on the
+> Zynq ARM** (no Newport logic in the RTL; see [Newport on henry](../newport-on-henry.md)). This is the backend of the Newport graphics subsystem: it picks which "plane"
 > (pixel / overlay / underlay / cursor / pop-up / video) is visible at each pixel, formats it into a CMAP address
 > or 24-bit RGB, and sends the result to the CMAP, whose output drives the RAMDAC.
 
@@ -130,19 +130,18 @@ registers above.
 
 ## Henry relevance
 
-- **Status: not implemented.** Henry has no framebuffer and models none of REX3/XMAP9/CMAP/RO1. Accesses to
-  the Newport aperture are not decoded as a device and fall through to plain DRAM (they do not bus-error; see
-  [the overview](index.md#henry-relevance)). Henry boots headless on the serial console; none of this block is
-  needed to boot.
-- **Future graphics console.** A real display would require the whole Newport backend, not just XMAP9: REX3 (the
-  rendering engine + DCB master), the RB2/VRAM framebuffer, RO1 (VRAM reorg → pixel stream), VC2 (timing, DID,
-  cursor), the external CMAP, and the RAMDAC. XMAP9's job in that chain is purely the colormap-address / plane-mux
-  formatting described here. There is no partial XMAP9 in hardware — it sits inline on every displayed pixel —
-  but the 2026-10-02 feasibility study (`NEWPORT_FEASIBILITY.md`, study only) proposes no XMAP9 hardware at all:
-  the driver's DCB writes to XMAP9 (mode table, MSB registers) would be replayed into an ARM-side software model,
-  and software scanout would apply the per-DID mode words and CMAP lookup. The PL would only answer the reads the
-  driver polls (e.g. a constant "FIFO entries available"). Treat this doc as a reference for *when* a display
-  path is added, not a near-term implementation target.
+- **Status (2026-10): implemented in software on the ARM.** No XMAP9, CMAP or RAMDAC is built in the
+  PL. The driver's Newport model (`sgi_newport`, a condensed MAME `newport.cpp`; henry copy
+  `sim/newport/sgi_newport.cc`) takes the DCB writes to the two XMAP9s (mode table, cursor/pop-up
+  CMAP MSBs), the CMAPs and the Bt445 RAMDAC. Its software scanout (`render()`) picks each pixel's
+  mode word through the VC2 DID stream, applies the plane-priority and CI/RGB formatting described
+  here, looks the result up in the CMAP, then applies the RAMDAC LUT. See
+  [Newport on henry](../newport-on-henry.md).
+- **Board identity:** XMAP9 revision is 1 for XL8 and 3 for XL24 in the model; the XL8/XL24 choice
+  is made by `NEWPORT_XL24=1` (see [XL24](../newport-on-henry.md#xl24)).
+- **Feasibility study (2026-10-02, `NEWPORT_FEASIBILITY.md`):** proposed no XMAP9 hardware at all:
+  replay the driver's DCB writes into an ARM-side model and apply the per-DID mode words and CMAP
+  lookup in software scanout. That is what was built.
 
 ## Sources
 

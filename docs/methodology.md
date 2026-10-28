@@ -80,12 +80,16 @@ ambiguity), so the C++ SCC hook is the reliable headless serial sink. Getting se
    [Cache, coherence & TLB](coherence-cache-tlb.md).
 5. **HPC3 SCSI + WD33C93** → read the root disk. See [HPC3](peripherals/hpc3.md).
 6. Empty GIO64 slots / no graphics → IRIX skips graphics cleanly. On a real Indy an empty slot
-   bus-errors. **Henry raises no bus errors here:** `henry_soc.sv:250-257` decodes only MC, HPC3 and
-   IOC2. Every other address, including the graphics (`0x1f000000–0x1f3fffff`) and GIO slot windows,
-   goes to the AXI memory port. The M00 master maps all of `0x1f000000–0x1fffffff` onto a 16 MB DRAM
-   window (the same one that holds the PROM at `0x1fc00000`), so those probes read DRAM (zero unless
-   something wrote there). The core ignores `mem_rsp_bad`, and INT3's `buserr` input is tied to 0
-   (`henry_soc.sv:1022`). See [GIO64](peripherals/gio64.md).
+   bus-errors, and Henry now does the same (2026-10, stage S1 of [Bus errors](bus-errors.md)):
+   `henry_soc.sv` decodes empty GIO space (`0x1f000000–0x1f9fffff` minus the Newport window, plus
+   HPC3 chip 1) as `w_is_gio_empty`. With `CPUCTRL1.ABORT_EN` set, an uncached load there completes
+   with `bad` set and the core takes a precise Data Bus Error (r9999 `c83cd5f`); a store is
+   absorbed. Either way the MC latches `GIO_ERROR_ADDR/STAT` and raises INT3 `buserr[1]`. The
+   Newport REX3 window (`0x1f0f0000–0x1f0f1fff`) is served by the ARM through `gio_window`, so
+   IRIX finds a graphics board ([Newport on henry](newport-on-henry.md)); a `DISABLE_NEWPORT`
+   build leaves it undecoded, the probe bus-errors, and IRIX comes up on the serial console.
+   Cached accesses to non-existent memory and instruction bus errors are not done yet. See
+   [GIO64](peripherals/gio64.md).
 
 ## Chasing a bug on silicon — HW watchpoint + the ISS diff
 
@@ -101,7 +105,7 @@ reset** — the register file and DRAM stay coherent at the moment of interest. 
 PC/addr/value are ports, moving the breakpoint does not need a re-synth. Arm with control-register bit 17
 (`bp_enable`); bit 19 (`bp_fault_only`) switches to fault-only mode; `fault_clear` (bit 18) re-arms.
 
-The trap has been reworked since the `bad istack` hunt below (`core.sv:940-1008`, current form):
+The trap has been reworked since the `bad istack` hunt below (`core.sv:963-1037`, current form):
 
 ```verilog
 // PC breakpoint: freeze after retiring bp_pc, or (bp_fault_only) on a FAULT at bp_pc.
@@ -119,7 +123,8 @@ wire w_wp_match = w_wp_data_here & (lsu_sb.data[31:0] < bp_wp_val);
 wire w_step_ok  = (r_single_step | r_bp_hit | r_wp_hit | r_fault_hit) ? t_step_edge : 1'b1;
 ```
 
-- **Timing trap:** compare the *flopped* retire outputs (`retire_reg_data/ptr/valid`), **not** the
+- **Timing trap (from the original sp watchpoint; the current `bp_pc` match above does compare
+  the ROB head PC):** compare the *flopped* retire outputs (`retire_reg_data/ptr/valid`), **not** the
   combinational ROB head — the ROB-head read is already the near-critical retire path, and a 32-bit masked
   compare hung off it cost **WNS −3.6 ns**. Registering it (flop→logic→flop) closes timing at the price of
   the freeze landing ~1–2 instructions late (disassemble the window). Adding a probe *moves the critical
@@ -130,10 +135,10 @@ coherent: `read32(7)`=last PC, `read32(0xb)`=CP0 EPC, `read32(0x26)&31`=Cause, a
 `write32(14,i); read32(0xe)` (a shadow register file rebuilt from the retire stream).
 - **Gotcha that cost a synth (fixed):** the henry AXI wrapper once dropped `retire_reg_valid` end-to-end,
   so every GPR read returned 0. It is wired now: `henry_soc.sv` exports `retire_reg_valid`, and the wrapper
-  feeds `w_reg_val0/1` into the S00_AXI shadow (`ip_hdl/axi_is_the_worst_v1_0.v:446-449, 704`).
+  feeds `w_reg_val0/1` into the S00_AXI shadow (`ip_hdl/axi_is_the_worst_v1_0.v:445-450, 718-723`).
 
 **3. Read guest DRAM (`devmem`).** The driver mmaps guest RAM at host phys `0x5ff00000`. The M00 AXI
-master folds guest physical addresses (`ip_hdl/axi_is_the_worst_v1_0_M00_AXI.v:366-383`, mirrored by
+master folds guest physical addresses (`ip_hdl/axi_is_the_worst_v1_0_M00_AXI.v:524-540`, mirrored by
 `fpga_map` in `sim/henry_tb.cpp`): guest `0x08000000–0x17ffffff` → offset `pa[27:0]` (so `host = 0x5ff00000
 + guest_pa` for `0x08000000–0x0fffffff`, and the upper 128 MB folds down to offset 0), and the device/PROM
 window `0x1f000000–0x1fffffff` → offset `0x10000000 + pa[23:0]` (the PROM at guest `0x1fc00000` lands at
@@ -170,7 +175,9 @@ margin for the probe on a 94%-LUT-full die: shrinking the **ALU matrix scheduler
 (`LG_INT_SCHED_ENTRIES 3→2`) — the O(N²) wakeup/select is *on the critical path*, so it's a real WNS lever
 (not an area win; the FPU dominates the LUTs) — **but that downsize proved buggy (mis-issue → replay) and was
 reverted, so the live config stays 8 entries (`LG_INT_SCHED_ENTRIES=3`)**; and **L2 1024→8 lines** (a BRAM
-knob, no LUT/correctness impact; the L2 is not inclusive of the L1D, so shrinking is safe). Today the L2
+knob, no LUT/correctness impact; at the time the L2 was not inclusive of the L1D, so shrinking was
+safe). The L2 has since become inclusive of the L1D (r9999 `1079cf5..ff34709`): a small L2 is still
+correct, but every eviction of a line the L1D may hold now costs a back-invalidate probe. Today the L2
 default is 128 KB (`LG_L2_NUM_SETS=13`), and any cache size can be overridden from the build line
 (`SV2V_DEFINES="LG_L2_NUM_SETS=8" ./gen_mipscore.sh`; see `machine.vh`).
 
@@ -188,8 +195,8 @@ the `r9999` submodule unless noted.
 | **Checkpoints** | Resume from an `interp_mips` checkpoint (`--checkpoint`, `--cimg` preamble image), snapshot/restore the real Verilator state (`--save-at`/`--save-file`/`--restore`), and diff committed memory against an independent ISS checkpoint (`--verify-ckpt`). | `sim/henry_tb.cpp`; checkpoint→ELF loader shim in `~/code/mips-ckpt-shim` |
 | **XPG flush injection** | Fires ARM-style whole-cache (`--extflush N`) or page-list (`--xfpages base,n,drop`) flushes into a running boot, to race the [XPG path](coherence-cache-tlb.md#dma-coherence-on-silicon-arm-requested-flushes-xpg) against live traffic. | `sim/henry_tb.cpp` |
 | **HW retirement trace ring** | 2048-entry, two-bank (one bank per retire slot) record of retired instructions, frozen on a retired indirect jump to 0 / poison PC, read back over AXI. Opt-in with `ENABLE_PC_TRACE`; a sim-only per-retire trace buffer is `ENABLE_TRACE_BUFFER`. | `r9999/core.sv`, `LG_RTRACE_ENTRIES` in `machine.vh` |
-| **Formal (yosys SAT/BMC)** | Decode, register-file write-bank, L1D forwarding/response, and retire properties. | `r9999/formal/run_*_formal.sh` |
-| **Murphi models** | Protocol models for the cache/DMA paths, incl. the XPG page walk (`r9999_pagewalk.m`, cited by `l1d.sv`). | `~/code/murphi` (outside these repos) |
+| **Formal (yosys SAT/BMC)** | Decode (no valid destination of `$0`, no hidden physreg-0 write), free-list bank allocation, physreg 0 reads as 0 (BMC + induction), L1D store→load forwarding and response integrity, and the mispredict/delay-slot retire protocol. | `r9999/formal/run_*_formal.sh` |
+| **Murphi models** | Explicit-state (CMurphi) proofs of the cache protocol: the non-inclusive baseline (`r9999_main.m`), the inclusive L2 with back-invalidate probes, presence bits and DMA snoop (`r9999_incl.m`, generated by `gen/make_incl.py`), the VA-indexed L1D with `pd`/`pidx` alias tracking (`r9999_va.m`), a non-blocking L2 (`r9999_nb.m`), DMA coherence options and the XPG page walk (`r9999_dma.m`, `r9999_pagewalk.m`). Every model carries `BUG_*` negative controls that must fail. | `r9999/formal/murphi/` (`run_*.sh`, see its `README.md`); CMurphi itself is not vendored |
 
 ## Related work
 

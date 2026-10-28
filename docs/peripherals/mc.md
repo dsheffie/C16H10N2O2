@@ -1,6 +1,6 @@
 ---
 title: MC — Memory Controller
-status: draft (MAME-validated; henry RTL status audited 2026-10-18 against branch dma-engine)
+status: draft (MAME-validated; henry RTL status audited 2026-10-27 against main eea6ecb)
 source: SGI IP22 MC spec (mc.pdf); MAME golden reference; henry rtl/mc.sv, rtl/henry_soc.sv, ip_hdl/axi_is_the_worst_v1_0_M00_AXI.v
 ---
 
@@ -15,7 +15,7 @@ source: SGI IP22 MC spec (mc.pdf); MAME golden reference; henry rtl/mc.sv, rtl/h
 
 ## What henry implements (`rtl/mc.sv`)
 
-**Decode.** henry selects the MC for `pa[31:20] == 0x1fa` (`henry_soc.sv:255`). Inside, only `pa[16:0]` is
+**Decode.** henry selects the MC for `pa[31:20] == 0x1fa` (`henry_soc.sv:248`). Inside, only `pa[16:0]` is
 decoded, so the 1 MB window aliases every 128 KB. Reads return data only for **full-word** accesses (all four
 byte-enables of a word). The core byte-swaps device word loads, so values are stored byte-reversed: stored
 `0x13000000` is read by IRIX as `0x13`.
@@ -35,28 +35,38 @@ byte-enables of a word). The core byte-swaps device word loads, so values are st
 | `0xe0`–`0xfc` | CPU/GIO_ERROR_ADDR, CPU/GIO_ERROR_STAT | latched on an empty-GIO access (`GIO_ERROR_STAT.TIME`); write clears; any status bit set drives the MC bus-error line to INT3 |
 | `0x160/0x164`, `0x168/0x16c` | DMA_CAUSE, DMA_CTL | VDMA completion cause; `DMA_CTL` bit 4 (BE bit 28) enables the completion interrupt (INT3 Local0 bit 4) |
 | `0x180`–`0x1bc` | DMA_TLB_{HI,LO}_{0..3} | R/W; the PTE page is `TLB_LO[25:6]` ([VDMA](vdma.md)) |
-| `0x2000`–`0x204c` | DMA_MEMADR, SIZE, STRIDE, GIO_ADR, MODE, COUNT, RUN | the VDMA descriptor; a start runs `dma_engine` channel `CH_V`; `MEMADR`/`COUNT` hold the final values; `DMA_RUN` bit 6 = running |
+| `0x2000`–`0x204c` | DMA_MEMADR, SIZE, STRIDE, GIO_ADR, MODE, COUNT, RUN | the VDMA descriptor. A start (write to `0x2028`/`0x202c`, or a 1 to `0x2040`/`0x2044`) runs mode FILL\|TO_HOST (the PROM's memory clear) on the MC's own fill engine and memory → GIO on `dma_engine` channel `CH_V` (not built with `DISABLE_NEWPORT`); any other mode completes at once. `MEMADR`/`COUNT` hold the final values; `DMA_RUN` bit 6 = running |
 | everything else | CTRLD, REF_CTR, watchdog, semaphores, locks | **read 0, writes ignored** |
 
 **MEMCFG0 default.** The parameter is `0x0000203f`, which IRIX reads as **`0x3f200000`**. That decodes to
 bank 0 base `0x20` (`0x08000000`), MSIZE `0x1f` (8M×36, a **128 MB** bank), VLD=1, BNK=0; banks 1/2/3 absent.
-The FSBL may rewrite it.
+The boot firmware may rewrite it; the SGI PROM does while it sizes memory (below).
 
-The MC registers are **descriptive only**: henry does not decode DRAM from MEMCFG. Every CPU access that misses
-the MC/HPC3/IOC2 windows passes straight through to the external memory bus. Before arbitration, henry applies
-one remap, the **IP22 System Memory Alias**: a CPU PA below `0x80000` gets bit 27 set, so phys `0x0–0x7ffff`
-lands on `0x08000000–0x0807ffff` (`henry_soc.sv:549`, applied at `w_cpu_req_addr`). Only the CPU master is
-remapped; DMA masters use the address as given.
+MEMCFG does not route ordinary DRAM: every CPU access that misses the device windows passes straight through to
+the external memory bus. The one place henry reads MEMCFG is the **PROM's bank-probe window** (`ae2b7ab`,
+`henry_soc.sv:268-279`). The SGI PROM sizes memory by making one bank valid at base `0x80` (phys `0x20000000`)
+and probing it uncached. For CPU accesses to `0x20000000–0x2fffffff`, henry reads MEMCFG0 (CPU byte order:
+bank 0 in `[31:16]`, bank 1 in `[15:0]`): a valid bank 0 or 1 at base `0x80` maps to its DRAM (bank 0 →
+`0x08000000`, bank 1 → `0x10000000`, offset mod 128 MB, so the alias test sizes each at 128 MB). Any other
+access in the window is empty memory: loads read 0, stores vanish, no bus error. MEMCFG1 (banks 2/3) is not
+consulted, so those banks always probe empty and the PROM finds 256 MB.
+
+Before arbitration, henry applies one more remap, the **IP22 System Memory Alias**: a CPU PA below `0x80000`
+gets bit 27 set, so phys `0x0–0x7ffff` lands on `0x08000000–0x0807ffff` (`henry_soc.sv:576`, applied at
+`w_cpu_req_addr`, `henry_soc.sv:625`). Only the CPU master is remapped; DMA masters use the address as given.
 
 **FPGA DRAM fold.** On the FPGA, the AXI master folds the guest PA in `sgi_mode`
-(`ip_hdl/axi_is_the_worst_v1_0_M00_AXI.v:363-399`):
+(`ip_hdl/axi_is_the_worst_v1_0_M00_AXI.v:524-543`):
 
 - `0x08000000–0x17ffffff` → `pa[27:0]`.
 - `0x1f000000–0x1fffffff` → `0x10000000 | pa[23:0]`. This is a 16 MB DRAM shadow that holds the PROM/ARCS image
-  and absorbs the GIO apertures.
+  and absorbs the GIO apertures. The ds1386 bbRAM (`0x1fbe0040–0x1fbe7fff`) also lands here: henry does not
+  decode it, so it is plain DRAM the ARM fills (`henry_soc.sv:253-258`).
 - Anything else → identity.
 - A result above the runtime `addrmask` is rejected: writes are dropped, and reads return the poison
-  `0xA5A5…`. It is never a bus error.
+  `0xA5A5…` with the response's `bad` flag set. Only an **uncached** CPU load acts on that flag (it takes a
+  data bus error, via `henry_soc.sv:1258` and the r9999 L2's `UNCACHE_LOAD` path); cached fills just get the
+  poison.
 
 The ARM-side `scsi_fpga_map` in `driver/scsi_arm.h` must stay in sync with this fold.
 
@@ -96,7 +106,7 @@ Containing memory-map context (mc.pdf p.22): MC registers occupy `0x1fa00000–0
 windows: **Low Local Memory `0x08000000–0x17ffffff` (256 MB)** and **High System Memory `0x20000000–0x2fffffff`
 (256 MB, kseg-mapped only)** ⇒ up to **30-bit PA** ⚠️ (not 29 — earlier 29-bit note was a small-RAM artifact).
 The **bottom 512 KB `0x0–0x7ffff` ALIASES low RAM** so exception vectors `0x0`/`0x80` hit `0x08000000`/`0x08000080`.
-henry implements this alias for CPU accesses (`henry_soc.sv:549`). On the FPGA, how much of the low/high RAM
+henry implements this alias for CPU accesses (`henry_soc.sv:576`). On the FPGA, how much of the low/high RAM
 windows is actually backed depends on the AXI DRAM fold and `addrmask` (see above).
 
 ## Register map
@@ -138,7 +148,8 @@ Offsets are table offsets (add `+4` for the BE alias IRIX uses). Full chip table
 
 Each MEMCFG register packs **two banks** in its 32 bits — a high half and a low half, each with 4 fields
 (BASE, MSIZE, VLD, BNK). ⚠️ **Bank pairing: MEMCFG0 = banks {0,2}, MEMCFG1 = banks {1,3}** (MAME-validated;
-the SGI doc p.33 text says MEMCFG0={0,1}/MEMCFG1={2,3}, but Henry follows the MAME pairing). Field bit layout
+the SGI doc p.33 text says MEMCFG0={0,1}/MEMCFG1={2,3}). Note that henry's probe-window decode
+(`henry_soc.sv:275-278`, `mc.sv:27`) uses the SGI-doc pairing: MEMCFG0 high half = bank 0, low half = bank 1. Field bit layout
 (mc.pdf p.33):
 
 | bits | field | meaning |
@@ -195,7 +206,8 @@ see the top of this page):
 - **Endian bit (CPUCTRL0.LITTLE, bit18):** 0 = big-endian, 1 = little. Normally loaded from the EEROM at reset;
   the BIG/LITTLE MC pin must match the R4000's mode or the machine won't run. Henry is **big-endian** ⇒ LITTLE=0.
 - **Error registers (`0xe0`–`0xf8`):** CPU/GIO error address + status capture on parity/bus errors; status reg is
-  read to inspect, **written (any value) to clear**. Henry returns 0 / clears cleanly (no parity enabled at reset).
+  read to inspect, **written (any value) to clear**. Henry latches only empty-GIO time-outs (`GIO_ERROR_*`);
+  `CPU_ERROR_*` always reads 0.
 - **Locks / semaphores:** LOCK_MEMORY, EISA_LOCK reset unlocked; the 16 SEMAPHORE_n and SYS_SEMAPHORE are R/W
   storage for Henry (no real multi-master arbitration needed on a uniprocessor headless build).
 
@@ -206,7 +218,7 @@ page:
 
 - REF_CTR and CTRLD read 0. The error registers latch empty-GIO accesses ([Bus errors](../bus-errors.md)).
 - CPUCTRL0 has no side effects.
-- MEMCFG is not used to route DRAM.
+- MEMCFG routes only the PROM's bank-probe window at `0x20000000`; ordinary DRAM does not depend on it.
 
 Must-implement subset (everything else can be inert storage that reads back what was written):
 
@@ -244,7 +256,8 @@ These can be **stubbed as R/W storage** (write returns on read) for an initial h
 later:
 
 - **DMA engine** (`0x02000`+, DMA_MEM/SIZE/STRIDE/GIO/MODE/COUNT/RUN + DMA_TLB 0–3 + DMA_CAUSE/CTL): the
-  graphics/GIO virtual-DMA blitter (FastForward). DMA_RUN polled-busy can just return "not running" (0).
+  graphics/GIO virtual-DMA blitter (FastForward). Now implemented for the two modes henry sees (PROM fill,
+  memory → GIO); see the table at the top and [VDMA](vdma.md). `DMA_GIO_MASK`/`SUB` are not decoded.
 - **GIO64 arbiter** (GIO64_ARB, CPU_TIME, LB_TIME): no real GIO masters on headless Henry ⇒ arbitration never
   runs; treat as R/W storage (PROM writes timing, nobody arbitrates).
 - **Semaphores / locks** (SEMAPHORE_0..15, SYS_SEMAPHORE, LOCK_MEMORY, EISA_LOCK): R/W storage on a uniprocessor.

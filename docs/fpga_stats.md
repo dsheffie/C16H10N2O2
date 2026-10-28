@@ -10,8 +10,9 @@ a synth (`rebuild_henry.tcl` writes `~/timing_after.rpt` + `~/util_after.rpt`):
 **Target:** Ultra96-v2 (Zynq UltraScale+ ZU3EG), `clk_pl_0` @ **100 MHz** (10 ns).
 In most of the June–July 2026 builds logged below the WNS path was the **icache -> ITLB -> `pa_reg`** chain (the
 48-entry fully-associative TLB CAM), **route-dominated** (~63% route). The 2-entry **micro-ITLB** took
-the CAM off the fetch path; since the memory-system rework (non-blocking L1D + LSU) the worst path
-sits in the **L1D port-2 pipeline**. Newest block first. Reports for each deployed bitstream are
+the CAM off the fetch path; in the 2026-10-03/10-04 builds after the memory-system rework (non-blocking
+L1D + LSU) the worst path sat in the **L1D port-2 pipeline**. Newest block first; the log is not
+updated for every bitstream (the newest entry is 2026-10-18). Reports for each deployed bitstream are
 snapshotted next to it in `~/fpga/ultra96v2-henry/bit_<r9999 sha>/`.
 
 ## 2026-10-14 .. 10-18 -- device rings, Newport, VDMA, big core

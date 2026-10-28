@@ -5,12 +5,14 @@ fault as on IP22:
 
 - henry `rtl/mc.sv` decides "empty" and latches `GIO_ERROR_ADDR/STAT`; the MC bus-error line
   is INT3 `buserr[1]`.
-- r9999 `c83cd5f`: the L1D forwards `mem_rsp_bad` on uncached-load responses, and the core
-  raises a precise data bus error (cause 7) at retirement.
+- r9999 `c83cd5f`: the L2 and then the L1D forward `mem_rsp_bad` on uncached-load responses,
+  and the core raises a precise data bus error (cause 7) at retirement.
 - The `henry_arcs` shim sets `CPUCTRL1.ABORT_EN` (r9999 `91129f9`).
 - Bare-metal test: henry `tests/buserr`.
 
 S2 (cached accesses to non-existent memory) and S3 (instruction bus errors) are not done.
+Accesses to an empty memory bank in the PROM's probe window at `0x20000000` read 0 and drop
+stores without a bus error (henry `ae2b7ab`, `henry_soc.sv:268-279`).
 Before this, a CPU access that nothing answered returned DRAM-shadow data, so the OS's probes
 (Linux `get_dbe()`, IRIX `badaddr`) never saw a fault. The design below is what was built.
 
@@ -50,13 +52,14 @@ load-issue path: it rides the slow response paths.
    - the MC bus-error line = any error status bit set → INT3 `buserr[1]` (MC),
      cleared when the OS writes the status register.
 2. **r9999 L2:** forward the response's `bad` on uncached-load responses to the L1D
-   (today `mem_rsp_bad` is an unused input).
+   (`l1_mem_rsp_bad`, `l2.sv:1253`; before S1 `mem_rsp_bad` was an unused input).
 3. **r9999 L1D:** `INJECT_UNCACHE_LOAD` copies `bad` into the load's response as a
    new `bus_err` bit (no destination write). Uncached stores ignore it (posted).
 4. **r9999 core:** `bus_err` marks the ROB entry faulted; at the head it becomes
    cause 7. EPC and BD come from the existing precise-exception path.
 5. **Golden model:** the co-sim ISS (`interpret.cc` + its `sgi_mc`) and indysim get
-   the same rule, so lockstep does not diverge at the first probe.
+   the same rule, so lockstep does not diverge at the first probe. (Not done in the
+   r9999 submodule's ISS: its `sgi_mc.cc` has no GIO error registers.)
 
 ## Stages
 
@@ -75,5 +78,8 @@ load-issue path: it rides the slow response paths.
 - a load from the REX3 window (`0x1f0f133c`) still completes normally.
 - a store to empty GIO: no exception, no DRAM write, MC bus-error interrupt pending
   in INT3 until the status is cleared.
-- without `ABORT_EN`: the load returns 0, no exception (today's behaviour).
-- the test must FAIL on today's RTL before any fix.
+- without `ABORT_EN`: the load returns 0, no exception.
+- IRIX 5.3's `wbadaddr` write probes, replayed in its boot order with IE + IM6 live:
+  posted store, uncached-load flush, then `mfc0 Cause` for IP6 (case 6, henry
+  `5579805`; needs r9999's ordered Cause read, `788c412`).
+- the test had to FAIL on the pre-S1 RTL.

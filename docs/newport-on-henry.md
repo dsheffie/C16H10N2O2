@@ -45,7 +45,10 @@ controller, and IMPACT's HQ3 command FIFO would be the same pattern at higher vo
 
 Ordering is the only subtle part: a read must observe every earlier write, so read requests go
 through the same ring, and the ARM answers only after draining it. The CPU is blocked on the load
-meanwhile (device loads already block in henry). All reads go to the ARM: about 99.9% of accesses
+meanwhile (device loads already block in henry). One exception (driver, 2026-10-20): a held REX3
+`STATUS` read with a backlog of VDMA records ahead of it is answered early when the nearest VDMA
+marker before it is an END (`gio_answer_early()` in the driver's `gio_service.h`). Without this,
+the retrace handler's `STATUS` load waited behind hundreds of VDMA records. All reads go to the ARM: about 99.9% of accesses
 are posted writes, drawing paths do not read, and the remaining reads (probe, DCB readback,
 STATUS, pixel readback) have side effects or need the framebuffer.
 
@@ -71,7 +74,10 @@ bits `[8i+7:8i]`):
   record, whenever the queue drains, and periodically. Record `n` lives in slot `(n−1) mod 65536`.
 - **Ring full** (`assigned − cons == 65536`): the PL holds the CPU's access. The DMA is never held
   (see [VDMA](#mc-vdma-memory-gio)).
-- One memory port (arbiter master 2); staging addresses are not snooped.
+- One memory port (arbiter master 2), on AXI lane 1 with the DMA engine; the CPU has lane 0 to
+  itself, so ring writes do not queue behind CPU misses. When four records are queued and the next
+  slot is 64-byte aligned they go out as one 64-byte burst, otherwise one 16-byte write each.
+  Staging addresses are not snooped.
 
 **AXI-Lite (S00):**
 
@@ -82,6 +88,12 @@ bits `[8i+7:8i]`):
 | `0x22` | answer sequence = the READ record's `recno`; completes the held load (write `0x20`/`0x21` first) | VDMA usage: `{non-fill starts, last mode}` |
 | `0x23` | `cons`: records consumed | VDMA usage: `{fill starts, other DMA register writes}` |
 | `0x2A` | IRQ levels: bits 7:0 → INT3 `local1_src` (7 = VRETRACE); bit 8 → mappable 4 (8042) | -- |
+| `0x24` / `0x02` | write `0x24[4:0]`: graphics counter select (`[4:1]` counter, `[0]` high half) | read `0x02`: the selected 48-bit counter half |
+
+The graphics counters (`rtl/henry_soc.sv`, 2026-10-20) are free-running: 0 cycles, 1 CPU GIO
+stores, 2 cycles a CPU GIO access is outstanding, 3 ring writer waiting on AXI, 4 ring writes,
+5 VDMA busy, 6 VDMA waiting on a memory read, 7 VDMA record waiting on the ring, 8 VDMA records
+accepted. They split where a Newport frame's PL-side time goes.
 
 ## MC VDMA (memory → GIO)
 
@@ -91,8 +103,9 @@ memory → GIO, upward. Without VDMA the wallpaper was REX3 drawing noise from a
 path.
 
 - **Engine:** channel `CH_V` (3) of `rtl/dma_engine.sv`, the one DMA engine henry's devices share.
-  Memory reads go through the coherent snoop shim, so no cache flush is needed. Each 8-byte group
-  becomes a `VDMA STORE` record. The CPU is never held for a transfer: an early version held CPU
+  Memory reads go through the coherent snoop shim, so no cache flush is needed. Pixel loads fetch
+  whole 64-byte lines (one burst on AXI lane 1) into a line buffer. Each 8-byte group becomes a
+  `VDMA STORE` record. The CPU is never held for a transfer: an early version held CPU
   accesses during the DMA and deadlocked, because the held access kept the L1D from answering
   the DMA's snoops. Instead the transfer is bracketed by BEGIN/END markers, and the ARM behaves as
   REX3 does during a host-data DMA: it reports busy between the markers and applies CPU stores only
@@ -159,9 +172,12 @@ much better, but the IRIX cursor and the host pointer still drift apart over tim
 IRIX supports both board types. The XL24 (24-bit) takes its video timing from the `monitor`
 environment variable, so the ARCS shim must answer `GetEnvironmentVariable("monitor")` with
 `"h"` (`henry_arcs` `fb449a50`, r9999 `c2a5898`); without it IRIX picks 1024×768. Run the driver
-with `NEWPORT_XL24=1`. The CMAP revision byte's upper bits are the **board** revision (`0xa1` =
-XL8 rev 2, `0x02` = XL24 rev 0), so do not "fix" the monitor ID there: `0xa2` turns the board back
-into an 8-bit one. The framebuffer (RB2) pitch is 1344 pixels and its height 1088.
+with `NEWPORT_XL24=1`. The CMAP revision byte encodes the board, as the IP24 PROM decodes it:
+bit 7 = 8-bit board, bits 6:4 = board revision, bits 2:0 = CMAP revision. XL8 uses `0xa1`. XL24
+uses CMAP0 `0x22` (24-bit, board revision 2) and CMAP1 `0xa2`, whose upper nibble is the
+monitor-ID sense (`0xa` = 1280×1024). The PROM trusts the 8/24-bit flag only at board revision
+≥ 2, so MAME's XL24 value `0x02` made it report "Indy 8-bit" (henry `635a15d`, driver `629eb2e`,
+2026-10-25). The framebuffer (RB2) pitch is 1344 pixels and its height 1088.
 
 ## Debugging the model
 
@@ -223,3 +239,8 @@ The RTL revision is unchanged, so the same driver runs both builds; leave off
   on the TINY_CORE build, then PS/2.
 - 2026-10-17: MC VDMA channel, TLB_LO fix, ring markers (revision `0x20261018`), XL24.
 - 2026-10-18: CID match and plane-mask fixes; big-core bitstream with Newport; Doom.
+- 2026-10-20: early answer for REX3 `STATUS` reads and a count-based absent-Presenter DCB timeout
+  (driver `2a46345`, henry `f1c75e2`). Graphics-path performance in the RTL: two AXI lanes (CPU
+  alone on lane 0), 64-byte bursts for VDMA loads and ring writes, graphics counters. Every henry
+  bitstream since has these; committed as henry `eea6ecb` (RTL revision unchanged).
+- 2026-10-25: XL24 CMAP revisions `0x22`/`0xa2`, so the PROM reports "Indy 24-bit".

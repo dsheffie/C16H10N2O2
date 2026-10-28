@@ -1,6 +1,6 @@
 ---
 title: SCC (Z8530) — serial console implementation & Tx interrupt
-status: draft (silicon-validated; audited 2026-10-04 against henry main @209e6f6)
+status: draft (silicon-validated; audited 2026-10-27 against henry main @eea6ecb)
 source: rtl/ioc.sv, rtl/int3.sv, rtl/henry_soc.sv; interp_mips sgi_scc.cc; MAME ioc2.cpp
 ---
 
@@ -80,6 +80,9 @@ flowchart LR
 - `SCC_RR0 = 0x44` (Tx-Buffer-Empty | All-Sent); **bit2** is what software polls.
 - A DATA write on **either** channel goes to the same console FIFO. henry has no separate sink for the second
   port.
+- A CONTROL write while that channel's pointer is at **WR8** (the Tx buffer) is also a transmit. The SGI
+  PROM's early putc does this: WR0 = Point-High (pointer 8), then the character (`ioc.sv`, added in 5a0f112).
+  It goes to the console FIFO but does not start the shift timer or touch `tx_ip`.
 - A DATA write is only accepted (it re-arms `tx_ip` and starts the shift timer) while the console FIFO is not
   full.
 - `TX_DRAIN = 512` gates `tx_ip` only, **not** output.
