@@ -14,6 +14,9 @@
 MKFILE_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 R9999     ?= $(MKFILE_DIR)../r9999
 RTL        = ../rtl
+# The ARM-side servicers (ring/SCSI/ENET/GIO) and the Newport model are the board
+# driver's own sources (the ultra96v2_driver submodule), so henry_tb runs the same code.
+DRIVER    ?= $(MKFILE_DIR)../ultra96v2_driver
 VERILATOR ?= /home/dsheffie/local/bin/verilator
 TOP        = henry_soc
 
@@ -31,7 +34,7 @@ VFLAGS = -cc --exe -O3 --savable \
          -Wno-fatal -Wno-WIDTH -Wno-CASEINCOMPLETE \
          -Wno-UNUSED -Wno-BLKANDNBLK -Wno-PINMISSING \
          -y $(RTL) -y $(R9999) +incdir+$(R9999) +define+ENABLE_STORE_CHECK +define+INSN_PACED_COUNT +define+ENABLE_DEBUG_WATCHPOINT $(if $(TIMER_RARE),+define+TIMER_RARE=$(TIMER_RARE),) --top-module $(TOP) -Mdir obj_dir \
-         -CFLAGS "-I$(R9999) -DSTORE_CHECK" \
+         -CFLAGS "-I$(R9999) -I$(DRIVER) -DSTORE_CHECK" \
          -o henry_tb
 # `make BIG_L2=1` -> 1MB sim-only L2 (LG_L2_NUM_SETS=16) to shake out bugs the tiny
 # 16KB direct-mapped L2 was masking; leaves the FPGA build at 16KB.
@@ -76,10 +79,10 @@ endif
 obj_dir/.verilated: $(wildcard $(RTL)/*.sv $(RTL)/*.vh) $(wildcard $(R9999)/*.sv $(R9999)/*.vh) Makefile
 	# Pass the golden-ISS .cc to Verilator's --exe so it compiles them (RTL-agnostic)
 	# alongside henry_tb.cpp into obj_dir/*.o.
-	$(VERILATOR) $(VFLAGS) $(RTL)/henry_soc.sv henry_tb.cpp newport/sgi_newport.cc newport/sgi_ps2.cc $(INTERP_CC)
+	$(VERILATOR) $(VFLAGS) $(RTL)/henry_soc.sv henry_tb.cpp $(DRIVER)/sgi_newport.cc $(DRIVER)/sgi_ps2.cc $(INTERP_CC)
 	@touch $@
 
-obj_dir/henry_tb: obj_dir/.verilated henry_tb.cpp gio_service.h newport/sgi_newport.cc newport/sgi_newport.hh newport/sgi_ps2.cc newport/sgi_ps2.hh $(INTERP_CC) $(wildcard $(R9999)/*.hh)
+obj_dir/henry_tb: obj_dir/.verilated henry_tb.cpp $(wildcard $(DRIVER)/*_service.h $(DRIVER)/henry_scsi.h $(DRIVER)/sgi_newport.* $(DRIVER)/sgi_ps2.*) $(INTERP_CC) $(wildcard $(R9999)/*.hh)
 	# LTO dropped from the COMPILES (per dsheffie) -- the clang-14/16 mismatch +
 	# ar-archive relink was the whole build headache; clang-16 is forced end-to-end
 	# so a core-only edit reliably lands via a plain `make`.  The LINK, however,

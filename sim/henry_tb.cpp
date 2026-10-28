@@ -93,8 +93,8 @@ static void ckpt_copy(const char *from, const char *to) {
 #include "enet_service.h"   // host-side ethernet tap service (enet_shim.sv contract)
 #include "ring_service.h"   // staging-ring servicer, SAME source as the board driver
 #include "gio_service.h"    // ARM-served GIO window servicer, SAME source as the board driver
-#include "newport/sgi_newport.hh"
-#include "newport/sgi_ps2.hh"
+#include "sgi_newport.hh"
+#include "sgi_ps2.hh"
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
