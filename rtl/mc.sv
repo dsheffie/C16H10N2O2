@@ -22,6 +22,8 @@ module mc
     //      answered; the MC latches GIO_ERROR_ADDR/STAT and raises its bus-error line ----
     input  logic         gio_err,       // 1-cycle: a GIO access timed out
     input  logic [31:0]  gio_err_addr,  // its physical address
+    input  logic         cpu_err,       // 1-cycle: a CPU access hit a reserved PA (no bank, no device)
+    input  logic [31:0]  cpu_err_addr,  // its physical address
     output logic         abort_en,      // CPUCTRL1.ABORT_EN: GIO time-outs enabled
     output logic         buserr,        // any error status bit set -> INT3 bus error (MC)
     // ---- MEMCFG0/1 in CPU byte order (banks 0/1 and 2/3, 16 bits each, even bank high):
@@ -61,6 +63,7 @@ module mc
     * like every other register here */
    logic [31:0] r_cpu_err_addr, r_cpu_err_stat, r_gio_err_addr, r_gio_err_stat;
    localparam [31:0] GSTAT_TIME = 32'h0000_0400;   // GIO transaction timed out
+   localparam [31:0] CSTAT_ADDR = 32'h0000_0400;   // CPU_ERROR_STAT.ADDR: address maps to no memory
    /* DMA ("virtual DMA", MC spec p.24) registers, stored like the rest (swapped).
     * Two modes move data:
     *   FILL|TO_HOST, to physical addresses (no DMA TLB, zoom 1, upward): the SGI
@@ -216,6 +219,13 @@ module mc
       if(!reset & gio_err) begin
          r_gio_err_addr <= gio_err_addr;
          r_gio_err_stat <= r_gio_err_stat | GSTAT_TIME;
+      end
+      /* MC spec 5.15: a CPU access that maps to no memory latches CPU_ERROR_ADDR and
+       * sets CPU_ERROR_STAT.ADDR (bus-error response on a read, interrupt on a write);
+       * unlike a GIO time-out it is not gated by ABORT_EN */
+      if(!reset & cpu_err) begin
+         r_cpu_err_addr <= cpu_err_addr;
+         r_cpu_err_stat <= r_cpu_err_stat | CSTAT_ADDR;
       end
       /* DMA_CAUSE: a CPU write of 0 clears the interrupt */
       if(!reset & sel & is_store)

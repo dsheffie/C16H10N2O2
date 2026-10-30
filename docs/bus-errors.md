@@ -64,7 +64,9 @@ load-issue path: it rides the slow response paths.
 ## Stages
 
 - **S1 (done):** uncached loads/stores to empty GIO space. Enough for Linux's
-  Newport probe and IRIX's GIO probes.
+  Newport probe and IRIX's GIO probes. Also done: uncached loads/stores to the
+  reserved PAs `0x18000000–0x1effffff` and `0x30000000`+ (`CPU_ERROR_STAT.ADDR`,
+  not gated by `ABORT_EN`).
 - **S2:** cached accesses to addresses with no memory bank (`CPU_ERROR_STAT.ADDR`):
   the L2 and L1D must not install the line; the requester gets DBE.
 - **S3:** instruction fetch → IBE.
@@ -82,4 +84,9 @@ load-issue path: it rides the slow response paths.
 - IRIX 5.3's `wbadaddr` write probes, replayed in its boot order with IE + IM6 live:
   posted store, uncached-load flush, then `mfc0 Cause` for IP6 (case 6, henry
   `5579805`; needs r9999's ordered Cause read, `788c412`).
+- a reserved PA (`0xb8000000` → PA `0x18000000`) with `ABORT_EN` off: cause 7 at the
+  load, `CPU_ERROR_ADDR` = `0x18000000`, `CPU_ERROR_STAT.ADDR` set; a store to
+  `0xbe800010` (where the ARM's staging ring sits) raises no exception, latches
+  `CPU_ERROR_ADDR` = `0x1e800010` and holds the MC bus-error interrupt until cleared
+  (cases 7-8; they fail on RTL without the reserved-PA decode).
 - the test had to FAIL on the pre-S1 RTL.

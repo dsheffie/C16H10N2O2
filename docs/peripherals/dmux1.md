@@ -131,8 +131,8 @@ with `slvdly` when DMUX's GIO write/read FIFOs back up.
      alias note in `mc.md` — same theme: get the lanes right.)
   2. **Parity** can be ignored. DMUX parity exists to *detect DRAM faults*; on simulated/SoC memory there are no
      bit flips, and the parity-error interrupt path is maskable. henry models no parity, so no parity error is
-     ever reported. The MC error registers exist, but only GIO time-outs set them (`GIO_ERROR_ADDR/STAT`;
-     `CPU_ERROR_STAT` is never set), and the INT3 MC bus-error input carries only those time-outs.
+     ever reported. The MC error registers are set only by GIO time-outs (`GIO_ERROR_ADDR/STAT`) and uncached CPU
+     accesses to reserved PAs (`CPU_ERROR_STAT.ADDR`), and the INT3 MC bus-error input carries those.
 - The known DMUX silicon bug (bad-parity-on-`par_flush` corrupting the GIO FIFO, IDE-then-SCSI failure, p.37) is
   a hardware erratum with no bearing on a clean Henry datapath — do not replicate it.
 

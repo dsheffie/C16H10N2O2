@@ -64,9 +64,14 @@ gets bit 27 set, so phys `0x0–0x7ffff` lands on `0x08000000–0x0807ffff` (`he
   decode it, so it is plain DRAM the ARM fills (`henry_soc.sv:253-258`).
 - Anything else → identity.
 - A result above the runtime `addrmask` is rejected: writes are dropped, and reads return the poison
-  `0xA5A5…` with the response's `bad` flag set. Only an **uncached** CPU load acts on that flag (it takes a
-  data bus error, via `henry_soc.sv:1258` and the r9999 L2's `UNCACHE_LOAD` path); cached fills just get the
-  poison.
+  `0xA5A5…` with the response's `bad` flag set. CPU accesses no longer get that far: `henry_soc` decodes the
+  reserved PAs `0x18000000–0x1effffff` and `0x30000000`+ as no memory before the AXI port (`w_is_nomap`), so
+  an uncached load takes a data bus error, an uncached store is absorbed, and the MC latches `CPU_ERROR_ADDR`
+  and `CPU_ERROR_STAT.ADDR`, as an Indy's MC does for an address that maps to no bank. Cached traffic to
+  those PAs reads zeros or is dropped with no error: r9999 issues cached fills for wrong-path loads, and a
+  latched error and its interrupt can't be squashed (64-bit Linux panicked in the keyboard probe until the
+  core's `mem_req_uncached` qualified the decode). Without that decode, the
+  `0x18000000–0x1effffff` range would fold straight onto the ARM's staging rings.
 
 The board driver's copies of this fold (`cimg_fpga_map` in `ultra96v2_driver/axi.cc`, used for checkpoint resume) must stay in sync with it.
 
@@ -206,8 +211,8 @@ see the top of this page):
 - **Endian bit (CPUCTRL0.LITTLE, bit18):** 0 = big-endian, 1 = little. Normally loaded from the EEROM at reset;
   the BIG/LITTLE MC pin must match the R4000's mode or the machine won't run. Henry is **big-endian** ⇒ LITTLE=0.
 - **Error registers (`0xe0`–`0xf8`):** CPU/GIO error address + status capture on parity/bus errors; status reg is
-  read to inspect, **written (any value) to clear**. Henry latches only empty-GIO time-outs (`GIO_ERROR_*`);
-  `CPU_ERROR_*` always reads 0.
+  read to inspect, **written (any value) to clear**. Henry latches empty-GIO time-outs (`GIO_ERROR_*`) and uncached CPU
+  accesses to reserved PAs (`CPU_ERROR_ADDR`, `CPU_ERROR_STAT.ADDR` bit 10); there is no parity checking.
 - **Locks / semaphores:** LOCK_MEMORY, EISA_LOCK reset unlocked; the 16 SEMAPHORE_n and SYS_SEMAPHORE are R/W
   storage for Henry (no real multi-master arbitration needed on a uniprocessor headless build).
 

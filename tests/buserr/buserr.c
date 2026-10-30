@@ -8,6 +8,12 @@
 #define MC_CPUCTRL1   0xbfa0000cu
 #define MC_GIO_EADDR  0xbfa000f4u
 #define MC_GIO_ESTAT  0xbfa000fcu
+#define MC_CPU_EADDR  0xbfa000e4u
+#define MC_CPU_ESTAT  0xbfa000ecu
+#define CSTAT_ADDR    0x400u                      /* CPU_ERROR_STAT.ADDR: maps to no memory */
+#define RSVD_LO       0xb8000000u                 /* PA 0x18000000: reserved, first byte */
+#define RSVD_RING     0xbe800000u                 /* PA 0x1e800000: reserved (the ARM's staging ring
+                                                   * lives at that board-DRAM offset) */
 #define INT3_ERRSTAT  0xbfbd98a7u                 /* byte; bit 1 = MC */
 #define ABORT_EN      0x10u
 #define GSTAT_TIME    0x400u
@@ -205,6 +211,35 @@ int main(void) {
     }
     sr &= ~((1u << 14) | 1u);
     __asm__ volatile("mtc0 %0, $12\n\tnop\n\tnop" : : "r"(sr));
+  }
+  /* 7: a reserved PA (0x18000000-0x1effffff) maps to no memory: a load takes a
+   *    precise DBE even with ABORT_EN off, and the MC latches CPU_ERROR_ADDR/STAT */
+  V(MC_CPUCTRL1) = V(MC_CPUCTRL1) & ~ABORT_EN;
+  V(MC_CPU_ESTAT) = 0;
+  (void)probe_load(RSVD_LO, &pc);
+  if(EXC_COUNT != 3 || ((EXC_CAUSE >> 2) & 0x1f) != 7 || EXC_EPC != pc) {
+    fail('q');
+  }
+  if(V(MC_CPU_EADDR) != 0x18000000u || !(V(MC_CPU_ESTAT) & CSTAT_ADDR)) {
+    fail('r');
+  }
+  V(MC_CPU_ESTAT) = 0;
+  /* 8: a store there is absorbed -- no exception, no write to the board DRAM behind
+   *    it -- and latched, raising the MC bus-error interrupt until cleared */
+  V(RSVD_RING + 0x10) = 0x12345678;
+  (void)V(MC_CPU_ESTAT);                         /* order behind the store */
+  if(EXC_COUNT != 3) {
+    fail('s');
+  }
+  if(!(V(MC_CPU_ESTAT) & CSTAT_ADDR) || V(MC_CPU_EADDR) != 0x1e800010u) {
+    fail('t');
+  }
+  if(!(*(volatile uint8_t *)INT3_ERRSTAT & 2)) {
+    fail('u');
+  }
+  V(MC_CPU_ESTAT) = 0;
+  if(*(volatile uint8_t *)INT3_ERRSTAT & 2) {
+    fail('v');
   }
   putch('P');
   putch('\n');

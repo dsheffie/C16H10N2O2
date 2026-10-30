@@ -232,6 +232,7 @@ module henry_soc
    logic [127:0]          c_req_store_data;
    logic [4:0]            c_req_opcode;
    logic [15:0]           c_req_mask;
+   logic                  c_req_uncached;   /* uncached op (at the ROB head, never wrong-path) */
    logic                  c_rsp_valid;
    logic                  c_rsp_bad;
    logic [127:0]          c_rsp_load_data;
@@ -277,7 +278,18 @@ module henry_soc
    wire w_hi_bank0 = w_memcfg0[29] & (w_memcfg0[23:16] == 8'h80);
    wire w_hi_bank1 = w_memcfg0[13] & (w_memcfg0[7:0] == 8'h80);
    wire w_is_nomem = w_hi_win & ~w_hi_bank0 & ~w_hi_bank1;
-   wire w_is_dev  = w_is_mc | w_is_hpc3 | w_is_ioc | w_is_kbd | w_is_gio | w_is_gio_empty | w_is_nomem;
+   /* Reserved PAs (MC spec, physical address map): 0x18000000-0x1effffff and everything
+    * from 0x30000000 up.  The AXI fold passes these through unchanged, and below addrmask
+    * they would reach the board DRAM past the guest's 256 MB -- where the ARM keeps the
+    * staging rings, the GIO capture ring and the trace area.  Decode them here instead:
+    * an uncached load gets a bus error, an uncached store is absorbed, and the MC latches
+    * CPU_ERROR_ADDR/STAT (ADDR) either way, as an Indy's MC does for an address that maps
+    * to no memory.  CACHED traffic here reads zeros / is dropped with no error: a cached
+    * fill can belong to a wrong-path load (garbage PA[35:32]), and an MC latch + bus-error
+    * interrupt cannot be squashed -- that panicked 64-bit Linux in the atkbd probe. */
+   wire w_is_nomap = ((c_req_addr >= `PA_WIDTH'(36'h18000000)) & (c_req_addr < `PA_WIDTH'(36'h1f000000))) |
+		     (c_req_addr[`PA_WIDTH-1:28] >= (`PA_WIDTH-28)'(3));
+   wire w_is_dev  = w_is_mc | w_is_hpc3 | w_is_ioc | w_is_kbd | w_is_gio | w_is_gio_empty | w_is_nomem | w_is_nomap;
    wire w_is_load = (c_req_opcode == 5'd4);
 
 `ifdef SCSI_CLOBBER_TRACE
@@ -517,6 +529,7 @@ module henry_soc
       .mem_req_store_data(c_req_store_data),
       .mem_req_opcode(c_req_opcode),
       .mem_req_mask(c_req_mask),
+      .mem_req_uncached(c_req_uncached),
       .mem_rsp_valid(c_rsp_valid),
       .mem_rsp_bad(c_rsp_bad),
       .mem_rsp_load_data(c_rsp_load_data),
@@ -977,12 +990,14 @@ module henry_soc
      end
    wire w_mc_abort_en, w_mc_buserr;
    wire w_gio_timeout = w_dev_accept & w_is_gio_empty & w_mc_abort_en;
+   wire w_cpu_nomap   = w_dev_accept & w_is_nomap & c_req_uncached;
    mc #(.MEMCFG0(MEMCFG0)) u_mc
      (.clk(clk), .reset(reset),
       .sel(w_dev_accept & w_is_mc), .is_store(~w_is_load),
       .offs(c_req_addr[16:0]), .mask(c_req_mask), .wdata(c_req_store_data),
       .rdata(w_rd_mc),
       .gio_err(w_gio_timeout), .gio_err_addr({c_req_addr[31:4], t_first_lane}),
+      .cpu_err(w_cpu_nomap), .cpu_err_addr({c_req_addr[31:4], t_first_lane}),
       .abort_en(w_mc_abort_en), .buserr(w_mc_buserr),
       .memcfg0(w_memcfg0), .memcfg1(w_memcfg1),
       .dma_req_valid(w_mcdma_req_valid), .dma_req_addr(w_mcdma_req_addr),
@@ -1183,13 +1198,13 @@ module henry_soc
       .ip5(w_int3_ip5), .ip6(w_int3_ip6));
 
    wire [127:0] w_rd_ioc = w_rd_iocdev | w_rd_int3;
-   wire [127:0] w_dev_sel_rdata = (w_is_gio_empty | w_is_nomem) ? 128'd0 :
+   wire [127:0] w_dev_sel_rdata = (w_is_gio_empty | w_is_nomem | w_is_nomap) ? 128'd0 :
 				  w_is_mc ? w_rd_mc : (w_is_ioc ? w_rd_ioc : (w_rd_hpc3 | w_rd_scsi | w_rd_enet));
 
    /* a gio_window access completes when the window says so (stores once queued,
     * loads once the ARM has answered), not after DEV_LAT */
    logic r_dev_gio;
-   logic r_dev_bad;     /* this device load timed out on GIO: answer with a bus error */
+   logic r_dev_bad;     /* this device load timed out on GIO or hit a reserved PA: bus error */
    always_ff @(posedge clk) begin
       if(reset) begin
          r_dev_gio <= 1'b0;
@@ -1197,7 +1212,7 @@ module henry_soc
       end
       else if(w_dev_accept) begin
          r_dev_gio <= w_is_gio | w_is_kbd;
-         r_dev_bad <= w_gio_timeout & w_is_load;
+         r_dev_bad <= (w_gio_timeout | w_cpu_nomap) & w_is_load;
       end
    end
 

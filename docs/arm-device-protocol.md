@@ -83,7 +83,10 @@ Each channel has two kinds of access, both through the engine's one memory port 
 `mem_arbiter`. **Guest side** accesses go through `dma_snoop_shim`: PRE-WBINV, then the
 access, then POST-WBINV for writes. **Host side** accesses target staging PAs, which the
 shim passes straight through (`dma_snoop_shim.sv:76-79`). That is safe because the core can never cache PA 0x1e000000–0x1effffff: it is
-reserved GIO space on IP22 and IRIX never maps it.
+reserved on IP22, and `henry_soc` decodes CPU accesses to 0x18000000–0x1effffff as
+no memory (`w_is_nomap`: an uncached load bus-errors, an uncached store is absorbed, and cached
+traffic reads zeros or is dropped), so the core cannot
+reach the staging area at all.
 
 **Placement.** The kmod reserves `REGION_SZ = 496 MB`, so window offsets end at
 0x1effffff. `M00_AXI` folds guest RAM (PA 0x08000000–0x17ffffff) to offsets
