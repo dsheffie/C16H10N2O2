@@ -1,3 +1,17 @@
+# C₁₆H₁₀N₂O₂ — Henry, dyed indigo
+
+**C₁₆H₁₀N₂O₂** is indigo dye, and this is the **Indigo2** (board code **IP28**, R10000) fork of Henry
+([henry-the-wannabe-ip22-soc](https://github.com/dsheffie/henry-the-wannabe-ip22-soc), the `upstream`
+remote).  It differs from Henry in what it builds:
+
+- the r9999 core is built with **`ENABLE_R10000`** (`gen_mipscore.sh`'s default `SV2V_DEFINES`, and
+  `sim/Makefile`): 44-bit virtual addresses, a 64-entry JTLB, 31-bit TLB physical addresses and all of
+  MIPS IV.  r9999 itself is unchanged; its `machine.vh` defaults to the R4400.
+- the IP28 board model (INT2 remapped onto INT3, the cascaded 8254 on IP4/IP5, the 93CS56 EEPROM, the
+  second WD33C93, MC rev D, memory at 0x20000000) is still to come; indysim's `--ip28` is the reference.
+
+Everything below is Henry's README.
+
 # Henry — the wannabe IP22 SoC
 
 A from-scratch FPGA/RTL **System-on-Chip** that impersonates the SGI **Indy** (board code **IP22**) closely

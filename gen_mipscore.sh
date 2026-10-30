@@ -62,7 +62,9 @@ echo "[gen_mipscore] $(ls "$BUILD"/*.sv | wc -l) .sv + $(ls "$BUILD"/*.vh 2>/dev
 # and turned ON here for henry's active bug-hunt builds).  Override via the env:
 #   SV2V_DEFINES= ./gen_mipscore.sh      # production: watchpoint OFF, ports tie to 0
 #   SV2V_DEFINES="ENABLE_DEBUG_WATCHPOINT FOO" ./gen_mipscore.sh   # add more
-: "${SV2V_DEFINES=ENABLE_DEBUG_WATCHPOINT}"
+# C16H10N2O2 (Indigo2 / IP28): ENABLE_R10000 makes the core an R10000 -- 44-bit VAs,
+# a 64-entry JTLB, 31-bit TLB PAs, and all of MIPS IV (it implies ENABLE_MIPS4).
+: "${SV2V_DEFINES=ENABLE_DEBUG_WATCHPOINT ENABLE_R10000}"
 export SV2V_DEFINES
 echo "[gen_mipscore] sv2v extra defines: ${SV2V_DEFINES:-<none>}"
 ( cd "$BUILD" && python3 convert_sv_to_v.py )

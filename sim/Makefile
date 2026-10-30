@@ -33,8 +33,8 @@ START_PC  ?= 0xbfc00000      # FSBL reset vector (henry_arcs); one blob boots Li
 VFLAGS = -cc --exe -O3 --savable \
          -Wno-fatal -Wno-WIDTH -Wno-CASEINCOMPLETE \
          -Wno-UNUSED -Wno-BLKANDNBLK -Wno-PINMISSING \
-         -y $(RTL) -y $(R9999) +incdir+$(R9999) +define+ENABLE_STORE_CHECK +define+INSN_PACED_COUNT +define+ENABLE_DEBUG_WATCHPOINT $(if $(TIMER_RARE),+define+TIMER_RARE=$(TIMER_RARE),) --top-module $(TOP) -Mdir obj_dir \
-         -CFLAGS "-I$(R9999) -I$(DRIVER) -DSTORE_CHECK" \
+         -y $(RTL) -y $(R9999) +incdir+$(R9999) +define+ENABLE_STORE_CHECK +define+INSN_PACED_COUNT +define+ENABLE_DEBUG_WATCHPOINT +define+ENABLE_R10000 $(if $(TIMER_RARE),+define+TIMER_RARE=$(TIMER_RARE),) --top-module $(TOP) -Mdir obj_dir \
+         -CFLAGS "-I$(R9999) -I$(DRIVER) -DSTORE_CHECK -DENABLE_R10000 -DENABLE_MIPS4" \
          -o henry_tb
 # `make BIG_L2=1` -> 1MB sim-only L2 (LG_L2_NUM_SETS=16) to shake out bugs the tiny
 # 16KB direct-mapped L2 was masking; leaves the FPGA build at 16KB.
