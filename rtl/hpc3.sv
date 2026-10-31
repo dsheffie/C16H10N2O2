@@ -143,7 +143,14 @@ module hpc3
          else if(o == 19'h11004)     x = {26'd0, r_hd0_xie, r_hd0_flush, 2'd0, r_hd0_dir, scsi0_dma_busy};
          else if(o == 19'h11010)     x = r_scsi_dmacfg;         // SCSI0 DMA cfg readback
          else if(o == 19'h11014)     x = r_scsi_piocfg;         // SCSI0 PIO cfg readback
+`ifdef ENABLE_IP28
+         /* IP28 _ticksper80ms polls the hundredths with BOTH lw+andi 0xf and lb 0(reg):
+          * a value in one lane only times one wait out and IRIX falls back to a
+          * hardcoded 7.8M ticks/80 ms (hinv "195 MHZ").  Every lane = any access works. */
+         else if(o[18:6] == 13'h1800) x = {4{r_rtc[o[5:2]]}};    // ds1386 regs 0x00-0x0f
+`else
          else if(o[18:6] == 13'h1800) x = {r_rtc[o[5:2]], 24'd0}; // ds1386 regs 0x00-0x0f
+`endif
          else case(o)
            19'h30000: x = r_intstat;
            19'h30004: x = r_misc;
