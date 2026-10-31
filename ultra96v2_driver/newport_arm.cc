@@ -106,10 +106,14 @@ static void svc_main() {
     }
     last_poll = t;
     if(t >= stat_at) {
-      fprintf(stderr, "[gio-svc] %llu reads (%llu early), %llu waited >1ms, worst poll gap %.2f ms, %llu naps, spin %.2f ms%s\n",
-              (unsigned long long)(g_gio.reads - rd0), (unsigned long long)(g_gio.early_reads - early0),
-              (unsigned long long)rd_late, gap_max / 1e5,
-              (unsigned long long)(g_naps - naps0), spin / 1e5, fixed ? " (fixed)" : "");
+      /* quiet periods are not printed: a DISABLE_NEWPORT (IP28) build reads the
+       * window only for the 8042, so an every-10 s line split the serial console */
+      if(g_gio.reads != rd0) {
+        fprintf(stderr, "[gio-svc] %llu reads (%llu early), %llu waited >1ms, worst poll gap %.2f ms, %llu naps, spin %.2f ms%s\n",
+                (unsigned long long)(g_gio.reads - rd0), (unsigned long long)(g_gio.early_reads - early0),
+                (unsigned long long)rd_late, gap_max / 1e5,
+                (unsigned long long)(g_naps - naps0), spin / 1e5, fixed ? " (fixed)" : "");
+      }
       rd0 = g_gio.reads;
       early0 = g_gio.early_reads;
       naps0 = g_naps;
