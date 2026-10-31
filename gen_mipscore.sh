@@ -66,7 +66,7 @@ echo "[gen_mipscore] $(ls "$BUILD"/*.sv | wc -l) .sv + $(ls "$BUILD"/*.vh 2>/dev
 # a 64-entry JTLB, 31-bit TLB PAs, and all of MIPS IV (it implies ENABLE_MIPS4).
 # ENABLE_IP28 makes the SoC the Indigo2 board (docs/ip28-bringup.md phase 2), and
 # CORE_MHZ=50 matches clk50.xdc (the 8254, RTC and RPSS dividers follow it).
-: "${SV2V_DEFINES=ENABLE_DEBUG_WATCHPOINT ENABLE_R10000 ENABLE_IP28 CORE_MHZ=50}"
+: "${SV2V_DEFINES=ENABLE_DEBUG_WATCHPOINT ENABLE_R10000 ENABLE_IP28 DISABLE_NEWPORT CORE_MHZ=50}"
 export SV2V_DEFINES
 echo "[gen_mipscore] sv2v extra defines: ${SV2V_DEFINES:-<none>}"
 ( cd "$BUILD" && python3 convert_sv_to_v.py )
