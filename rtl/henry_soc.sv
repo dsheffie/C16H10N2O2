@@ -251,7 +251,18 @@ module henry_soc
     * ARM-served through the gio_window ring (space 1).  The rest of that line
     * (0x48..0x4f) stays with ioc.sv. */
    wire w_is_kbd  = (c_req_addr[31:4] == 28'h1fbd984) & (|c_req_mask[7:0]);
-   wire w_is_ioc  = (c_req_addr[31:8]  == 24'h1fbd98) & ~w_is_kbd;
+`ifdef ENABLE_IP28
+   /* IP28 (Full House): INT2 -- the INT3 register set, with the 8254 -- sits at
+    * 0x1fbd9000..0x1fbd903f instead of the IP22's 0x1fbd9880..0x1fbd98bf.  Decode it as
+    * part of the IOC window and remap the offset onto INT3's lines (r9999 sgi_hpc.cc
+    * ip28_int2); the IOC2 proper (SCC, SYSID, 8042) stays at 0x1fbd98xx. */
+   wire w_is_int2 = (c_req_addr[31:6] == 26'h07ef640);   // 0x1fbd9000 >> 6
+   wire [7:0] w_ioc_offs = w_is_int2 ? {2'b10, c_req_addr[5:0]} : c_req_addr[7:0];
+`else
+   wire w_is_int2 = 1'b0;
+   wire [7:0] w_ioc_offs = c_req_addr[7:0];
+`endif
+   wire w_is_ioc  = ((c_req_addr[31:8]  == 24'h1fbd98) | w_is_int2) & ~w_is_kbd;
    /* ds1386 battery-backed RAM (the Indy NVRAM: environment + station MAC) is plain
     * DRAM the ARM populates, not an HPC3 register: 0x1fbe0040 .. 0x1fbe7fff (the clock,
     * regs 0x00-0x0f, stays in hpc3.sv).  Undecoded here, the CPU access falls through
@@ -274,10 +285,35 @@ module henry_soc
     * 128 MB) and anything else is empty memory -- loads read 0, stores vanish, no bus error.
     * Without this every bank probed present and IRIX was told 512 MB, half of it unbacked. */
    wire [31:0] w_memcfg0, w_memcfg1;   /* CPU order: bank0 [31:16], bank1 [15:0] */
+`ifdef ENABLE_IP28
+   /* IP28 (Indigo2) memory: RAM lives at 0x20000000..0x5fffffff, MEMCFG fields in 16 MB
+    * units ({valid[13], size[12:8], base[7:0]}: [base, base + (size+1) * 16 MB)), bank 0
+    * first on an overlap.  Bank 0 holds the 256 MB henry backs -- the board DRAM the IP22
+    * build reaches at 0x08000000, wrapping as real SIMMs alias -- and any other bank, or
+    * none, is empty memory (loads 0, stores vanish).  The board decodes 32 PA bits: IRIX's
+    * PTEs put software bits in PA[35:32] (IRIS phys_mask).  Reference: r9999 top.cc
+    * ip28_mem_pa. */
+   wire [31:0] w_pa32 = c_req_addr[31:0];
+   wire w_hi_win   = (w_pa32 >= 32'h20000000) & (w_pa32 < 32'h60000000);
+   function automatic logic bank_hit(input logic [15:0] cfg, input logic [7:0] pa16m);
+      logic [7:0] off;
+      begin
+         off = pa16m - cfg[7:0];
+         bank_hit = cfg[13] & (pa16m >= cfg[7:0]) & (off <= {3'd0, cfg[12:8]});
+      end
+   endfunction
+   wire w_hi_bank0 = bank_hit(w_memcfg0[31:16], w_pa32[31:24]);
+   wire w_is_nomem = w_hi_win & ~w_hi_bank0;
+   /* the EISA bus with no cards: I/O (0x00080000-0x0009ffff) and memory (..0x07ffffff)
+    * float high -- reads are all ones, writes go nowhere (r9999 top.cc ip28_eisa) */
+   wire w_is_eisa  = (w_pa32 >= 32'h00080000) & (w_pa32 < 32'h08000000);
+`else
    wire w_hi_win   = (c_req_addr[`PA_WIDTH-1:28] == (`PA_WIDTH-28)'(2));
    wire w_hi_bank0 = w_memcfg0[29] & (w_memcfg0[23:16] == 8'h80);
    wire w_hi_bank1 = w_memcfg0[13] & (w_memcfg0[7:0] == 8'h80);
    wire w_is_nomem = w_hi_win & ~w_hi_bank0 & ~w_hi_bank1;
+   wire w_is_eisa  = 1'b0;
+`endif
    /* Reserved PAs (MC spec, physical address map): 0x18000000-0x1effffff and everything
     * from 0x30000000 up.  The AXI fold passes these through unchanged, and below addrmask
     * they would reach the board DRAM past the guest's 256 MB -- where the ARM keeps the
@@ -287,9 +323,14 @@ module henry_soc
     * to no memory.  CACHED traffic here reads zeros / is dropped with no error: a cached
     * fill can belong to a wrong-path load (garbage PA[35:32]), and an MC latch + bus-error
     * interrupt cannot be squashed -- that panicked 64-bit Linux in the atkbd probe. */
+`ifdef ENABLE_IP28
+   /* IP28: the same hole below the devices; the reserved space starts above the RAM */
+   wire w_is_nomap = ((w_pa32 >= 32'h18000000) & (w_pa32 < 32'h1f000000)) | (w_pa32 >= 32'h60000000);
+`else
    wire w_is_nomap = ((c_req_addr >= `PA_WIDTH'(36'h18000000)) & (c_req_addr < `PA_WIDTH'(36'h1f000000))) |
 		     (c_req_addr[`PA_WIDTH-1:28] >= (`PA_WIDTH-28)'(3));
-   wire w_is_dev  = w_is_mc | w_is_hpc3 | w_is_ioc | w_is_kbd | w_is_gio | w_is_gio_empty | w_is_nomem | w_is_nomap;
+`endif
+   wire w_is_dev  = w_is_mc | w_is_hpc3 | w_is_ioc | w_is_kbd | w_is_gio | w_is_gio_empty | w_is_nomem | w_is_nomap | w_is_eisa;
    wire w_is_load = (c_req_opcode == 5'd4);
 
 `ifdef SCSI_CLOBBER_TRACE
@@ -634,11 +675,31 @@ module henry_soc
    // CPU master address: apply the IP22 System Memory Alias before arbitration.
    // ... and the PROM's bank-probe window onto the probed bank's DRAM (bank0 -> 0x08000000,
    // bank1 -> 0x10000000; empty banks never get here, they are w_is_nomem devices).
+`ifdef ENABLE_IP28
+   /* IP28: a guest PA -> the board DRAM address, for the CPU and every DMA master alike
+    * (a DMA must reach the bytes the CPU does).  The low 512 KB alias and bank 0 land on
+    * the board DRAM at 0x08000000 (a bank-0 offset wraps mod 256 MB); anything else
+    * passes through on 32 bits -- empty banks are w_is_nomem devices for the CPU, and the
+    * DRAM trace ring (0x18000000) is the board's own.  Reference: r9999 top.cc
+    * ip28_mem_pa. */
+   function automatic logic [`PA_WIDTH-1:0] ip28_board_pa(input logic [31:0] pa, input logic [15:0] cfg0);
+      begin
+         if(pa < 32'h00080000)
+           ip28_board_pa = `PA_WIDTH'(32'h08000000 | pa);
+         else if((pa >= 32'h20000000) & (pa < 32'h60000000) & bank_hit(cfg0, pa[31:24]))
+           ip28_board_pa = `PA_WIDTH'(32'h08000000 + {4'd0, pa[27:24] - cfg0[3:0], pa[23:0]});
+         else
+           ip28_board_pa = `PA_WIDTH'(pa);
+      end
+   endfunction
+   wire [`PA_WIDTH-1:0] w_cpu_req_addr = ip28_board_pa(w_pa32, w_memcfg0[31:16]);
+`else
    wire [`PA_WIDTH-1:0] w_cpu_req_addr = w_sysmem_alias
                           ? {c_req_addr[`PA_WIDTH-1:28], 1'b1, c_req_addr[26:0]}
                           : w_hi_win
                           ? {{(`PA_WIDTH-29){1'b0}}, w_hi_bank1, w_hi_bank0, c_req_addr[26:0]}
                           : c_req_addr;
+`endif
 
    // ---- DRAM control-flow deep trace (master 2): streams a compressed userspace
    // control-flow trace to the IP22 "Reserved / Future GIO Space" region, which
@@ -734,7 +795,12 @@ module henry_soc
    mem_arbiter #(.N(2), .NSLOT(3), .LG_N(1), .SLOT_MAP(3'b100), .DW(512)) u_arb1
      (.clk(clk), .reset(reset),
       .m_req_valid     ({w_trace_req_valid,      w_m1_req_valid}),
+`ifdef ENABLE_IP28
+      .m_req_addr      ({ip28_board_pa(w_trace_req_addr[31:0], w_memcfg0[31:16]),
+			 ip28_board_pa(w_m1_req_addr[31:0], w_memcfg0[31:16])}),
+`else
       .m_req_addr      ({w_trace_req_addr,       w_m1_req_addr}),
+`endif
       .m_req_store_data({w_trace_req_store_data, 384'd0, w_m1_req_store_data}),
       .m_req_opcode    ({w_trace_req_opcode,     w_m1_req_opcode}),
       .m_req_mask      ({w_trace_req_mask,       w_m1_req_mask}),
@@ -1103,6 +1169,36 @@ module henry_soc
       .scsi_intrq(w_scsi_intrq),
       .dbg(scsi_dbg));
 
+`ifdef ENABLE_IP28
+   /* IP28 (Full House): the second WD33C93 (HD1, 0x48000) with HPC3 SCSI channel 1.
+    * Nothing is attached -- it is here for the PROM's "SCSI controller 1" diagnostic and
+    * the PROM/sash/IRIX bus probes: registers and RESET behave as on HD0, and every
+    * Select-And-Transfer completes at once as a selection timeout (status 0x42).  INTRQ
+    * -> INT2 local0 bit 2.  Reference: r9999 sgi_hpc.cc ip28_scsi1. */
+   wire [127:0] w_rd_scsi1;
+   wire         w_scsi1_intrq;
+   wire [31:0]  w_scsi1_req_seq;
+   scsi_shim #(.WD_BASE(19'h48000), .DMA_LO(19'h12000), .DMA_HI(19'h13000)) u_scsi1
+     (.clk(clk), .reset(reset),
+      .sel(w_dev_accept & w_is_hpc3), .is_store(~w_is_load),
+      .offs(c_req_addr[18:0]), .mask(c_req_mask), .wdata(c_req_store_data),
+      .rdata(w_rd_scsi1),
+      .scsi_req_seq(w_scsi1_req_seq), .scsi_req_nbdp(),
+      .scsi_req_xfer_len(), .scsi_req_cdb(),
+      .scsi_req_dest(), .scsi_req_lun(),
+      .scsi_req_to_device(),
+      .scsi_rsp_seq(w_scsi1_req_seq), .scsi_rsp_residual(32'd0),
+      .scsi_rsp_scsi_status(8'h42), .scsi_rsp_tgt_status(8'h00),
+      .sel_delay(scsi_sel_delay),
+      .dma_go(), .dma_nbdp(), .dma_to_device(),
+      .dma_done(1'b1), .dma_rd_stalled(1'b0), .dma_abort(),
+      .scsi_intrq(w_scsi1_intrq),
+      .dbg());
+`else
+   wire [127:0] w_rd_scsi1 = 128'd0;
+   wire         w_scsi1_intrq = 1'b0;
+`endif
+
    // ---- ENET control shim (Seeq 8003 + HPC3 ENET DMA channels); host-served tap ----
    // Shares the HPC3 window sel; its rdata ORs into the HPC3 mux (disjoint offsets).
    // ENET RX/TX channel IRQ -> IOC2 local0 bit3 (ENET) -> IP2.
@@ -1155,6 +1251,24 @@ module henry_soc
       .owner(w_dma_owner));
    assign scsi_dma_done    = w_eng_done;
    assign w_dma_owner_enet = (w_dma_owner != 2'd0);
+`ifdef DISABLE_DMA_SNOOP
+   /* no DMA snooping: the engine goes straight to its arbiter port and the core's L2
+    * snoop port stays idle.  For an OS that manages the caches around DMA itself --
+    * IRIX on the IP28 flushes and invalidates its DMA buffers with the R10000 S block
+    * ops (0x17/0x13), which the inclusive L2 carries to the L1s (ooo_core --ip28 boots
+    * to Inst> with no snooping at all).  The Indy needs the shim: Config hides r9999's
+    * L2, so IRIX there issues no secondary-cache ops. */
+   assign w_sdn_req_valid      = w_eng_req_valid;
+   assign w_sdn_req_addr       = w_eng_req_addr;
+   assign w_sdn_req_opcode     = w_eng_req_opcode;
+   assign w_sdn_req_store_data = w_eng_req_store_data;
+   assign w_sdn_req_mask       = w_eng_req_mask;
+   assign w_seng_rsp_valid     = w_mem_rsp_dma;
+   assign w_seng_rsp_load_data = mem2_rsp_load_data;
+   assign w_snoop_valid        = 1'b0;
+   assign w_snoop_addr         = '0;
+   assign w_snoop_wbinv        = 1'b0;
+`else
    dma_snoop_shim u_dma_snoop
      (.clk(clk), .reset(reset),
       .up_req_valid(w_eng_req_valid), .up_req_addr(w_eng_req_addr),
@@ -1167,14 +1281,17 @@ module henry_soc
       .dn_rsp_valid(w_mem_rsp_dma), .dn_rsp_load_data(mem2_rsp_load_data),
       .snp_req_valid(w_snoop_valid), .snp_req_addr(w_snoop_addr), .snp_req_wbinv(w_snoop_wbinv),
       .snp_req_ack(w_snoop_ack), .snp_done(w_snoop_done));
+`endif
 
+   wire w_ioc_timer1;   /* IP28: 8254 counter 1 (kgclock); 0 on the Indy */
    ioc u_ioc
      (.clk(clk), .reset(reset),
       .sel(w_dev_accept & w_is_ioc), .is_store(~w_is_load),
-      .offs(c_req_addr[7:0]), .mask(c_req_mask), .wdata(c_req_store_data),
+      .offs(w_ioc_offs), .mask(c_req_mask), .wdata(c_req_store_data),
       .con_full(con_full),   // SCC RR0 Tx-ready reflects console-FIFO backpressure
       .rdata(w_rd_iocdev), .scc_tx_valid(w_scc_tx_valid), .scc_tx_byte(w_scc_tx_byte),
       .timer0_irq(w_ioc_timer0),
+      .timer1_irq(w_ioc_timer1),
       .scc_rx_push(scc_rx_valid), .scc_rx_data(scc_rx_byte), .rx_avail(w_scc_rx_avail),
       .rx_full(scc_rx_full), .scc_tx_int(w_scc_tx_int));
 
@@ -1188,18 +1305,19 @@ module henry_soc
    int3 u_int3
      (.clk(clk), .reset(reset),
       .sel(w_dev_accept & w_is_ioc), .is_store(~w_is_load),
-      .offs(c_req_addr[7:0]), .mask(c_req_mask), .wdata(c_req_store_data),
+      .offs(w_ioc_offs), .mask(c_req_mask), .wdata(c_req_store_data),
       .rdata(w_rd_int3),
-      .local0_src({2'd0, w_mc_dma_irq, w_enet_intrq, 1'b0, w_scsi_intrq | w_hpc_scsi_intr, 1'b0}), .local1_src(w_gio_local1),  // local0[3]=ENET [1]=SCSI0; local1 = ARM-driven (gio_window devices)
+      .local0_src({2'd0, w_mc_dma_irq, w_enet_intrq, w_scsi1_intrq, w_scsi_intrq | w_hpc_scsi_intr, 1'b0}), .local1_src(w_gio_local1),  // local0[3]=ENET [1]=SCSI0; local1 = ARM-driven (gio_window devices)
       .map_src({2'd0, w_scc_rx_avail | w_scc_tx_int, gio_irq[8], 4'd0}),  // bit5 = Serial DUART (SCC Rx|Tx), bit4 = 8042 kbd/mouse (ARM-driven)
       .buserr({1'b0, w_mc_buserr, 1'b0}),   // [1] = MC bus error (docs/bus-errors.md)
-      .timer0_irq(w_ioc_timer0), .timer1_irq(1'b0),
+      .timer0_irq(w_ioc_timer0), .timer1_irq(w_ioc_timer1),
       .ip2(w_int3_ip2), .ip3(w_int3_ip3), .ip4(w_int3_ip4),
       .ip5(w_int3_ip5), .ip6(w_int3_ip6));
 
    wire [127:0] w_rd_ioc = w_rd_iocdev | w_rd_int3;
-   wire [127:0] w_dev_sel_rdata = (w_is_gio_empty | w_is_nomem | w_is_nomap) ? 128'd0 :
-				  w_is_mc ? w_rd_mc : (w_is_ioc ? w_rd_ioc : (w_rd_hpc3 | w_rd_scsi | w_rd_enet));
+   wire [127:0] w_dev_sel_rdata = w_is_eisa ? {128{1'b1}} :
+				  (w_is_gio_empty | w_is_nomem | w_is_nomap) ? 128'd0 :
+				  w_is_mc ? w_rd_mc : (w_is_ioc ? w_rd_ioc : (w_rd_hpc3 | w_rd_scsi | w_rd_scsi1 | w_rd_enet));
 
    /* a gio_window access completes when the window says so (stores once queued,
     * loads once the ARM has answered), not after DEV_LAT */

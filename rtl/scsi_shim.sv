@@ -24,6 +24,11 @@
 // byte-swapped; the HPC3 32-bit DMA regs ARE (bswap32).
 // -----------------------------------------------------------------------------
 module scsi_shim
+  #(/* where the WD33C93 (a 32 KB region) and its HPC3 DMA channel decode: HD0 and
+     * channel 0 by default; the IP28's second controller passes HD1 / channel 1 */
+    parameter [18:0] WD_BASE = 19'h40000,
+    parameter [18:0] DMA_LO  = 19'h10000,
+    parameter [18:0] DMA_HI  = 19'h11000)
    (input  logic         clk,
     input  logic         reset,
     // ---- guest MMIO (HPC3 window; offs = pa & 0x7ffff, line-aligned + mask) ----
@@ -122,15 +127,15 @@ module scsi_shim
    // (its scsi0_ext = hd0.cs @ offset 0x44000); BOTH are valid. The old decode
    // matched only the exact line 0x40000 -> worked for IRIX, MISSED Linux. Match
    // the region. SASR=byte3, SCMD=byte7 (== interp_mips port=((offs-0x40000)>>2)&1).
-   wire w_wd_line = sel & ((offs & 19'h78000) == 19'h40000);
+   wire w_wd_line = sel & ((offs & 19'h78000) == WD_BASE);
    wire w_sasr_wr = w_wd_line &  is_store & mask[3];
    wire w_scmd_wr = w_wd_line &  is_store & mask[7];
    wire w_sasr_rd = w_wd_line & ~is_store & mask[3];
    wire w_scmd_rd = w_wd_line & ~is_store & mask[7];
    wire [7:0] w_scmd_wval = wdata[63:56];               // SCMD = byte 7
 
-   wire w_dma_lo  = sel & (offs == 19'h10000);          // cbp(word0) / nbdp(word1)
-   wire w_dma_hi  = sel & (offs == 19'h11000);          // bc(word0) / ctrl(word1)
+   wire w_dma_lo  = sel & (offs == DMA_LO);             // cbp(word0) / nbdp(word1)
+   wire w_dma_hi  = sel & (offs == DMA_HI);             // bc(word0) / ctrl(word1)
    wire w_cbp_wr  = w_dma_lo &  is_store & (mask[3:0]  == 4'hf);
    wire w_nbdp_wr = w_dma_lo &  is_store & (mask[7:4]  == 4'hf);
    wire w_bc_wr   = w_dma_hi &  is_store & (mask[3:0]  == 4'hf);
@@ -218,7 +223,7 @@ module scsi_shim
 
 `ifdef SCSI_SHIM_DBG
          // sim-only trace of the WD33C93 control plane (grep the console log)
-         if(sel & ((offs & 19'h78000) == 19'h40000))
+         if(sel & ((offs & 19'h78000) == WD_BASE))
            $display("[shim] offs=%05x st=%b mask=%04x b3=%02x b7=%02x r_sasr=%02x",
                     offs, is_store, mask, wdata[31:24], wdata[63:56], r_sasr);
          if(w_cmd_reset)  $display("[shim] CMD RESET  -> status=00 intrq=1");

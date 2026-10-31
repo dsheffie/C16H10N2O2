@@ -15,7 +15,7 @@ MKFILE_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 R9999     ?= $(MKFILE_DIR)../r9999
 RTL        = ../rtl
 # The ARM-side servicers (ring/SCSI/ENET/GIO) and the Newport model are the board
-# driver's own sources (the ultra96v2_driver submodule), so henry_tb runs the same code.
+# driver's own sources (ultra96v2_driver/), so henry_tb runs the same code.
 DRIVER    ?= $(MKFILE_DIR)../ultra96v2_driver
 VERILATOR ?= /home/dsheffie/local/bin/verilator
 TOP        = henry_soc
@@ -23,7 +23,7 @@ TOP        = henry_soc
 # Lockstep co-sim checker: r9999's embedded interp (RTL-agnostic ISS) linked in
 # as the golden model.  These .cc live in the core tree; compiled with the same
 # ThinLTO as the model objects and added to the final link.
-INTERP     = interpret loadelf disassemble helper saveState sparse_mem sgi_hpc sgi_mc sgi_scc
+INTERP     = interpret loadelf disassemble helper saveState sparse_mem sgi_hpc sgi_mc sgi_scc sgi_scsi sgi_seeq qcow2_reader
 INTERP_CC  = $(addprefix $(R9999)/,$(addsuffix .cc,$(INTERP)))
 
 KERNEL    ?= /home/dsheffie/code/chd-dumper/extracted/unix
@@ -33,9 +33,11 @@ START_PC  ?= 0xbfc00000      # FSBL reset vector (henry_arcs); one blob boots Li
 VFLAGS = -cc --exe -O3 --savable \
          -Wno-fatal -Wno-WIDTH -Wno-CASEINCOMPLETE \
          -Wno-UNUSED -Wno-BLKANDNBLK -Wno-PINMISSING \
-         -y $(RTL) -y $(R9999) +incdir+$(R9999) +define+ENABLE_STORE_CHECK +define+INSN_PACED_COUNT +define+ENABLE_DEBUG_WATCHPOINT +define+ENABLE_R10000 $(if $(TIMER_RARE),+define+TIMER_RARE=$(TIMER_RARE),) --top-module $(TOP) -Mdir obj_dir \
-         -CFLAGS "-I$(R9999) -I$(DRIVER) -DSTORE_CHECK -DENABLE_R10000 -DENABLE_MIPS4" \
+         -y $(RTL) -y $(R9999) +incdir+$(R9999) +define+ENABLE_STORE_CHECK +define+INSN_PACED_COUNT +define+ENABLE_DEBUG_WATCHPOINT +define+ENABLE_R10000 +define+ENABLE_IP28 $(if $(TIMER_RARE),+define+TIMER_RARE=$(TIMER_RARE),) $(if $(NOSNOOP),+define+DISABLE_DMA_SNOOP,) --top-module $(TOP) -Mdir obj_dir \
+         -CFLAGS "-I$(MKFILE_DIR)hdr_override -I$(R9999) -I$(DRIVER) -DSTORE_CHECK -DENABLE_R10000 -DENABLE_MIPS4" \
          -o henry_tb
+# `make NOSNOOP=1` -> DISABLE_DMA_SNOOP: no DMA snoop shim (IP28: IRIX manages the
+# caches around DMA with the R10000 S block ops); `make clean` between the two.
 # `make BIG_L2=1` -> 1MB sim-only L2 (LG_L2_NUM_SETS=16) to shake out bugs the tiny
 # 16KB direct-mapped L2 was masking; leaves the FPGA build at 16KB.
 # `make THREADS=8` -> Verilator multithreaded model.  The box has 24 cores and the

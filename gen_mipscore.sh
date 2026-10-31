@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # gen_mipscore.sh -- regenerate hdl/mipscore.v (the single Verilog file the
-# ultra96v2-henry "axi_is_the_worst" IP synthesizes) from the henry SoC RTL
+# ultra96v2-c16h10n2o2 "axi_is_the_worst" IP synthesizes) from the henry SoC RTL
 # (rtl/*.sv: henry_soc/mc/hpc3/ioc) + the r9999 core (r9999/*.sv), via sv2v.
 #
 # Run after editing any rtl/ or r9999/ .sv, then synth with
-# ~/fpga/ultra96v2-henry/rebuild_henry.tcl (Vivado batch).
+# ~/fpga/ultra96v2-c16h10n2o2 via rebuild_henry.tcl (Vivado batch).
 #
 # Why a build dir: convert_sv_to_v.py globs *.sv in its CWD and sv2v must also
 # see the headers (machine.vh/uop.vh/rob.vh), so we copy SoC + core sources AND
@@ -45,7 +45,7 @@ if [ -e "$SUB/.git" ]; then
   echo "[gen_mipscore] r9999 submodule @ $(git -C "$SUB" rev-parse --short HEAD 2>/dev/null) -- $(git -C "$SUB" log -1 --format=%s 2>/dev/null | cut -c1-60)"
 fi
 
-BUILD="${BUILD:-/tmp/henry_mipscore_build}"
+BUILD="${BUILD:-/tmp/c16h10n2o2_mipscore_build}"   # not henry's: both trees can build at once
 rm -rf "$BUILD"; mkdir -p "$BUILD"
 
 cp "$ROOT"/rtl/*.sv   "$BUILD"/ 2>/dev/null || true
@@ -64,7 +64,9 @@ echo "[gen_mipscore] $(ls "$BUILD"/*.sv | wc -l) .sv + $(ls "$BUILD"/*.vh 2>/dev
 #   SV2V_DEFINES="ENABLE_DEBUG_WATCHPOINT FOO" ./gen_mipscore.sh   # add more
 # C16H10N2O2 (Indigo2 / IP28): ENABLE_R10000 makes the core an R10000 -- 44-bit VAs,
 # a 64-entry JTLB, 31-bit TLB PAs, and all of MIPS IV (it implies ENABLE_MIPS4).
-: "${SV2V_DEFINES=ENABLE_DEBUG_WATCHPOINT ENABLE_R10000}"
+# ENABLE_IP28 makes the SoC the Indigo2 board (docs/ip28-bringup.md phase 2), and
+# CORE_MHZ=50 matches clk50.xdc (the 8254, RTC and RPSS dividers follow it).
+: "${SV2V_DEFINES=ENABLE_DEBUG_WATCHPOINT ENABLE_R10000 ENABLE_IP28 CORE_MHZ=50}"
 export SV2V_DEFINES
 echo "[gen_mipscore] sv2v extra defines: ${SV2V_DEFINES:-<none>}"
 ( cd "$BUILD" && python3 convert_sv_to_v.py )

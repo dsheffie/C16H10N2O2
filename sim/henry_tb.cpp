@@ -114,7 +114,22 @@ namespace globals {
   bool     trace_retirement= false;
   bool     trace_fp        = false;
   bool     report_syscalls = false;
+  bool     ip28            = false;
 };
+/* r9999's indysim-derived device models (sgi_hpc/mc/scsi, linked only because the ISS
+ * objects reference them) also want what ooo_core's top.cc and sgi_shim.cc define.  The
+ * golden ISS here has no devices attached (s->hpc etc. stay null), so none is reached.
+ * sgi_shim.cc itself can't be linked: it stubs sgi_newport, which the driver provides. */
+#include "cache_model.hh"
+#include "chd_reader.hh"
+cache_model *g_cmodel = nullptr;
+uint8_t cache_model::dram_rd(uint32_t) { abort(); }
+void cache_model::dram_wr(uint32_t, uint8_t) { abort(); }
+chd_reader::~chd_reader() {}
+bool chd_reader::open(int) { return false; }
+bool chd_reader::is_magic(const uint8_t *) { return false; }
+void chd_reader::read_block(uint64_t, uint8_t *) { abort(); }
+void sgi_dma_wrote(state_t *, uint64_t, size_t) {}
 static sparse_mem *g_ss_mem   = nullptr;   // golden ISS memory (own 4GB, PA-indexed)
 static state_t    *ss         = nullptr;   // golden checker state
 static bool        g_checker  = false;     // --checker enables the lockstep compare

@@ -131,4 +131,36 @@ module int3
          else if(w_tc & w_tclear[1]) r_timer1 <= 1'b0;
       end
    end
+`ifdef VERILATOR
+   // sim-only: the first timer interrupt latches and TIMER CLEARs (an interrupt storm
+   // is either a too-fast counter or an ack that does not clear)
+   integer r_dbg_t0, r_dbg_t1, r_dbg_tc;
+   always_ff @(posedge clk)
+     begin
+        if(reset)
+          begin
+             r_dbg_t0 <= 0;
+             r_dbg_t1 <= 0;
+             r_dbg_tc <= 0;
+          end
+        else
+          begin
+             if(timer0_irq && (r_dbg_t0 < 16))
+               begin
+                  $display("[int3] timer0 latch #%0d (ip4 was %b)", r_dbg_t0, r_timer0);
+                  r_dbg_t0 <= r_dbg_t0 + 1;
+               end
+             if(timer1_irq && (r_dbg_t1 < 16))
+               begin
+                  $display("[int3] timer1 latch #%0d (ip5 was %b)", r_dbg_t1, r_timer1);
+                  r_dbg_t1 <= r_dbg_t1 + 1;
+               end
+             if(w_tc && (r_dbg_tc < 16))
+               begin
+                  $display("[int3] TIMER CLEAR %02x (ip4 %b ip5 %b)", w_tclear, r_timer0, r_timer1);
+                  r_dbg_tc <= r_dbg_tc + 1;
+               end
+          end
+     end
+`endif
 endmodule // int3

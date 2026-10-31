@@ -8,6 +8,9 @@
 // `rdata`, per full word) and, when `is_store`, written (clocked).
 // -----------------------------------------------------------------------------
 `include "machine.vh"
+`ifndef CORE_MHZ
+`define CORE_MHZ 100   /* the PL clock in MHz; the IP28 build (50 MHz, clk50.xdc) passes CORE_MHZ=50 */
+`endif
 module mc
   #(parameter [31:0] MEMCFG0 = 32'h0000_203f)  // bank0 cfg as STORED (BE lw -> 0x3f200000: BVALID|RMASK=0x1f00|base0x20 -> (0x1f00+0x100)<<14 = 128 MB @ 0x08000000)
    (input  logic         clk,
@@ -54,7 +57,13 @@ module mc
 
    // MC sysid/rev @0x1c: store 0x13000000 so the BE lw -> 0x00000013 (MAME golden);
    // low nibble = MC rev (3), rev<5 keeps the 22/14 mconfig shifts.
+`ifdef ENABLE_IP28
+   // IP28: 0x15 (rev 5, EISA present), as IRIS reports: once the HPC3 says Full House
+   // the IP28 PROM rejects an MC rev < 5 (r9999 sgi_mc.cc)
+   localparam [31:0] MC_SYSID = 32'h15000000;
+`else
    localparam [31:0] MC_SYSID = 32'h13000000;
+`endif
 
    logic [31:0] r_cpu_control [0:1];
    logic [31:0] r_memcfg      [0:1];
@@ -118,9 +127,12 @@ module mc
            17'h0018,17'h001c:                   x = MC_SYSID;
            17'h00c4,17'h00cc:                   x = r_memcfg[(o>>3)&1];
            17'h00d4:                            x = r_cpu_mem_acc;
+`ifdef ENABLE_IP28
+           17'h0080,17'h0084:                   x = r_gio64_arb;     // GIO64_ARB: the IP28 PROM reads its write back
+`endif
            17'h00dc:                            x = r_gio_mem_acc;
            17'h0030:                            x = 32'h00000010;    // EEPROM: SDATAI high
-           17'h1004:                            x = r_rpss / 32'd10;  // RPSS free-running counter
+           17'h1004:                            x = r_rpss / 32'(`CORE_MHZ / 10);  // RPSS: one tick per 100 ns
            17'h00e0,17'h00e4:                   x = bswap32(r_cpu_err_addr);   // CPU_ERROR_ADDR
            17'h00e8,17'h00ec:                   x = bswap32(r_cpu_err_stat);   // CPU_ERROR_STAT
            17'h00f0,17'h00f4:                   x = bswap32(r_gio_err_addr);   // GIO_ERROR_ADDR

@@ -2,11 +2,18 @@
 # user IP, regenerate the BD, then synth+impl to a bitstream. Commands mirror what
 # the GUI logged in vivado.jou, so it's the real update flow (no guessing).
 # Usage:  vivado -mode batch -source rebuild.tcl -tclargs [impl_run]
-set proj   /home/dsheffie/fpga/ultra96v2-henry/BASELINE_2022.2/ultra96v2_oob.xpr
-set bd     /home/dsheffie/fpga/ultra96v2-henry/BASELINE_2022.2/ultra96v2_oob.srcs/sources_1/bd/ultra96v2_oob/ultra96v2_oob.bd
+set proj   /home/dsheffie/fpga/ultra96v2-c16h10n2o2/BASELINE_2022.2/ultra96v2_oob.xpr
+set bd     /home/dsheffie/fpga/ultra96v2-c16h10n2o2/BASELINE_2022.2/ultra96v2_oob.srcs/sources_1/bd/ultra96v2_oob/ultra96v2_oob.bd
 set ipinst ultra96v2_oob_axi_is_the_worst_0_0
 
 open_project $proj
+# C16H10N2O2 runs the PL at 50 MHz: clk50.xdc (this repo) re-times the PS pl_clk0.  The
+# bitstream does not carry the PS clock -- set PL0_REF_CTRL on the board (see clk50.xdc).
+set clk50 [file join [file dirname [file normalize [info script]]] clk50.xdc]
+if {[llength [get_files -quiet -of_objects [get_filesets constrs_1] $clk50]] == 0} {
+    add_files -fileset constrs_1 -norecurse $clk50
+    puts "### rebuild: added $clk50 to constrs_1"
+}
 if {$argc >= 1} { set run [lindex $argv 0] } else { set run [get_property NAME [current_run -implementation]] }
 puts "### rebuild: impl run = $run"
 
@@ -22,8 +29,8 @@ update_compile_order -fileset sources_1
 # that happens synth/impl silently build STALE RTL (this cost a 37-min run + a
 # bogus result).  Force every cached HDL file to match the IP-repo source and
 # hard-abort if any still differs.  See the fpga_ipshared_stale note.
-set ip_hdl /home/dsheffie/fpga/ultra96v2-henry/ip_repo/axi_is_the_worst_1_0/hdl
-set gendir /home/dsheffie/fpga/ultra96v2-henry/BASELINE_2022.2/ultra96v2_oob.gen/sources_1/bd/ultra96v2_oob/ipshared
+set ip_hdl /home/dsheffie/fpga/ultra96v2-c16h10n2o2/ip_repo/axi_is_the_worst_1_0/hdl
+set gendir /home/dsheffie/fpga/ultra96v2-c16h10n2o2/BASELINE_2022.2/ultra96v2_oob.gen/sources_1/bd/ultra96v2_oob/ipshared
 set nrefresh 0
 foreach cached [glob -nocomplain $gendir/*/hdl/*.v] {
     set src $ip_hdl/[file tail $cached]
@@ -45,6 +52,6 @@ launch_runs $run -to_step write_bitstream -jobs 12
 wait_on_run $run
 
 open_run $run
-report_utilization    -file /home/dsheffie/util_after.rpt
-report_timing_summary -max_paths 10 -file /home/dsheffie/timing_after.rpt
-puts "### rebuild DONE: run=$run  bit + reports (/home/dsheffie/{util,timing}_after.rpt)"
+report_utilization    -file /home/dsheffie/fpga/ultra96v2-c16h10n2o2/util_after.rpt
+report_timing_summary -max_paths 10 -file /home/dsheffie/fpga/ultra96v2-c16h10n2o2/timing_after.rpt
+puts "### rebuild DONE: run=$run  bit + reports (/home/dsheffie/fpga/ultra96v2-c16h10n2o2/{util,timing}_after.rpt)"

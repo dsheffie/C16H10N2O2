@@ -16,6 +16,9 @@
 // only for the dma_memcpy isolation test.
 // -----------------------------------------------------------------------------
 `include "machine.vh"
+`ifndef CORE_MHZ
+`define CORE_MHZ 100   /* the PL clock in MHz; the IP28 build (50 MHz, clk50.xdc) passes CORE_MHZ=50 */
+`endif
 //`define ENABLE_HPC3_DMA 1
 
 module hpc3
@@ -64,6 +67,21 @@ module hpc3
    // then 16 data bits clocked out on DATI (MSB first). (Guiness bbRAM path unused here;
    // this IRIX takes the FullHouse/serial branch.)  See linux ip22-nvram.c.
    logic        r_ee_eprot, r_ee_csel, r_ee_eclk, r_ee_dato, r_ee_dati;
+`ifdef ENABLE_IP28
+   /* the IP28 93CS56 (below the ds1386 section) */
+   typedef enum logic [2:0] {
+      EE_STANDBY = 3'd0,
+      EE_IDLE = 3'd1,
+      EE_OPCODE = 3'd2,
+      EE_ADDRESS = 3'd3,
+      EE_DATA_IN = 3'd4,
+      EE_DATA_OUT = 3'd5
+   } ee_st_t;
+   logic [15:0] r_ee_mem [0:127];
+   ee_st_t      r_ee_st, n_ee_st;
+   logic        r_ee_cs, n_ee_cs, r_ee_sk, n_ee_sk, r_ee_do, n_ee_do, r_ee_wen, n_ee_wen;
+   logic [3:0]  r_ee_reg, n_ee_reg;
+`endif
    logic [4:0]  r_ee_bitcnt;        // 0..10 command bits, 11..26 data bits
    logic [10:0] r_ee_shin;          // command shift register (start+opcode+addr)
    logic [15:0] r_ee_shout;         // data word being clocked out, MSB first
@@ -90,7 +108,7 @@ module hpc3
    // later boot.  The battery-backed RAM above reg 0x0f (the Indy NVRAM: environment
    // + station MAC) is NOT here: henry_soc leaves 0x1fbe0040..0x1fbe7fff undecoded,
    // so it is DRAM the ARM populates (see henry_soc.sv).
-   localparam int RTC_DIV = 1000000;   // core clocks per 1/100 s (100 MHz, as the IOC2 PIT assumes)
+   localparam int RTC_DIV = `CORE_MHZ * 10000;   // core clocks per 1/100 s
    logic [7:0]  r_rtc [0:15];
    logic [7:0]  n_rtc [0:15];
    logic [19:0] r_rtc_div, n_rtc_div;
@@ -132,7 +150,11 @@ module hpc3
            // NMC93CS56 eeprom register: IRIX readl()s it and tests bit4 (DATI). The
            // core bswaps device word loads, so the 5 control bits sit in byte3 [28:24]
            // -> post-bswap they land in the CPU word's [4:0] {EPROT,CSEL,ECLK,DATO,DATI}.
+`ifdef ENABLE_IP28
+           19'h30008: x = {3'b0, r_ee_do, r_ee_reg, 24'd0};
+`else
            19'h30008: x = {3'b0, r_ee_dati, r_ee_dato, r_ee_eclk, r_ee_csel, r_ee_eprot, 24'd0};
+`endif
            19'h1000c: x = w_dma_status; // mem-to-mem DMA status: bit0=BUSY bit1=DONE
            default:   x = 32'd0;     // unmodeled HPC3 read regs -> 0 (gap)
          endcase
@@ -190,6 +212,7 @@ module hpc3
                // NMC93CS56 eeprom register write. IRIX writel()s the control byte;
                // the core bswaps device word stores, so the CPU value's low byte
                // (EPROT/CSEL/ECLK/DATO in [3:0]) lands in this lane's high byte [31:24].
+`ifndef ENABLE_IP28
                19'h30008: begin
                   r_ee_eprot <= wdata[32*i + 24];             // bit0 EPROT
                   r_ee_csel  <= wdata[32*i + 25];             // bit1 CSEL
@@ -216,10 +239,271 @@ module hpc3
                      end
                   end
                end
+`endif
                default:   /* enet/scsi/pio data windows: write-absorb */ ;
              endcase
       end
    end
+
+`ifdef ENABLE_IP28
+   /* ---- IP28: the 93CS56 (128 x 16) the PROM keeps its environment and the MAC in ----
+    * Full House keeps the environment here, where the Indy uses the ds1386's RAM.  Same
+    * register and bits as above (bit 1 CS, bit 2 SK, bit 3 DI, bit 4 DO), byte lane
+    * 0x3000b as well as the word.  Commands: a start bit, 2 opcode bits, 8 address bits
+    * (the top one don't-care); READ shifts out a dummy 0 then D15..D0; WRITE/ERASE/ERAL/
+    * WRAL need EWEN.  Reset to the erased-part image the PROM's defaults leave (layout
+    * revision 9, a few env defaults, the MAC in words 0x7d..0x7f, the checksum in byte
+    * 0); not persisted.  Reference: r9999 sgi_hpc.cc ip28_eeprom_t (after IRIS
+    * src/dev/eeprom_93c56.rs). */
+   function automatic logic [15:0] ee_default(input logic [6:0] a);
+      begin
+         case(a)
+           7'd0: ee_default = 16'h4109;
+           7'd1: ee_default = 16'h6700;
+           7'd58: ee_default = 16'h3936;
+           7'd59: ee_default = 16'h3030;
+           7'd60: ee_default = 16'h0030;
+           7'd61: ee_default = 16'h5053;
+           7'd62: ee_default = 16'h5438;
+           7'd63: ee_default = 16'h5044;
+           7'd64: ee_default = 16'h5400;
+           7'd89: ee_default = 16'h5900;
+           7'd116: ee_default = 16'h3830;
+           7'd117: ee_default = 16'h0030;
+           7'd118: ee_default = 16'h7900;
+           7'd119: ee_default = 16'h0079;
+           7'd121: ee_default = 16'h3100;
+           7'd125: ee_default = 16'h0800;
+           7'd126: ee_default = 16'h6912;
+           7'd127: ee_default = 16'h3456;
+           default: ee_default = 16'h0000;
+         endcase
+      end
+   endfunction
+   logic [15:0] r_ee_sh, n_ee_sh;
+   logic [4:0]  r_ee_n, n_ee_n;
+   logic [1:0]  r_ee_op, n_ee_op;
+   logic [6:0]  r_ee_addr, n_ee_addr;
+   /* ERAL/WRAL: a background fill, one word per cycle */
+   logic        r_ee_fill, n_ee_fill;
+   logic [6:0]  r_ee_fidx, n_ee_fidx;
+   logic [15:0] r_ee_fval, n_ee_fval;
+   logic        t_ee_we;
+   logic [6:0]  t_ee_waddr;
+   logic [15:0] t_ee_wdata;
+   logic        t_ee_ncs, t_ee_nsk, t_ee_di;
+   logic [15:0] t_ee_shift;
+   initial
+     begin
+        for(integer k = 0; k < 128; k = k + 1)
+          begin
+             r_ee_mem[k] = ee_default(7'(k));
+          end
+     end
+   wire w_ee_wr = sel & is_store & (offs == 19'h30000) & mask[11];
+
+   always_comb
+     begin
+        n_ee_st = r_ee_st;
+        n_ee_cs = r_ee_cs;
+        n_ee_sk = r_ee_sk;
+        n_ee_do = r_ee_do;
+        n_ee_wen = r_ee_wen;
+        n_ee_reg = r_ee_reg;
+        n_ee_sh = r_ee_sh;
+        n_ee_n = r_ee_n;
+        n_ee_op = r_ee_op;
+        n_ee_addr = r_ee_addr;
+        n_ee_fill = r_ee_fill;
+        n_ee_fidx = r_ee_fidx;
+        n_ee_fval = r_ee_fval;
+        t_ee_we = 1'b0;
+        t_ee_waddr = r_ee_fidx;
+        t_ee_wdata = r_ee_fval;
+        t_ee_ncs = wdata[89];
+        t_ee_nsk = wdata[90];
+        t_ee_di = wdata[91];
+        t_ee_shift = {r_ee_sh[14:0], t_ee_di};
+        if(r_ee_fill)
+          begin
+             t_ee_we = 1'b1;
+             n_ee_fidx = r_ee_fidx + 7'd1;
+             n_ee_fill = (r_ee_fidx != 7'd127);
+          end
+        if(w_ee_wr)
+          begin
+             n_ee_reg = wdata[91:88];
+             if(t_ee_ncs != r_ee_cs)
+               begin
+                  n_ee_cs = t_ee_ncs;
+                  n_ee_st = t_ee_ncs ? EE_IDLE : EE_STANDBY;
+                  if(!t_ee_ncs)
+                    begin
+                       n_ee_do = 1'b1;
+                    end
+               end
+             n_ee_sk = t_ee_nsk;
+             if(t_ee_ncs && t_ee_nsk && !r_ee_sk)
+               begin
+                  /* an SK rising edge with CS up: clock one bit (from the state the CS
+                   * edge above may just have set) */
+                  case(n_ee_st)
+                    EE_IDLE:
+                      begin
+                         if(t_ee_di)
+                           begin
+                              n_ee_st = EE_OPCODE;
+                              n_ee_n = 5'd0;
+                              n_ee_sh = 16'd0;
+                           end
+                      end
+                    EE_OPCODE:
+                      begin
+                         n_ee_sh = t_ee_shift;
+                         n_ee_n = r_ee_n + 5'd1;
+                         if(r_ee_n == 5'd1)
+                           begin
+                              n_ee_op = t_ee_shift[1:0];
+                              n_ee_st = EE_ADDRESS;
+                              n_ee_n = 5'd0;
+                              n_ee_sh = 16'd0;
+                           end
+                      end
+                    EE_ADDRESS:
+                      begin
+                         n_ee_sh = t_ee_shift;
+                         n_ee_n = r_ee_n + 5'd1;
+                         if(r_ee_n == 5'd7)
+                           begin
+                              /* t_ee_shift[7:0] = the address; [7:6] select the opcode-0 forms */
+                              n_ee_addr = t_ee_shift[6:0];
+                              n_ee_n = 5'd0;
+                              n_ee_sh = 16'd0;
+                              n_ee_st = EE_IDLE;
+                              if(r_ee_op == 2'd2)
+                                begin
+                                   /* READ: the dummy 0, then D15..D0 */
+                                   n_ee_sh = r_ee_mem[t_ee_shift[6:0]];
+                                   n_ee_do = 1'b0;
+                                   n_ee_st = EE_DATA_OUT;
+                                end
+                              else if((r_ee_op == 2'd1) || ((r_ee_op == 2'd0) && (t_ee_shift[7:6] == 2'd1)))
+                                begin
+                                   /* WRITE, WRAL */
+                                   if(r_ee_wen)
+                                     begin
+                                        n_ee_st = EE_DATA_IN;
+                                     end
+                                end
+                              else if(r_ee_op == 2'd3)
+                                begin
+                                   /* ERASE */
+                                   if(r_ee_wen)
+                                     begin
+                                        t_ee_we = 1'b1;
+                                        t_ee_waddr = t_ee_shift[6:0];
+                                        t_ee_wdata = 16'hffff;
+                                     end
+                                end
+                              else if(t_ee_shift[7:6] == 2'd2)
+                                begin
+                                   /* ERAL */
+                                   if(r_ee_wen)
+                                     begin
+                                        n_ee_fill = 1'b1;
+                                        n_ee_fidx = 7'd0;
+                                        n_ee_fval = 16'hffff;
+                                     end
+                                end
+                              else
+                                begin
+                                   /* EWEN (11) / EWDS (00) */
+                                   n_ee_wen = (t_ee_shift[7:6] == 2'd3);
+                                end
+                           end
+                      end
+                    EE_DATA_IN:
+                      begin
+                         n_ee_sh = t_ee_shift;
+                         n_ee_n = r_ee_n + 5'd1;
+                         if(r_ee_n == 5'd15)
+                           begin
+                              if(r_ee_op == 2'd1)
+                                begin
+                                   t_ee_we = 1'b1;
+                                   t_ee_waddr = r_ee_addr;
+                                   t_ee_wdata = t_ee_shift;
+                                end
+                              else
+                                begin
+                                   n_ee_fill = 1'b1;
+                                   n_ee_fidx = 7'd0;
+                                   n_ee_fval = t_ee_shift;
+                                end
+                              n_ee_st = EE_IDLE;
+                           end
+                      end
+                    EE_DATA_OUT:
+                      begin
+                         if(r_ee_n < 5'd16)
+                           begin
+                              n_ee_do = r_ee_sh[4'd15 - r_ee_n[3:0]];
+                              n_ee_n = r_ee_n + 5'd1;
+                           end
+                         else
+                           begin
+                              n_ee_do = 1'b1;
+                              n_ee_st = EE_IDLE;
+                           end
+                      end
+                    default:
+                      begin
+                      end
+                  endcase
+               end
+          end
+     end // always_comb
+
+   always_ff @(posedge clk)
+     begin
+        if(t_ee_we)
+          begin
+             r_ee_mem[t_ee_waddr] <= t_ee_wdata;
+          end
+        if(reset)
+          begin
+             r_ee_st <= EE_STANDBY;
+             r_ee_cs <= 1'b0;
+             r_ee_sk <= 1'b0;
+             r_ee_do <= 1'b1;
+             r_ee_wen <= 1'b0;
+             r_ee_reg <= 4'd0;
+             r_ee_sh <= 16'd0;
+             r_ee_n <= 5'd0;
+             r_ee_op <= 2'd0;
+             r_ee_addr <= 7'd0;
+             r_ee_fill <= 1'b0;
+             r_ee_fidx <= 7'd0;
+             r_ee_fval <= 16'd0;
+          end
+        else
+          begin
+             r_ee_st <= n_ee_st;
+             r_ee_cs <= n_ee_cs;
+             r_ee_sk <= n_ee_sk;
+             r_ee_do <= n_ee_do;
+             r_ee_wen <= n_ee_wen;
+             r_ee_reg <= n_ee_reg;
+             r_ee_sh <= n_ee_sh;
+             r_ee_n <= n_ee_n;
+             r_ee_op <= n_ee_op;
+             r_ee_addr <= n_ee_addr;
+             r_ee_fill <= n_ee_fill;
+             r_ee_fidx <= n_ee_fidx;
+             r_ee_fval <= n_ee_fval;
+          end
+     end // always_ff
+`endif
 
    // ---- ds1386 clock: 100 Hz tick, BCD carry chain, then this cycle's stores ----
    always_comb

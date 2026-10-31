@@ -7,6 +7,10 @@
 //     thinks it can transmit; DATA writes are the serial console TX (scc_tx_*).
 // (from r9999 sgi_hpc.cc + sgi_scc.cc).  Line base `offs` is 16-byte aligned.
 // -----------------------------------------------------------------------------
+`ifndef CORE_MHZ
+`define CORE_MHZ 100   /* the PL clock in MHz; the IP28 build (50 MHz, clk50.xdc) passes CORE_MHZ=50 */
+`endif
+
 module ioc
    (input  logic         clk,
     input  logic         reset,
@@ -20,6 +24,7 @@ module ioc
     output logic         scc_tx_valid,
     output logic [7:0]   scc_tx_byte,
     output logic         timer0_irq,   // 8254 counter0 -> INT3 Timer0 (CPU IP4)
+    output logic         timer1_irq,   // 8254 counter1 -> INT3 Timer1 (CPU IP5); IP28 only, else 0
     input  logic         scc_rx_push,  // host/TB: push one byte into the SCC chanA Rx FIFO
     input  logic [7:0]   scc_rx_data,
     output logic         rx_avail,     // SCC Rx FIFO non-empty -> INT3 map_src[5] (Serial DUART)
@@ -27,7 +32,12 @@ module ioc
     output logic         scc_tx_int);  // SCC Tx-buffer-empty IRQ -> map_src[5] (joins rx_avail)
 
    // SYSID stored 0x26000000 -> BE lw yields 0x00000026 (board id in bits[7:0]).
+   // IP28: 0x1b = Full House (bit 0), board rev 13 (r9999 sgi_hpc.cc, IRIS)
+`ifdef ENABLE_IP28
+   localparam [31:0] IOC2_SYSID = 32'h1b000000;
+`else
    localparam [31:0] IOC2_SYSID = 32'h26000000;
+`endif
    localparam [7:0]  SCC_RR0    = 8'h44;       // RR0: Tx-Buffer-Empty | All-Sent
    // Tx-Buffer-Empty (bit2) reflects "console FIFO can accept a byte": clear it
    // when the FIFO is full so the du driver's RR0 poll rate-limits to the drain
@@ -52,14 +62,19 @@ module ioc
    // the down-count at 1 MHz: divide the 100 MHz core clock by 100. A wrong rate
    // (the old /8 = 12.5 MHz) corrupts the calibration -> Linux timekeeping_advance
    // runs away on a bogus frequency; /84 (1.193 MHz) booted but skewed timing ~19%.
-`ifdef VERILATOR
+`ifdef ENABLE_IP28
+   // IP28: IRIX ticks on 8254 counters 0/1, so the PIT must run at its real rate
+   // against the CPU in sim too -- the /2 shortcut below made every tick 50x too
+   // frequent and the kernel spent its time in the clock interrupt
+   localparam int PIT_DIV = `CORE_MHZ;
+`elsif VERILATOR
    // SIM ONLY: a tiny divider shrinks the CPU-clock calibration (_cpuclkper100ticks)
    // so IRIX's us_delay busy-waits collapse -- otherwise RTL sim is far too slow to
    // run through them (the interp_mips FASTDELAY=1 analog). Synth keeps the real
    // 1 MHz PIT (timekeeping accuracy). Booting/console/SCSI don't need precise us.
    localparam int PIT_DIV = 2;
 `else
-   localparam int PIT_DIV = 100;               // core-clock / PIT-rate (1 MHz @ 100 MHz)
+   localparam int PIT_DIV = `CORE_MHZ;         // core-clock / PIT-rate (1 MHz)
 `endif
    wire        w_pit          = (offs == 8'hb0);
    wire        w_pit_tcword_wr= sel &  is_store & w_pit & mask[15];
@@ -249,6 +264,11 @@ module ioc
          for(i = 0; i < 4; i = i + 1)
            if(mask[4*i +: 4] == 4'hf && ((offs + 8'(4*i)) == 8'h58))
              rdata[32*i +: 32] = IOC2_SYSID;
+`ifdef ENABLE_IP28
+         // ... and as a byte at +0x5b (Linux reads sgioc->sysid; the word's low byte)
+         if(mask[11] && (offs == 8'h50))
+           rdata[95:88] = IOC2_SYSID[31:24];
+`endif
       end
    end
 
@@ -341,6 +361,47 @@ module ioc
    logic [15:0] r_t0_load, r_t0_count;
    logic        r_t0_wr_phase, r_t0_loading, r_t0_running;
    logic        r_timer0_irq;
+   wire         w_pit_tick = (r_presc == (PIT_DIV - 1));
+`ifdef ENABLE_IP28
+   /* IP28: counters 0 (rtclock -> IP4) and 1 (kgclock -> IP5) count counter 2's output,
+    * not the PIT clock -- startrtclock loads counter 2 with 200 and counter 0 with 50 ->
+    * 1 MHz / 200 / 50 = 100 Hz, and IRIX IP28 ticks only on these.  Counter 2 as a rate
+    * generator: one output pulse every r_t2_load PIT ticks after its load (the one-shot
+    * r_t2_at readback above is untouched).  Reference: r9999 sgi_hpc.cc pit_period. */
+   logic [15:0] r_t2_div;
+   logic        r_t2_out;
+   always_ff @(posedge clk)
+     begin
+        if(reset)
+          begin
+             r_t2_div <= 16'd0;
+             r_t2_out <= 1'b0;
+          end
+        else
+          begin
+             r_t2_out <= 1'b0;
+             if(w_pit_tcnt2_wr & r_t2_loading & r_t2_wr_phase)
+               begin
+                  r_t2_div <= {w_pit_tcnt2_in, r_t2_load[7:0]};
+               end
+             else if(w_pit_tick)
+               begin
+                  if(r_t2_div <= 16'd1)
+                    begin
+                       r_t2_out <= 1'b1;
+                       r_t2_div <= r_t2_load;
+                    end
+                  else
+                    begin
+                       r_t2_div <= r_t2_div - 16'd1;
+                    end
+               end
+          end
+     end // always_ff
+   wire         w_t01_clk = r_t2_out;
+`else
+   wire         w_t01_clk = w_pit_tick;
+`endif
 
    always_ff @(posedge clk) begin
       if(reset) begin
@@ -374,7 +435,7 @@ module ioc
             end
          end
          // down-count once per PIT tick; terminal count -> pulse + reload (periodic).
-         else if(r_t0_running & (r_presc == (PIT_DIV - 1))) begin
+         else if(r_t0_running & w_t01_clk) begin
             if(r_t0_count <= 16'd1) begin
                r_timer0_irq <= 1'b1;
                r_t0_count   <= r_t0_load;
@@ -386,5 +447,81 @@ module ioc
    end
    assign timer0_irq = r_timer0_irq;
 
+
+`ifdef ENABLE_IP28
+   // ---- i8254 counter 1 -> Timer1 interrupt (INT3 Level3 / CPU IP5): counter 0's
+   // twin, selected by SC1:SC0 = 01, loaded through tcnt1 = IOC byte 0xb7 (mask[7]) ----
+   wire        w_pit_tcnt1_wr = sel & is_store & w_pit & mask[7];
+   wire [7:0]  w_pit_tcnt1_in = wdata[63:56];   // tcnt1 = byte 7
+
+   logic [15:0] r_t1_load, r_t1_count;
+   logic        r_t1_wr_phase, r_t1_loading, r_t1_running;
+   logic        r_timer1_irq;
+
+   always_ff @(posedge clk) begin
+      if(reset) begin
+         r_t1_load     <= 16'd0;
+         r_t1_count    <= 16'd0;
+         r_t1_wr_phase <= 1'b0;
+         r_t1_loading  <= 1'b0;
+         r_t1_running  <= 1'b0;
+         r_timer1_irq  <= 1'b0;
+      end
+      else begin
+         r_timer1_irq <= 1'b0;
+         if(w_pit_tcword_wr & (w_pit_tcword[7:6] == 2'b01)) begin
+            r_t1_loading  <= 1'b1;
+            r_t1_wr_phase <= 1'b0;
+            r_t1_running  <= 1'b0;
+         end
+         if(w_pit_tcnt1_wr & r_t1_loading) begin
+            if(r_t1_wr_phase == 1'b0) begin
+               r_t1_load[7:0] <= w_pit_tcnt1_in;
+               r_t1_wr_phase  <= 1'b1;
+            end
+            else begin
+               r_t1_load[15:8] <= w_pit_tcnt1_in;
+               r_t1_count      <= {w_pit_tcnt1_in, r_t1_load[7:0]};
+               r_t1_wr_phase   <= 1'b0;
+               r_t1_loading    <= 1'b0;
+               r_t1_running    <= 1'b1;
+            end
+         end
+         else if(r_t1_running & w_t01_clk) begin
+            if(r_t1_count <= 16'd1) begin
+               r_timer1_irq <= 1'b1;
+               r_t1_count   <= r_t1_load;
+            end
+            else
+               r_t1_count <= r_t1_count - 16'd1;
+         end
+      end
+   end
+   assign timer1_irq = r_timer1_irq;
+`else
+   assign timer1_irq = 1'b0;
+`endif
+
    // (IOC2 interrupt/GIO-config registers not yet modeled: reads 0, writes absorbed.)
+`ifdef VERILATOR
+   // sim-only: every 8254 counter (re)load -- rare, and exactly what the OS programs
+   always_ff @(posedge clk)
+     begin
+        if(!reset & w_pit_tcnt2_wr & r_t2_loading & r_t2_wr_phase)
+          begin
+             $display("[pit] ctr2 load %0d", {w_pit_tcnt2_in, r_t2_load[7:0]});
+          end
+        if(!reset & w_pit_tcnt0_wr & r_t0_loading & r_t0_wr_phase)
+          begin
+             $display("[pit] ctr0 load %0d", {w_pit_tcnt0_in, r_t0_load[7:0]});
+          end
+`ifdef ENABLE_IP28
+        if(!reset & w_pit_tcnt1_wr & r_t1_loading & r_t1_wr_phase)
+          begin
+             $display("[pit] ctr1 load %0d", {w_pit_tcnt1_in, r_t1_load[7:0]});
+          end
+`endif
+     end
+`endif
+
 endmodule // ioc
