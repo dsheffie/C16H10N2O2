@@ -1,0 +1,2004 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A from-scratch SoC that impersonates the SGI Indy (IP22) well enough to boot IRIX, built around the r9999 MIPS core.">
+      
+      
+      
+      
+        <link rel="prev" href="../minimum-mmio-to-banner/">
+      
+      
+        <link rel="next" href="../r9999-microarchitecture/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.0">
+    
+    
+      
+        <title>CPU integration (r9999) - Henry — the wannabe IP22 SoC</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.57a0d79d.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.fb2fffe2.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="amber">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#cpu-integration-r9999-in-henry" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Henry — the wannabe IP22 SoC" class="md-header__button md-logo" aria-label="Henry — the wannabe IP22 SoC" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M6 4h12v1h3v2h-3v2h3v2h-3v2h3v2h-3v2h3v2h-3v1H6v-1H3v-2h3v-2H3v-2h3v-2H3V9h3V7H3V5h3zm5 11v3h1v-3zm2 0v3h1v-3zm2 0v3h1v-3z"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Henry — the wannabe IP22 SoC
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              CPU integration (r9999)
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="amber"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="amber"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Henry — the wannabe IP22 SoC" class="md-nav__button md-logo" aria-label="Henry — the wannabe IP22 SoC" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M6 4h12v1h3v2h-3v2h3v2h-3v2h3v2h-3v2h3v2h-3v1H6v-1H3v-2h3v-2H3v-2h3v-2H3V9h3V7H3V5h3zm5 11v3h1v-3zm2 0v3h1v-3zm2 0v3h1v-3z"/></svg>
+
+    </a>
+    Henry — the wannabe IP22 SoC
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../minimum-mmio-to-banner/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Minimum MMIO to boot banner
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (functional-sim validated, MAME-corroborated; Henry-RTL notes re-checked 2026-10-27 against henry eea6ecb)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CPU integration (r9999)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated)"></span>
+  
+
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CPU integration (r9999)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated)"></span>
+  
+
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#whats-already-complete-mips-iii-integer-system-atomic-set" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What's already complete (MIPS-III integer / system / atomic set)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#gap-1-fp-subsystem-closed-full-cop1-regfile-moves-ldst-a-real-fp-alu-hw-divsqrt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Gap 1 — FP subsystem (CLOSED — full COP1, regfile + moves + ld/st + a real FP ALU + HW div/sqrt)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#gap-2-closed-cache-is-fully-decoded-flush-wired-was-a-latent-nop-bug" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Gap 2 — CLOSED: cache is fully decoded + flush-wired (was a latent NOP bug)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#gap-3-closed-wired-tlb-wirepda-spurious-fault" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Gap 3 — CLOSED: wired-TLB / wirepda spurious fault
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cp0-misc" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CP0 / misc
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#boot-critical-checklist" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Boot-critical checklist
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#detailed-working-notes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Detailed working notes
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../r9999-microarchitecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    r9999 microarchitecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../r9999-lineage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    r9999 lineage (MIPS -> RISC-V -> MIPS)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../firmware-arcs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Firmware (ARCS shim)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated; Henry FSBL section checked 2026-10-27 against r9999/arcs/henry_arcs.S + henry_fw.c @ 788c412)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../boot-and-console/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Boot & console
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated; Henry FSBL/console re-checked 2026-10-27 against henry eea6ecb / r9999 788c412)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../coherence-cache-tlb/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cache, coherence & TLB
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated; silicon-refined 2026-07; RTL state re-checked 2026-10-27 against henry eea6ecb / r9999 788c412)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../arm-device-protocol/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ARM ↔ device protocol (staging rings)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../bus-errors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Bus errors
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../fpu-cop1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FPU (COP1)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--implemented (MAME-validated workload)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_13" >
+        
+          
+          <label class="md-nav__link" for="__nav_13" id="__nav_13_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Peripherals
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_13_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_13">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Peripherals
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../peripherals/mc/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MC (memory controller)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated; henry RTL status audited 2026-10-27 against main eea6ecb)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../peripherals/ioc2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    IOC2 (serial console)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated; henry RTL status audited 2026-10-27 against main @eea6ecb)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../peripherals/scc/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SCC (Z85C30 console)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (silicon-validated; audited 2026-10-27 against henry main @eea6ecb)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../peripherals/hpc3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    HPC3 (SCSI/enet/DMA, RTC)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME + live-IRIX-trace validated; henry RTL status audited 2026-10-27 against main eea6ecb)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../peripherals/scsi_disk_theory_of_operation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SCSI disk theory of operation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../peripherals/gio64/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GIO64 (bus)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated; henry RTL status audited 2026-10-27 against henry main eea6ecb)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../peripherals/vdma/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VDMA (virtual DMA)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--implemented for memory -> GIO (dma_engine CH_V), 2026-10-18"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../peripherals/dmux1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DMUX (data mux)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (henry status audited 2026-10-27 against main @eea6ecb)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_14" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../graphics/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Graphics
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--implemented (ARM-served model), 2026-10-18"></span>
+  
+
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_14" id="__nav_14_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_14_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_14">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Graphics
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../newport-on-henry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Newport on henry (working, screenshots)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../graphics/rex3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    REX3 (raster engine)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--reference; implemented as an ARM-served software model (2026-10-18)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../graphics/vc2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VC2 (video timing/cursor)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--reference; implemented as part of the ARM-side Newport model (2026-10-18)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../graphics/xmap9/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    XMAP9 (colormap)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--reference; implemented in the ARM-side Newport model (2026-10-18)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../graphics/rb2-ro1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RB2 & RO1 (framebuffer/output)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--reference; RB2 semantics implemented in the ARM-side Newport model (2026-10-18)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../graphics/express-xz/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Express / XZ (hardware geometry)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--reference only (not implemented)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../graphics/irix-software/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How IRIX drives Newport (Xsgi, ng1, GL)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--reference (static reverse engineering of IRIX 6.5.22) + what henry observed on silicon (section 7)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../irix-boot-flow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    IRIX boot flow (annotated)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../methodology/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Methodology (MAME oracle)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--stable"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../fpga_stats/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FPGA build stats
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#whats-already-complete-mips-iii-integer-system-atomic-set" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What's already complete (MIPS-III integer / system / atomic set)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#gap-1-fp-subsystem-closed-full-cop1-regfile-moves-ldst-a-real-fp-alu-hw-divsqrt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Gap 1 — FP subsystem (CLOSED — full COP1, regfile + moves + ld/st + a real FP ALU + HW div/sqrt)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#gap-2-closed-cache-is-fully-decoded-flush-wired-was-a-latent-nop-bug" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Gap 2 — CLOSED: cache is fully decoded + flush-wired (was a latent NOP bug)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#gap-3-closed-wired-tlb-wirepda-spurious-fault" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Gap 3 — CLOSED: wired-TLB / wirepda spurious fault
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cp0-misc" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CP0 / misc
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#boot-critical-checklist" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Boot-critical checklist
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#detailed-working-notes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Detailed working notes
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="cpu-integration-r9999-in-henry">CPU integration — r9999 in Henry<a class="headerlink" href="#cpu-integration-r9999-in-henry" title="Permanent link">&para;</a></h1>
+<blockquote>
+<p>r9999 presents <strong>PRId = R4400 (<code>0x0440</code>: imp <code>0x04</code>, rev <code>0x40</code>)</strong> → IRIX takes the <strong>R4000/R4400
+baseline path</strong> (default UTLB/exception handlers, <code>*_r4000</code> clocks, Watch regs cleared; all
+r4600/r5000/RM/r10k code is dead for us). <code>Config</code> (<code>0x0002e483</code>) advertises 16 KB I$/D$ with <strong>16-byte
+lines</strong> (<code>IB=DB=0</code>) and <strong>no secondary cache</strong> (<code>SC=1</code>). (The L1I is physically 32 KB 2-way; each way is
+16 KB, and <code>Config</code> still reports 16 KB.) The integer / 64-bit / system / atomic ISA is
+<strong>COMPLETE</strong> for IRIX 6.5.22, the <strong>FP subsystem is DONE</strong> (Gap 1), <code>cache</code> is honored (Gap 2), and
+the <code>wirepda</code> TLB fault is fixed (Gap 3) — <strong>all three gaps are CLOSED and IRIX boots to multi-user
+on Henry silicon</strong>. The analysis below was validated against IRIX 6.5.22 driven in MAME
+(<code>indy_4610</code> = r4600be / mips3); it is kept as the record of <em>why</em> each piece is needed.
+Henry is a pseudo-IP22 "wannabe Indy" SoC; r9999 is the CPU core (git submodule, @ <code>788c412</code>).</p>
+</blockquote>
+<p>Detailed working notes live in the submodule:
+<code>r9999/IRIX_KERNEL_GAPS.md</code> (static kernel instruction working set) and
+<code>r9999/IRIX_CPU_REQUIREMENTS.md</code> (MAME ground truth: ARCS handoff, SPB, MC sizing).</p>
+<hr />
+<h2 id="whats-already-complete-mips-iii-integer-system-atomic-set">What's already complete  (MIPS-III integer / system / atomic set)<a class="headerlink" href="#whats-already-complete-mips-iii-integer-system-atomic-set" title="Permanent link">&para;</a></h2>
+<p>Per the gaps-doc headline: <strong>the integer / 64-bit / system / atomic ISA r9999 already implements is
+COMPLETE for this kernel</strong> (125 distinct mnemonics, all confirmed decoded+executed except the FP set
+and <code>wait</code>). No action needed for any of:</p>
+<ul>
+<li><strong>Integer / branch (MIPS I/II):</strong> the full ALU/shift/mul/div set, all <strong>branch-likely</strong> forms
+  (<code>beqzl</code>…<code>bgezl</code>), <code>j/jal/jr/jalr</code>, unaligned <code>lwl/lwr/swl/swr</code>, <code>mfhi/mflo/mthi/mtlo</code>, <code>teq</code>,
+  <code>break</code>, <code>syscall</code>.</li>
+<li><strong>64-bit (MIPS III):</strong> <code>ld/sd/lwu/ldl/ldr/sdl/sdr</code>, <code>daddu/daddiu/daddi/dsubu/dnegu</code>, the full
+  <code>d*</code> shift family, <code>dmult/dmultu/ddiv/ddivu</code>.</li>
+<li><strong>System / CP0:</strong> <code>mtc0/mfc0/dmtc0/dmfc0</code>, <code>tlbr/tlbwi/tlbwr/tlbp</code>, <code>eret</code>, <code>cache</code> (fully decoded +
+  flush-wired — see Gap 2), <code>sync</code>. CP0 writes take effect <strong>at retire</strong>, and all CP0 reads/writes
+  (including the TLB ops and <code>eret</code>) are ordered by a single CP0 sequence number, so wrong-path or
+  nullified <code>mtc0</code>s never change CP0 (see <a href="../r9999-microarchitecture/">r9999 microarchitecture</a>).</li>
+<li><strong>Atomics:</strong> <code>ll/sc/lld/scd</code>.</li>
+</ul>
+<p>The kernel runs <strong>no FP arithmetic at all</strong> (no <code>add.*/sub.*/mul.*/div.*/sqrt/abs/neg/c.*</code>), so an
+FP ALU is <strong>not required to boot</strong> — see Gap 1.</p>
+<hr />
+<h2 id="gap-1-fp-subsystem-closed-full-cop1-regfile-moves-ldst-a-real-fp-alu-hw-divsqrt">Gap 1 — FP subsystem  (CLOSED — full COP1, regfile + moves + ld/st + a real FP ALU + HW div/sqrt)<a class="headerlink" href="#gap-1-fp-subsystem-closed-full-cop1-regfile-moves-ldst-a-real-fp-alu-hw-divsqrt" title="Permanent link">&para;</a></h2>
+<p><strong>Status: CLOSED.</strong> The FP subsystem is <strong>fully implemented</strong> in r9999 (<code>main</code>): the FP regfile,
+all moves, FP load/store, <code>Status.FR</code>/<code>Status.CU1</code> with lazy-FPU CpU, FP-exception delivery, AND a
+<strong>real FP ALU</strong> — add/sub/mul/compare/converts in hardware, <strong>div/sqrt on the shared iterative
+divider</strong> (<code>uni_divider.sv</code>), with denormal operands/results + any undecoded COP1 op <strong>E-trapped to the
+OS soft-float emulator</strong>. This goes well past the boot-minimum (which was just
+the regfile + moves + the two long→float converts). For reference, the kernel's static FP working set
+is mostly <strong>context save/restore</strong> (the 32 FP regs + FCSR across context switch / signal delivery)
+plus exactly <strong>two</strong> long→float converts. Static FP counts: <code>swc1</code> 96, <code>sdc1</code> 81, <code>dmtc1/dmfc1</code> 65,
+<code>mtc1/mfc1</code> 64, <code>lwc1</code> 64, <code>ldc1</code> 49, <code>cfc1</code> 5, <code>ctc1</code> 4, <code>cvt.s.l</code> 1, <code>cvt.d.l</code> 1.</p>
+<p>Implemented (all present in r9999 <code>main</code>):</p>
+<ol>
+<li><strong>FP register file (32 × 64-bit) + <code>Status.CU1</code> + <code>Status.FR</code>.</strong> Clustered/banked
+   <code>fp_regfile.sv</code>. <code>Status.FR</code> is R/W and <strong>resets to 1</strong> (FR=1 = 32 independent 64-bit regs for
+   n32/n64); FR=0/o32 even/odd pairing is forced via decode (<code>fr</code> gates the odd-reg / half-select
+   path). <code>Status.CU1</code> is R/W and <strong>resets to 0</strong> (lazy-FPU). <code>FIR</code> (FCR0) reads back the
+   R4000-family FPU id.</li>
+<li><strong>FP moves:</strong> <code>mtc1/mfc1/dmtc1/dmfc1</code>, <code>cfc1/ctc1</code> (FCR31 / FCR0=FIR) — full execution, not
+   vestigial decode.</li>
+<li><strong>FP load/store:</strong> <code>lwc1/swc1/ldc1/sdc1</code>, with precise delay-slot faults (item 7).</li>
+<li><strong>Converts:</strong> the kernel's <code>cvt.s.l</code> / <code>cvt.d.l</code> plus the <strong>full</strong> convert set — <code>CVT.S.D</code>/<code>D.S</code>,
+   <code>CVT.{W,L}.{S,D}</code> (incl. <code>ROUND</code>/<code>TRUNC</code>/<code>CEIL</code>/<code>FLOOR</code>), <code>CVT.{S,D}.{W,L}</code> — via a single-cycle
+   f2i/i2f/f2f path (<code>fpu_f2i.sv</code>/<code>fpu_i2f.sv</code>/<code>fpu_f2f.sv</code>).</li>
+<li><strong>CU1 → Coprocessor-Unusable (Cause ExcCode 11):</strong> a COP1 op with <code>Status.CU1=0</code> raises CpU
+   (<code>Cause.CE=1</code>), so lazy-FP enable/disable works.</li>
+<li><strong>FP Exception (Cause ExcCode 15) delivery</strong> — <code>FCSR.Cause.E</code>; the <code>fp_intr</code> handler path.</li>
+<li><strong>PRECISE exceptions on delay-slot FP loads/stores.</strong> When an FP load/store <strong>in a branch delay
+   slot faults</strong>, the kernel's <code>emulate_branch</code>/<code>emulate_{lwc1,ldc1,swc1,sdc1}</code> decodes the branch,
+   emulates the memory op, and resumes. This is <strong>NOT an FP-arithmetic emulator</strong> — it is a precise
+   BD-slot fixup, and it <strong>requires r9999 to deliver the correct EPC + <code>Cause.BD</code></strong> (the
+   <code>WAIT_FOR_SERIALIZE_IN_FAULTED_DELAY_SLOT</code> corner). r9999 delivers it.</li>
+</ol>
+<p><strong>Real FP ALU (also done):</strong> a unified single/double <code>fpu_add</code> (add+sub) + <code>fpu_mul</code> (mul), fixed
+<strong>4-cycle</strong> latency (<code>FPU_LAT=4</code>), honoring <code>FCSR.RM</code>; a unified <code>fpu_compare</code> (all 16 <code>C.cond</code>);
+<code>abs/neg/mov</code>; plus the converts above. <strong><code>DIV.{S,D}</code> / <code>SQRT.{S,D}</code></strong> run in hardware on
+<code>uni_divider.sv</code> — the same iterative unit as the integer divides (one op in flight, wired into
+<code>exec.sv</code> as <code>d0</code>). <strong>Denormal operands/results and any undecoded COP1 op</strong> raise
+<strong>Unimplemented-Op (E)</strong> → FP Exception (ExcCode 15, <code>FCSR.Cause.E</code>) → the <strong>OS soft-float emulator</strong>
+(linux-mips <code>math-emu</code> / the IRIX equivalent); the catch-all <code>FP_UNIMPL</code> is <strong>trap-and-emulate, not
+SIGILL</strong>. IEEE flags go to <code>FCSR.Cause</code> on a trap or accumulate in the sticky <code>FCSR.Flags</code> otherwise.
+FP branches <code>BC1T/F/TL/FL</code> are implemented. (Until the unified divider landed, div/sqrt were also
+E-punted to soft-float.)</p>
+<p><strong>Validation:</strong> <code>tests/fpu/*</code> co-sim clean + directed; the FPU Linux kernel boots to <code>/init</code>
+(lazy-FPU, no "orphaned FPU"); an <code>awk</code> double-precision self-test ran correctly on Henry <strong>silicon</strong>
+at FPU bring-up (when <code>sqrt</code> still went via soft-float). The FPU is part of every henry build; per-bitstream
+timing is on <a href="../fpga_stats/">FPGA stats</a> (e.g. the 2026-10-18 big-core Newport bitstream <code>7d953110</code> closes at
+WNS +0.145 ns @ 100 MHz). See <code>r9999/FPU_PORT_STUDY.md</code>, <code>r9999/FPU_ROUNDING_EXCEPTIONS.md</code>.</p>
+<hr />
+<h2 id="gap-2-closed-cache-is-fully-decoded-flush-wired-was-a-latent-nop-bug">Gap 2 — CLOSED: <code>cache</code> is fully decoded + flush-wired  (was a latent NOP bug)<a class="headerlink" href="#gap-2-closed-cache-is-fully-decoded-flush-wired-was-a-latent-nop-bug" title="Permanent link">&para;</a></h2>
+<p>r9999 has separate <strong>L1i + L1d</strong> over a shared 128 KB inclusive L2 that is <strong>transparent to software</strong> (hidden
+from the kernel via <code>Config.SC=1</code> → kernel sees "R4000PC", so all ~30 static secondary/L2
+<code>cache_sel=2/3</code> sites are gated out — confirmed <strong>0 dynamic</strong>; no L2 modeling needed). Henry's device DMA
+reaches it through the DMA engine's snoop shim, which probes the L1D via the inclusive L2 — see the last
+bullet below. The live coherence axis is <strong>L1i vs.
+D-side stores</strong>: the kernel <strong>writes code</strong> through L1d/L2 (runtime CPU patching at boot —
+<code>R4000_jump_war</code>/<code>mtext_fixup</code>; loadable modules — <code>doelfrelocs</code>), and L1i then holds a <strong>stale</strong>
+copy. So the I-cache <code>cache</code> ops <strong>must be honored, not NOP'd</strong>.</p>
+<p><code>cache</code> (op <code>0x2f</code>) is executed <strong>5.2 M times</strong> over a 120 s boot; four primary ops = 99.94%. Decode:
+<code>op = instr[20:16]</code>, <code>cache_sel = op[1:0]</code> (0=I,1=D,2=SD,3=SI), <code>operation = op[4:2]</code>.</p>
+<p><strong>Implemented in r9999</strong> (<code>decode_mips.sv</code> op <code>0x2f</code>; <code>core.sv</code> serialize path; <code>l1i.sv</code> / <code>l1d.sv</code>):</p>
+<ul>
+<li>✅ <strong>Fully decoded</strong> (no blanket-NOP) and <strong>kernel-mode-gated</strong> — a user-mode <code>cache</code> decodes to a
+  <strong>Coprocessor-Unusable</strong> fault.</li>
+<li>✅ <strong>Primary-D Hit ops</strong> — Hit-Invalidate (<code>0x11</code>), Hit-WB-Invalidate (<code>0x15</code>), Hit-WB (<code>0x19</code>) —
+  are <strong>memory uops</strong> (<code>CHINV</code>/<code>CHWBINV</code>/<code>CHWB</code>): AGU → LSU → L1D, <strong>translated by the D-TLB</strong> like a
+  load (IRIX invalidates <em>mapped</em> K2SEG buffer-cache lines before DMA; the old path masked
+  <code>VA &amp; 0x1fffffff</code>, wrong for mapped EAs → stale superblock → <code>EWRONGFS</code>). Hit-Invalidate drops the
+  line <strong>without</strong> writeback (the DMA-in case). They are admitted only at the ROB head.</li>
+<li>✅ <strong>Every other <code>cache</code> op</strong> is a serializing <code>CACHE_OP</code> handled at the ROB head (<code>CACHE_FLUSH</code>
+  state): <strong>I-cache ops → invalidate the one L1I set the EA indexes, both ways</strong> (a superset of what each
+  op needs, since the I-cache is never dirty; no L2 work), and <strong>other D-cache ops (Index-type) → a
+  per-line writeback/invalidate</strong> (<code>flush_cl</code>) at <code>EA &amp; 0x1fffffff</code>. A D <code>cache</code> op acts on exactly one
+  16-byte line. The I-side was a whole-L1I flush until r9999 <code>93b1514</code>; IRIX's per-line I-clean loop made
+  that ~29% of all samples under Xsgi. This is what makes runtime CPU patching /
+  module loads code-coherent. Index-Store-Tag / Fill are therefore <em>not</em> no-ops; they fold into these
+  two over-approximations (r9999's caches reset clean, and cache size comes from <code>Config</code>, not a tag
+  probe).</li>
+<li>✅ <strong>Every L1D flush starts from a drained L1D</strong> — the CACHE line op, the whole-cache flush, the
+  injected page ops and the DMA invalidate all wait for <code>w_l1d_drained</code> (no queued or owed requests,
+  both pipe stages empty, no retired store pending). Without that, a flush could consume a fill
+  response as a flush beat and wedge the next <code>DRAIN</code>/<code>EXCEPTION_DRAIN</code> (an IRIX hang on silicon,
+  fixed in r9999 <code>5c89b70</code>).</li>
+<li><strong>Henry-only: device DMA is coherent in hardware.</strong> SCSI, Ethernet and VDMA data move through
+  <code>dma_engine.sv</code>, whose accesses pass a <code>dma_snoop_shim</code> that write-back-invalidates each line through the
+  inclusive L2's snoop port (before the access, and again after a write). So IRIX's own <code>cache</code> ops are
+  all it needs. Earlier builds had the ARM move the data and <em>inject</em> flushes into the core like an
+  interrupt (<code>XFLUSH</code>, whole L1D + L2, and the page ops <code>XPG_WBINV</code> / <code>XPG_INV</code>, from AXI control
+  writes); that hardware is still wired but the staging-ring driver does not use it (see
+  <a href="../architecture/">Architecture</a>).</li>
+</ul>
+<hr />
+<h2 id="gap-3-closed-wired-tlb-wirepda-spurious-fault">Gap 3 — CLOSED: wired-TLB / <code>wirepda</code> spurious fault<a class="headerlink" href="#gap-3-closed-wired-tlb-wirepda-spurious-fault" title="Permanent link">&para;</a></h2>
+<p><strong>Symptom (historical):</strong> r9999 faulted on the <code>jr $ra</code> return from <code>wirepda</code> (kernel <code>mlsetup</code> path).
+<strong>MAME ground truth: real HW takes NO miss here</strong> — both the return fetch and the delay-slot PDA store
+resolve through a <strong>global wired entry</strong>, so r9999 was faulting <em>spuriously</em>.</p>
+<p><strong>The golden wired PDA entry</strong> (captured at the <code>tlbwi</code> inside <code>tlbwired</code>, <code>0x88004c28</code>):
+<code>EntryHi VA = 0xFFFFFFFF_FFFFA000</code> → <code>PA = 0x0838E000</code>, <strong>valid, dirty, cached, GLOBAL</strong> (matches any
+ASID), wired in <strong>slot 0</strong>, <code>Wired = 8</code> (slots 0–7 reserved). The PDA store target <code>0xFFFFA240</code> hits
+this same global wired entry.</p>
+<p><strong>Resolution (all in r9999 <code>main</code>):</strong></p>
+<ol>
+<li><strong>High-kseg3 VA match</strong> — the TLB now compares the <strong>full <code>VPN2 = va[39:13]</code> plus region
+   <code>R = va[63:62]</code></strong> (Sail <code>tlbEntryMatch</code>), with <code>EntryHi</code> holding the full VPN2/R written by
+   <code>mtc0</code>/<code>dmtc0</code>. This supersedes the interim "match the low 19-bit VPN2 only" workaround (<code>e451d50</code>);
+   see <a href="../r9999-microarchitecture/#the-tlb-translation-datapath">r9999 microarchitecture — The TLB</a>.</li>
+<li><strong><code>tlbwr</code> respects <code>Wired</code></strong> — <code>Random</code> counts down and wraps from <code>Wired</code> back to 47
+   (<code>exec.sv</code>: <code>n_random = (r_random==r_wired) ? (N_TLB_ENTRIES-1) : (r_random-1)</code>), so wired slots
+   are never replaced.</li>
+<li><strong>Global/ASID</strong> — the match term is <code>(asid == ASID) | (g0 &amp; g1)</code>, gated by a per-slot
+   "written" bit rather than <code>(v0|v1)</code>.</li>
+</ol>
+<p><strong>Tests:</strong> <code>tests/tlb/test_wired.S</code> installs two wired entries, hammers <code>tlbwr</code> 64×, and checks both
+still translate (covers "<code>tlbwr</code> never replaces a wired slot" and "a wired entry resolves a load").
+A directed test of a <em>global wired entry at a high kseg3 VA across ASID changes</em> (the exact
+<code>wirepda</code> shape) is still not in the suite; IRIX booting through <code>mlsetup</code> on every run is the
+de-facto coverage.</p>
+<p>Cross-ref: <code>r9999/MAME_QUESTIONS.md</code> Q1 (full capture + single-step trace; caller <code>mlsetup</code>
+@ <code>0x8814a0d0</code>, return to <code>mlsetup+0xb4</code>).</p>
+<hr />
+<h2 id="cp0-misc">CP0 / misc<a class="headerlink" href="#cp0-misc" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>Count / Compare timer:</strong> steady-state timekeeping is the <strong>on-chip R4000 timer</strong>, not ARCS — the
+  handler re-arms <code>Compare = Count + ~0x25000</code> per tick (confirmed live; <code>Count</code> climbs monotonically
+  and wraps). Must be functional.</li>
+<li><strong>Watch regs (WatchLo/WatchHi, r18/r19): RAZ/WI is sufficient</strong> — already <strong>DONE in r9999 commit
+  <code>272360d</code></strong> (functional register: store on <code>mtc0</code>, read back on <code>mfc0</code>, reset 0; modeled on
+  <code>Compare</code>). The kernel only ever does two <code>mtc0 zero</code> clears in <code>start</code>; <strong>no Watch-match hardware
+  or ExcCode-23 delivery is required</strong> (the kernel's watchpoint facility is software).</li>
+<li><strong><code>wait</code>:</strong> <strong>not a real gap.</strong> It is R4600+/MIPS32, absent from the R4000/R4400 ISA; IRIX gates the
+  idle WAIT by PRId (<code>wait_for_interrupt</code>) and on imp <code>0x04</code> returns without ever executing it. It is a
+  pure hint — correctness never depends on it. r9999 <strong>decodes it as a NOP</strong> in kernel mode.</li>
+<li><strong>PageMask:</strong> <strong>not RAZ/WI</strong> — the kernel writes <code>PageMask=0</code> before each <code>tlbw</code> and reads it back;
+  it must <strong>hold its value</strong>. IRIX boot is <strong>4 KB-only</strong> (3000 boot TLB writes, 100% <code>PageMask=0</code>), but
+  r9999 now implements <strong>variable page sizes (4 KB–16 MB)</strong> in both TLB CAMs and the micro-ITLB anyway
+  (Linux with large pages needs it).</li>
+<li><strong>TLB size:</strong> 48 dual-entry JTLB (matches R4000/R4400/R4600/R5000); r9999's 48-entry CAM matches.
+  Use the <strong>R4000 blind-<code>tlbwr</code> refill</strong> path; ensure the CAM tolerates a <strong>duplicate write</strong>
+  (last-wins/overwrite) rather than asserting a machine-check.</li>
+<li><strong>Physical address width:</strong> IRIX on IP22 needs 29 bits (512 MB ceiling); the highest PA the kernel
+  forms is the device/PROM region <code>0x1f000000–0x1fffffff</code>. r9999 carries <strong>36-bit</strong> physical addresses
+  (<code>PA_WIDTH=36</code>), but its TLBs store only <code>TLB_PA_WIDTH=30</code> PA bits (zero-filled on read), so the IP24
+  PROM's bank probe at <code>0x20000000</code> still translates. A PFN with bits above that aliases low; there is no
+  PA-range check.</li>
+<li><strong>PRId-gated R4000 workarounds:</strong> IRIX applies the R4000 set (<code>R4000_jump_war</code>, <code>init_mfhi_war</code>, …)
+  — generally conservative/harmless on a clean core. <strong>Verify</strong> that the two that assume <em>buggy</em> R4000
+  behavior — <code>R4000_jump_war</code> (page-boundary branch errata) and <code>init_mfhi_war</code> (hi/lo read hazard) —
+  are harmless no-ops on r9999's clean OOO core (it already enforces precise control flow + correct
+  hi/lo).</li>
+</ul>
+<hr />
+<h2 id="boot-critical-checklist">Boot-critical checklist<a class="headerlink" href="#boot-critical-checklist" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Need</th>
+<th>r9999 status</th>
+<th>Action</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Integer / branch-likely / unaligned / traps</td>
+<td>implemented</td>
+<td>—</td>
+</tr>
+<tr>
+<td>64-bit MIPS-III (<code>d*</code>, <code>ld/sd</code>, <code>ldl</code>…<code>sdr</code>)</td>
+<td>implemented</td>
+<td>—</td>
+</tr>
+<tr>
+<td>System CP0 (<code>mtc0/mfc0/dmtc0/dmfc0</code>, <code>tlb*</code>, <code>eret</code>, <code>sync</code>, <code>syscall</code>, <code>break</code>)</td>
+<td>implemented</td>
+<td>—</td>
+</tr>
+<tr>
+<td>Atomics (<code>ll/sc/lld/scd</code>)</td>
+<td>implemented</td>
+<td>—</td>
+</tr>
+<tr>
+<td><strong><code>cache</code> op decode + I/D flush wiring</strong></td>
+<td><strong>DONE</strong> — was <code>cache</code>→NOP (latent bug)</td>
+<td><strong>Gap 2 CLOSED</strong> — full op-field decode, kernel-gated (user → CpU); D Hit-ops = D-TLB-translated LSU ops; I-ops → invalidate one L1I set; other D-ops → per-line <code>flush_cl</code></td>
+</tr>
+<tr>
+<td><strong>FP regfile 32×64b + <code>Status.CU1/FR</code> (FR=1)</strong></td>
+<td><strong>DONE</strong> (<code>fp_regfile.sv</code>; FR R/W reset 1, CU1 R/W reset 0, FIR=R4000)</td>
+<td><strong>Gap 1.1 — CLOSED</strong></td>
+</tr>
+<tr>
+<td><strong>FP moves</strong> <code>mtc1/mfc1/dmtc1/dmfc1</code>, <code>cfc1/ctc1</code></td>
+<td><strong>DONE</strong> (full exec)</td>
+<td><strong>Gap 1.2 — CLOSED</strong></td>
+</tr>
+<tr>
+<td><strong>FP load/store</strong> <code>lwc1/swc1/ldc1/sdc1</code> (precise BD-slot faults)</td>
+<td><strong>DONE</strong> (precise BD-slot faults)</td>
+<td><strong>Gap 1.3 + 1.7 — CLOSED</strong></td>
+</tr>
+<tr>
+<td><strong><code>cvt.s.l</code> / <code>cvt.d.l</code></strong></td>
+<td><strong>DONE</strong> (full convert set, not just these 2)</td>
+<td><strong>Gap 1.4 — CLOSED</strong></td>
+</tr>
+<tr>
+<td><strong>CU1 → CpU (Cause 11)</strong></td>
+<td><strong>DONE</strong> (COP1 with CU1=0 → CpU, <code>Cause.CE=1</code>)</td>
+<td><strong>Gap 1.5 — CLOSED</strong></td>
+</tr>
+<tr>
+<td><strong>FP Exception (Cause 15)</strong></td>
+<td><strong>DONE</strong> (<code>FCSR.Cause.E</code> delivery)</td>
+<td><strong>Gap 1.6 — CLOSED</strong></td>
+</tr>
+<tr>
+<td><strong>Precise EPC + <code>Cause.BD</code> on delay-slot FP mem ops</strong></td>
+<td><strong>DONE</strong></td>
+<td><strong>Gap 1.7 — CLOSED</strong></td>
+</tr>
+<tr>
+<td><strong>Wired-slot protection / <code>wirepda</code> high-kseg3 VA</strong></td>
+<td><strong>DONE</strong> — Random wraps at <code>Wired</code>; full VPN2+R match</td>
+<td><strong>Gap 3 CLOSED</strong> (<code>tests/tlb/test_wired.S</code>)</td>
+</tr>
+<tr>
+<td>Count/Compare timer</td>
+<td>implemented (drives the IRIX/Linux tick)</td>
+<td>—</td>
+</tr>
+<tr>
+<td>WatchLo/WatchHi</td>
+<td><strong>DONE (<code>272360d</code>)</strong></td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>wait</code></td>
+<td>decoded as NOP</td>
+<td>— (PRId-gated out anyway)</td>
+</tr>
+<tr>
+<td>PageMask holds value</td>
+<td><strong>DONE</strong> (R/W; variable page sizes 4 KB–16 MB implemented)</td>
+<td>—</td>
+</tr>
+<tr>
+<td>FP ALU (add/sub/mul/cmp/cvt/div/sqrt)</td>
+<td><strong>DONE</strong> (<code>fpu_add</code>/<code>fpu_mul</code>/<code>fpu_compare</code> + converts in HW; div/sqrt on <code>uni_divider</code>)</td>
+<td>— (denormals + undecoded COP1 → E-trap to soft-float)</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>Boot-environment note (separate from CPU ISA): a sash-less direct <code>/unix</code> boot also needs the ARCS
+shim — SPB @ phys <code>0x1000</code> (sig "ARCS"), a 35-entry romvec with a working <code>GetEnvironmentVariable</code>,
+entry to <code>start</code> (<code>0x88005960</code>) with <code>a0=8, a1=0, a2=0</code>, and <code>MEMCFG0/MEMCFG1</code> @ <code>0x1fa000c4/0xcc</code>
+describing Henry's DRAM. That is platform/SoC integration, not CPU ISA — see
+<code>r9999/IRIX_CPU_REQUIREMENTS.md</code> (P0-A/B/C). Listed here only so it isn't mistaken for a CPU gap;
+the first observed derail (<code>0x880059f0</code>) is the missing SPB, <strong>not</strong> an ISA gap.</p>
+</blockquote>
+<hr />
+<h2 id="detailed-working-notes">Detailed working notes<a class="headerlink" href="#detailed-working-notes" title="Permanent link">&para;</a></h2>
+<ul>
+<li><code>r9999/IRIX_KERNEL_GAPS.md</code> — static kernel instruction working set (125 mnemonics), FP gap
+  analysis, <code>cache</code> op histogram, TLB/CP0/PA requirements, PRId support map, console path.</li>
+<li><code>r9999/IRIX_CPU_REQUIREMENTS.md</code> — MAME ground truth: PROM→kernel handoff at <code>start</code>, the ARCS SPB +
+  romvec layout, and how the kernel sizes RAM via the MC (<code>MEMCFG0/1</code>).</li>
+<li><code>r9999/MAME_QUESTIONS.md</code> Q1 — the <code>wirepda</code> wired-TLB capture (golden entry + single-step trace).</li>
+<li><code>r9999/FPU_PORT_STUDY.md</code>, <code>r9999/FPU_ROUNDING_EXCEPTIONS.md</code> — FP ALU plumbing + E-trap strategy
+  (written before div/sqrt moved onto <code>uni_divider.sv</code>).</li>
+</ul>
+
+
+
+
+
+
+
+  
+  
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "navigation.top", "navigation.indexes", "navigation.tracking", "toc.follow", "content.code.copy"], "search": "../assets/javascripts/workers/search.a7633da7.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.c21346df.min.js"></script>
+      
+    
+  </body>
+</html>

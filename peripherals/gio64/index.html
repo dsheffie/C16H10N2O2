@@ -1,0 +1,2068 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A from-scratch SoC that impersonates the SGI Indy (IP22) well enough to boot IRIX, built around the r9999 MIPS core.">
+      
+      
+      
+      
+        <link rel="prev" href="../scsi_disk_theory_of_operation/">
+      
+      
+        <link rel="next" href="../vdma/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.0">
+    
+    
+      
+        <title>GIO64 — expansion/graphics bus - Henry — the wannabe IP22 SoC</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.57a0d79d.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.fb2fffe2.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="amber">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#gio64-expansion-graphics-bus-henry-block-spec" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Henry — the wannabe IP22 SoC" class="md-header__button md-logo" aria-label="Henry — the wannabe IP22 SoC" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M6 4h12v1h3v2h-3v2h3v2h-3v2h3v2h-3v2h3v2h-3v1H6v-1H3v-2h3v-2H3v-2h3v-2H3V9h3V7H3V5h3zm5 11v3h1v-3zm2 0v3h1v-3zm2 0v3h1v-3z"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Henry — the wannabe IP22 SoC
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              GIO64 — expansion/graphics bus
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="amber"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="amber"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Henry — the wannabe IP22 SoC" class="md-nav__button md-logo" aria-label="Henry — the wannabe IP22 SoC" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M6 4h12v1h3v2h-3v2h3v2h-3v2h3v2h-3v2h3v2h-3v1H6v-1H3v-2h3v-2H3v-2h3v-2H3V9h3V7H3V5h3zm5 11v3h1v-3zm2 0v3h1v-3zm2 0v3h1v-3z"/></svg>
+
+    </a>
+    Henry — the wannabe IP22 SoC
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../minimum-mmio-to-banner/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Minimum MMIO to boot banner
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (functional-sim validated, MAME-corroborated; Henry-RTL notes re-checked 2026-10-27 against henry eea6ecb)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cpu-integration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CPU integration (r9999)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../r9999-microarchitecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    r9999 microarchitecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../r9999-lineage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    r9999 lineage (MIPS -> RISC-V -> MIPS)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../firmware-arcs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Firmware (ARCS shim)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated; Henry FSBL section checked 2026-10-27 against r9999/arcs/henry_arcs.S + henry_fw.c @ 788c412)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../boot-and-console/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Boot & console
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated; Henry FSBL/console re-checked 2026-10-27 against henry eea6ecb / r9999 788c412)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../coherence-cache-tlb/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cache, coherence & TLB
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated; silicon-refined 2026-07; RTL state re-checked 2026-10-27 against henry eea6ecb / r9999 788c412)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../arm-device-protocol/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ARM ↔ device protocol (staging rings)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../bus-errors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Bus errors
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../fpu-cop1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FPU (COP1)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--implemented (MAME-validated workload)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_13" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_13" id="__nav_13_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Peripherals
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_13_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_13">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Peripherals
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mc/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MC (memory controller)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated; henry RTL status audited 2026-10-27 against main eea6ecb)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ioc2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    IOC2 (serial console)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated; henry RTL status audited 2026-10-27 against main @eea6ecb)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../scc/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SCC (Z85C30 console)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (silicon-validated; audited 2026-10-27 against henry main @eea6ecb)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hpc3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    HPC3 (SCSI/enet/DMA, RTC)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME + live-IRIX-trace validated; henry RTL status audited 2026-10-27 against main eea6ecb)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../scsi_disk_theory_of_operation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SCSI disk theory of operation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GIO64 (bus)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated; henry RTL status audited 2026-10-27 against henry main eea6ecb)"></span>
+  
+
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GIO64 (bus)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated; henry RTL status audited 2026-10-27 against henry main eea6ecb)"></span>
+  
+
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#role-in-henry-and-the-original-headless-simplification" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Role in Henry (and the original headless simplification)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-henry-actually-does-current-rtl" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What henry actually does (current RTL)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#address-map-slot-decoding" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Address map / slot decoding
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#device-probe-identification" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Device probe &amp; identification
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#interrupts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Interrupts
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dma-endianness" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DMA &amp; endianness
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#arbitration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Arbitration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#minimum-for-a-henry-irix-boot-original-headless-plan" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Minimum for a Henry IRIX boot (original headless plan)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#golden-vectors" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Golden vectors
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#open-not-yet-needed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Open / not-yet-needed
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sources" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sources
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../vdma/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VDMA (virtual DMA)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--implemented for memory -> GIO (dma_engine CH_V), 2026-10-18"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dmux1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DMUX (data mux)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (henry status audited 2026-10-27 against main @eea6ecb)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_14" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../graphics/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Graphics
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--implemented (ARM-served model), 2026-10-18"></span>
+  
+
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_14" id="__nav_14_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_14_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_14">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Graphics
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../newport-on-henry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Newport on henry (working, screenshots)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../graphics/rex3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    REX3 (raster engine)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--reference; implemented as an ARM-served software model (2026-10-18)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../graphics/vc2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VC2 (video timing/cursor)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--reference; implemented as part of the ARM-side Newport model (2026-10-18)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../graphics/xmap9/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    XMAP9 (colormap)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--reference; implemented in the ARM-side Newport model (2026-10-18)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../graphics/rb2-ro1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RB2 & RO1 (framebuffer/output)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--reference; RB2 semantics implemented in the ARM-side Newport model (2026-10-18)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../graphics/express-xz/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Express / XZ (hardware geometry)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--reference only (not implemented)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../graphics/irix-software/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How IRIX drives Newport (Xsgi, ng1, GL)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--reference (static reverse engineering of IRIX 6.5.22) + what henry observed on silicon (section 7)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../irix-boot-flow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    IRIX boot flow (annotated)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../methodology/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Methodology (MAME oracle)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--stable"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../fpga_stats/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FPGA build stats
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#role-in-henry-and-the-original-headless-simplification" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Role in Henry (and the original headless simplification)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-henry-actually-does-current-rtl" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What henry actually does (current RTL)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#address-map-slot-decoding" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Address map / slot decoding
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#device-probe-identification" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Device probe &amp; identification
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#interrupts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Interrupts
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dma-endianness" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DMA &amp; endianness
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#arbitration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Arbitration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#minimum-for-a-henry-irix-boot-original-headless-plan" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Minimum for a Henry IRIX boot (original headless plan)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#golden-vectors" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Golden vectors
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#open-not-yet-needed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Open / not-yet-needed
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sources" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sources
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="gio64-expansion-graphics-bus-henry-block-spec">GIO64 — Expansion / Graphics Bus (Henry block spec)<a class="headerlink" href="#gio64-expansion-graphics-bus-henry-block-spec" title="Permanent link">&para;</a></h1>
+<blockquote>
+<p>Intro: GIO64 = 0x1f000000–0x1fffffff, sixteen 4 MB slots (graphics = slot 0). The key behavior is the
+device probe: IRIX reads at each slot base, and an empty slot bus-errors. <strong>Henry today:</strong> slot 0 holds an
+ARM-served Newport (REX3 window <code>0x1f0f0000–0x1f0f1fff</code>), and the rest of GIO space is empty and bus-errors;
+see <a href="#what-henry-actually-does-current-rtl">What henry actually does</a>. Legend ✅/⚠️.</p>
+</blockquote>
+<h2 id="role-in-henry-and-the-original-headless-simplification">Role in Henry (and the original headless simplification)<a class="headerlink" href="#role-in-henry-and-the-original-headless-simplification" title="Permanent link">&para;</a></h2>
+<p>GIO64 is SGI's synchronous, multiplexed address-data expansion bus (64-bit AD, ≤40 MHz) used for graphics
+(Newport / Express), the HPC3 I/O bridge, and option cards. On real IP22 the bus has masters (graphics DMA,
+HPC3 SCSI/enet) and slaves; arbitration, pipelined transfers, parity, ROM, and INT routing all matter.</p>
+<p>Henry was originally planned <strong>headless</strong> — no framebuffer, no option cards (it now has an ARM-served Newport in slot 0; see below). The bus protocol (the AD-cycle handshake, MASDLY /
+SLVDLY / GRXDLY / MEMDLY flow control, tristate turnover, parity) is <strong>not implemented</strong>. What Henry must do is
+satisfy IRIX's <strong>boot-time device probe</strong> so the kernel cleanly concludes "no GIO devices present" and moves on.</p>
+<p>The whole peripheral collapses to one rule (✅ sufficient for boot):</p>
+<blockquote>
+<p><strong>Bus-error every access into 0x1f000000–0x1fffffff</strong> (including the graphics slot). The spec defines an empty
+slot as "read times out → bus-error," and IRIX <em>uses that bus-error as the negative probe result.</em> No device
+ever answers, so IRIX finds nothing in every slot and skips graphics + expansion. ⚠️ This is the spec-correct
+"all slots empty," not a hack.</p>
+</blockquote>
+<p>The only register state Henry keeps is the MC <code>GIO64_ARB</code> word, because the PROM writes it. henry stores the
+write but <strong>reads it back as 0</strong> (<code>mc.sv</code> has no read decode for <code>0x84</code>). With no masters on the bus the
+arbiter never actually runs.</p>
+<h2 id="what-henry-actually-does-current-rtl">What henry actually does (current RTL)<a class="headerlink" href="#what-henry-actually-does-current-rtl" title="Permanent link">&para;</a></h2>
+<p><strong>Slot 0 has a graphics board; the rest of GIO space is empty and bus-errors (2026-10-17 onward).</strong></p>
+<ul>
+<li><strong>The REX3 window</strong> <code>0x1f0f0000–0x1f0f1fff</code> goes to <code>rtl/gio_window.sv</code>, an ARM-served window: stores become
+  records in a staging-region ring, loads are held until the ARM's Newport model answers. IRIX probes the board
+  and <code>hinv</code> reports an Indy graphics board. The IOC2 8042 (<code>0x1fbd9843/7</code>) is served the same way. See
+  <a href="../../newport-on-henry/">Newport on henry</a>.</li>
+<li><strong><code>DISABLE_NEWPORT</code> build knob:</strong> the REX3 window is not decoded, so it falls into empty GIO and times out
+  like an Indy with no graphics board; the Newport interrupts are tied off and MC VDMA completes at once. The
+  8042 still uses the window (<code>henry_soc.sv</code>, the <code>DISABLE_NEWPORT</code> block above <code>u_gio</code>).</li>
+<li><strong>Empty GIO</strong> = <code>[0x1f000000, 0x1fa00000)</code> minus the REX3 window, plus HPC3 chip 1 <code>[0x1fb00000, 0x1fb80000)</code>
+  (<code>w_is_gio_empty</code> in <code>henry_soc.sv</code>). With <code>CPUCTRL1.ABORT_EN</code> set (the ARCS shim sets it, as SGI's PROM does)
+  a load completes with an error: the MC latches <code>GIO_ERROR_ADDR/STAT</code>, and r9999 takes a precise data bus error
+  (cause 7). A store is absorbed and raises the MC bus-error interrupt. Without <code>ABORT_EN</code>, a load returns 0. See
+  <a href="../../bus-errors/">Bus errors</a>.</li>
+<li><strong>On-chip devices:</strong> MC (<code>0x1fa00000–0x1fafffff</code>), HPC3 (<code>0x1fb80000–0x1fbfffff</code>) and the IOC2 carve-out.</li>
+<li><strong>The boot PROM</strong> at <code>0x1fc00000</code> still goes to the external memory bus, where the AXI master folds it into a
+  DRAM shadow that holds the PROM image (the henry_arcs FSBL, or SGI's own Indy PROM).</li>
+<li><strong>GIO masters:</strong> the MC's VDMA (memory → GIO) is implemented as a channel of henry's DMA engine and delivers its
+  data into the same <code>gio_window</code> ring (<a href="../vdma/">VDMA</a>). There is no GIO64 bus protocol in the RTL.</li>
+<li><strong>Interrupts:</strong> Newport's vertical retrace is an ARM-driven INT3 Local1 bit 7; the 8042 uses mappable bit 4.</li>
+</ul>
+<p>Before 2026-10-16 none of this existed: every non-MC/HPC3/IOC2 address in <code>0x1f000000–0x1fffffff</code> fell through to
+DRAM, so a probe read whatever was in the shadow, and nothing raised a bus error.</p>
+<h2 id="address-map-slot-decoding">Address map / slot decoding<a class="headerlink" href="#address-map-slot-decoding" title="Permanent link">&para;</a></h2>
+<p>Slot N base = <code>0x1f000000 + N*0x400000</code>; <code>board_addr[25:22]</code> selects the slot, <code>[21:0]</code> is the 4 MB offset.
+Graphics is always slot 0 (<code>0x1f000000</code>). IP22 physically wires only the first few slots; the rest bus-error.</p>
+<table>
+<thead>
+<tr>
+<th>Slot</th>
+<th>Base (abs)</th>
+<th>Size</th>
+<th>IP22 use</th>
+<th>MAME aperture (offset from 0x1f000000)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>0x1f000000</td>
+<td>4 MB</td>
+<td>graphics (GFX)</td>
+<td>0x000000–0x3fffff</td>
+</tr>
+<tr>
+<td>1</td>
+<td>0x1f400000</td>
+<td>2 MB*</td>
+<td>expansion slot 0</td>
+<td>0x400000–0x5fffff (EXP0, 2 MB)</td>
+</tr>
+<tr>
+<td>1.5</td>
+<td>0x1f600000</td>
+<td>4 MB</td>
+<td>expansion slot 1</td>
+<td>0x600000–0x9fffff (EXP1)</td>
+</tr>
+<tr>
+<td>2–15</td>
+<td>+N*0x400000</td>
+<td>4 MB</td>
+<td>unwired → bus-error</td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<p>⚠️ <strong>Slot-size correction (vs my earlier MAME 2 MB note):</strong> GIO64 slots are natively <strong>4 MB</strong>. The "2 MB"
+expansion aperture at 0x1f400000 is the older <strong>GIO32-legacy</strong> option-slot map (0x1f400000 / 0x1f600000 = 2 MB
+each); MAME models exactly these three IP22 apertures (GFX 4 MB, EXP0 2 MB, EXP1 4 MB). Both maps are valid for
+their bus generation. For Henry the distinction is moot — every aperture bus-errors regardless of size.</p>
+<p>⚠️ Note: <code>0x1f800000–0x1f9fffff</code> is reserved by SGI for future definition (GIO32 spec §2.11.1); also bus-errors.</p>
+<h2 id="device-probe-identification">Device probe &amp; identification<a class="headerlink" href="#device-probe-identification" title="Permanent link">&para;</a></h2>
+<p>The probe is <strong>read-based, NOT a VME-style address probe.</strong> During boot config IRIX does a single <strong>word read</strong>
+of the slot's <strong>base address</strong> (the read must be word-width for endian independence). A real device responds in
+the slave cycle following the base-address read by driving its <strong>Product Identification Word</strong> onto AD[31:0].</p>
+<p>Product Identification Word (read @ slot base; on GIO64 it aliases base+0 AND base+4 — both must return it):</p>
+<table>
+<thead>
+<tr>
+<th>Bits</th>
+<th>Field</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>[7:0]</td>
+<td>Product ID Code</td>
+<td>unique SGI-assigned ID. <strong>Bit [7]=1 ⇒ all 32 bits valid; [7]=0 ⇒ only [7:0] valid</strong></td>
+</tr>
+<tr>
+<td>[15:8]</td>
+<td>Product Revision</td>
+<td>manufacturer-assigned rev</td>
+</tr>
+<tr>
+<td>[16]</td>
+<td>GIO interface size</td>
+<td>0 = 32-bit, 1 = 64-bit (must be 0 for GIO32/GIO32-bis; may be 0/1 for GIO64)</td>
+</tr>
+<tr>
+<td>[17]</td>
+<td>ROM present</td>
+<td>0 = none; 1 = next words are special ROM/serial registers</td>
+</tr>
+<tr>
+<td>[31:18]</td>
+<td>Manufacturer code</td>
+<td>manufacturer-assigned</td>
+</tr>
+</tbody>
+</table>
+<p>ROM/serial special registers (GIO64, present only when bit[17]=1; aliased on both word addresses of each dword):
+- base+0x00 / +0x04 — Product Identification Word
+- base+0x08 / +0x0c — Board Serial Number (optional)
+- base+0x10 / +0x14 — ROM Index register (CPU writes 0 to start; auto-increments by 4 on each ROM-Read read)
+- base+0x18 / +0x1c — ROM Read register (returns ROM word at current Index; reading bumps Index by 4)</p>
+<p>(GIO32 placed these at base+0x4/+0x8/+0xc instead; Henry implements none of them.)</p>
+<p><strong>Empty-slot behavior = the probe's "no" answer:</strong> if no slave responds, the bus times out after <strong>25 µs</strong>
+(SLVDLY/MEMDLY/GRXDLY never asserted in reply to the address strobe), the GIO64 arbiter drives the delay line to
+end the cycle, and a <strong>bus-error interrupt</strong> is raised to the CPU. IRIX uses exactly this to decide "no device in
+this slot." ⇒ <strong>Henry headless: bus-error every GIO access immediately</strong> (no need to model the 25 µs timer —
+returning a bus-error synchronously is equivalent from IRIX's standpoint) = "all slots empty." ✅</p>
+<h2 id="interrupts">Interrupts<a class="headerlink" href="#interrupts" title="Permanent link">&para;</a></h2>
+<p>Each slot has <strong>3 interrupt/status lines</strong> <code>INTERRUPT(n)[2:0]</code> (active-low) plus one <strong>STATUS(n)</strong> line (CPU can
+read STATUS but it cannot raise an interrupt). Reservation:</p>
+<table>
+<thead>
+<tr>
+<th>Line</th>
+<th>Reserved for</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>INT2</td>
+<td>graphics boards only (high priority)</td>
+</tr>
+<tr>
+<td>INT0</td>
+<td>graphics boards only</td>
+</tr>
+<tr>
+<td>INT1</td>
+<td><strong>option/expansion slot devices</strong></td>
+</tr>
+</tbody>
+</table>
+<p>Lines are shared across devices, so drivers must tolerate spurious calls. On IP22 these route through <strong>IOC2</strong>,
+are OR'd onto the <strong>GIO/INT3</strong> aggregate, and surface in CP0 <code>Cause.IP</code> (exact bit mapping lives in the IOC2
+spec). Henry has no real GIO interrupt lines: the ARM's Newport model drives INT3 Local1 bits (bit 7 =
+vertical retrace) through <code>gio_irq[7:0]</code>, and these are tied to 0 in a <code>DISABLE_NEWPORT</code> build.</p>
+<h2 id="dma-endianness">DMA &amp; endianness<a class="headerlink" href="#dma-endianness" title="Permanent link">&para;</a></h2>
+<p>A GIO master moves data <strong>physical, page-bounded</strong> (a transfer may not cross a 4 KB page) to/from main memory.
+The byte-count cycle carries device-ID (for MP cache coherence), endian-mode bit, count direction, and CPU
+sub-block ordering. On IP22 the MC's <strong>VDMA</strong> graphics engine and HPC3 are the real GIO64 masters running this.</p>
+<p>Endianness: GIO64 carries a 32-bit byte address; one byte-count-cycle bit selects big/little endian. <strong>Big-endian
+(IRIX default): byte 0 → AD[31:24]</strong> (and for 64-bit, byte 0 → AD[63:56]). Bit numbering is always little-endian
+(bit 0 = LSB). Henry has no GIO64 bus: the only "GIO master" is the MC VDMA channel, which writes 8-byte lane
+records (lane i = the byte at GIO address + i) into the <code>gio_window</code> ring for the ARM (<a href="../vdma/">VDMA</a>).</p>
+<h2 id="arbitration">Arbitration<a class="headerlink" href="#arbitration" title="Permanent link">&para;</a></h2>
+<p>GIO64 defines three bus-request classes (§4.5):
+- <strong>Real-time</strong> (e.g. audio): highest priority, ≤5 µs per acquisition, requests no more than every 20 µs.
+- <strong>Short-burst</strong> (e.g. EISA bridge): preempts long-burst; holds bus ≤1 µs; serviced ~every 4 µs.
+- <strong>Long-burst</strong> (graphics DMA, <strong>and the CPU</strong>): preemptable, low priority, can hold the bus for long stretches.</p>
+<p>The <strong>CPU is a long-burst device and the default bus master</strong> — when no other device requests the bus, control
+falls to the CPU. Arbitration timing is programmed via the MC <strong><code>GIO64_ARB</code></strong> register (the PROM writes the
+class/timing knobs at init). On Henry there are <strong>no other masters</strong>, so arbitration never actually runs; Henry
+only needs <code>GIO64_ARB</code> to behave as <strong>R/W storage</strong> (PROM writes, reads back the same value). ✅ (henry: the
+write is stored but a read returns 0. Nothing in the boot path has needed the read-back.)</p>
+<h2 id="minimum-for-a-henry-irix-boot-original-headless-plan">Minimum for a Henry IRIX boot (original headless plan)<a class="headerlink" href="#minimum-for-a-henry-irix-boot-original-headless-plan" title="Permanent link">&para;</a></h2>
+<ol>
+<li><strong>Decode</strong> the range <code>0x1f000000–0x1fffffff</code> (all 16 slots + reserved holes). → verify: address hits Henry's GIO block.</li>
+<li><strong>Bus-error every access</strong> to it (populated graphics slot included → "all slots empty"). → verify: IRIX probe finds no GIO device in any slot and skips graphics/expansion. ✅</li>
+<li><strong>MC <code>GIO64_ARB</code></strong> = plain R/W register (no side effects; no masters → arbiter idle). → verify: PROM write then read returns the written value.</li>
+<li>GIO interrupt input to IOC2 stays <strong>deasserted</strong> (no devices). → verify: no spurious GIO IRQ during boot.</li>
+</ol>
+<p>Everything else — bus protocol/handshake, DMA master sequence, parity, ROM read path, real INT routing — is
+deferred until a real GIO device is added (see Open).</p>
+<h2 id="golden-vectors">Golden vectors<a class="headerlink" href="#golden-vectors" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Access</th>
+<th>Planned response</th>
+<th>henry today (FPGA, <code>ABORT_EN</code> set)</th>
+<th>Why (plan)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>word read @ 0x1f000000 (gfx slot base)</td>
+<td><strong>bus-error</strong> (DBE)</td>
+<td><strong>bus-error</strong> (DBE); the REX3 window at <code>+0xf0000</code> answers</td>
+<td>empty-slot probe → "no graphics"</td>
+</tr>
+<tr>
+<td>2</td>
+<td>word read @ 0x1f400000 (exp0 base)</td>
+<td><strong>bus-error</strong></td>
+<td><strong>bus-error</strong> (DBE)</td>
+<td>"no expansion 0"</td>
+</tr>
+<tr>
+<td>3</td>
+<td>word read @ 0x1f600000 (exp1 base)</td>
+<td><strong>bus-error</strong></td>
+<td><strong>bus-error</strong> (DBE)</td>
+<td>"no expansion 1"</td>
+</tr>
+<tr>
+<td>4</td>
+<td>word read @ 0x1fc00000</td>
+<td><strong>bus-error</strong></td>
+<td>the PROM/ARCS image in the shadow (<code>0x10c00000</code>)</td>
+<td>⚠️ <code>0x1fc00000</code> is the <strong>boot PROM</strong>, not an unwired GIO slot; it never bus-errors on any IP22</td>
+</tr>
+<tr>
+<td>5</td>
+<td>any write into an empty GIO aperture</td>
+<td><strong>bus-error</strong></td>
+<td>absorbed; MC bus-error interrupt</td>
+<td>no slave to accept</td>
+</tr>
+<tr>
+<td>6</td>
+<td>MC <code>GIO64_ARB</code> write V then read</td>
+<td>returns <strong>V</strong></td>
+<td>returns <strong>0</strong></td>
+<td>R/W storage, no side effect</td>
+</tr>
+</tbody>
+</table>
+<h2 id="open-not-yet-needed">Open / not-yet-needed<a class="headerlink" href="#open-not-yet-needed" title="Permanent link">&para;</a></h2>
+<p>Implement only when adding a real GIO device:
+- <strong>Product Identification Word</strong> responder (drive the ID word on the base-address read; set bit[7] valid, bit[16] size, bit[17] ROM).
+- <strong>ROM / serial registers</strong> (Index + Read auto-increment path at base+0x10/+0x18, dword-aliased).
+- <strong>INT line routing</strong> (graphics INT2/INT0, option INT1 → IOC2 → INT3 → CP0).
+- <strong>DMA master sequence</strong> (physical page-bounded transfers, byte-count cycle fields, big-endian byte0→AD[31:24]).
+- Full <strong>bus protocol</strong> (AD address/byte-count/data cycles, MASDLY/SLVDLY/GRXDLY/MEMDLY flow control, tristate
+  turnover dead cycles, pipelined-vs-nonpipelined timing, parity ADP/VLD_PARITY) and <strong>real arbitration</strong> with
+  BREQ/BGNT/BPRE.</p>
+<h2 id="sources">Sources<a class="headerlink" href="#sources" title="Permanent link">&para;</a></h2>
+<ul>
+<li>SGI <strong>GIO Bus Specification</strong> v1.1 (gio64.pdf): §2.7 bus time-outs (25 µs), §2.9–2.10 interrupts + Product ID
+  Word, §2.11.1 option-slot address ranges, §4.2 byte addressing, §4.4.4 GIO64 time-outs, §4.5 arbitration
+  (three request classes), §4.8 GIO64 interrupts, §4.12 device ID / serial / ROM registers.</li>
+<li><code>r9999/IP22_CHIP_REGISTERS.md</code> — GIO64 section (16×4 MB slots, read-based probe + bus-error-on-empty, the
+  4 MB-vs-GIO32-legacy-2 MB correction, headless "bus-error everything" simplification, MC <code>GIO64_ARB</code>).</li>
+<li><strong>MAME</strong> golden reference: <code>src/devices/bus/gio64/gio64.{cpp,h}</code> (GFX/EXP0/EXP1 apertures 0x000000/0x400000/
+  0x600000), <code>src/mame/sgi/indy_indigo2.cpp</code> (0x1f000000–0x1f9fffff GIO64 map), <code>src/mame/sgi/ip20.cpp</code> (slot
+  aperture comments).</li>
+</ul>
+
+
+
+
+
+
+
+  
+  
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.sections", "navigation.top", "navigation.indexes", "navigation.tracking", "toc.follow", "content.code.copy"], "search": "../../assets/javascripts/workers/search.a7633da7.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.c21346df.min.js"></script>
+      
+    
+  </body>
+</html>

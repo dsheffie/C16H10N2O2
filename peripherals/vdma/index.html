@@ -1,0 +1,1914 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A from-scratch SoC that impersonates the SGI Indy (IP22) well enough to boot IRIX, built around the r9999 MIPS core.">
+      
+      
+      
+      
+        <link rel="prev" href="../gio64/">
+      
+      
+        <link rel="next" href="../dmux1/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.0">
+    
+    
+      
+        <title>VDMA — Virtual DMA (graphics/GIO master) - Henry — the wannabe IP22 SoC</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.57a0d79d.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.fb2fffe2.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="amber">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#vdma-virtual-dma-henry-block-spec" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Henry — the wannabe IP22 SoC" class="md-header__button md-logo" aria-label="Henry — the wannabe IP22 SoC" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M6 4h12v1h3v2h-3v2h3v2h-3v2h3v2h-3v2h3v2h-3v1H6v-1H3v-2h3v-2H3v-2h3v-2H3V9h3V7H3V5h3zm5 11v3h1v-3zm2 0v3h1v-3zm2 0v3h1v-3z"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Henry — the wannabe IP22 SoC
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              VDMA — Virtual DMA (graphics/GIO master)
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="amber"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="amber"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Henry — the wannabe IP22 SoC" class="md-nav__button md-logo" aria-label="Henry — the wannabe IP22 SoC" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M6 4h12v1h3v2h-3v2h3v2h-3v2h3v2h-3v2h3v2h-3v1H6v-1H3v-2h3v-2H3v-2h3v-2H3V9h3V7H3V5h3zm5 11v3h1v-3zm2 0v3h1v-3zm2 0v3h1v-3z"/></svg>
+
+    </a>
+    Henry — the wannabe IP22 SoC
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../minimum-mmio-to-banner/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Minimum MMIO to boot banner
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (functional-sim validated, MAME-corroborated; Henry-RTL notes re-checked 2026-10-27 against henry eea6ecb)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cpu-integration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CPU integration (r9999)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../r9999-microarchitecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    r9999 microarchitecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../r9999-lineage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    r9999 lineage (MIPS -> RISC-V -> MIPS)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../firmware-arcs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Firmware (ARCS shim)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated; Henry FSBL section checked 2026-10-27 against r9999/arcs/henry_arcs.S + henry_fw.c @ 788c412)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../boot-and-console/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Boot & console
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated; Henry FSBL/console re-checked 2026-10-27 against henry eea6ecb / r9999 788c412)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../coherence-cache-tlb/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cache, coherence & TLB
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated; silicon-refined 2026-07; RTL state re-checked 2026-10-27 against henry eea6ecb / r9999 788c412)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../arm-device-protocol/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ARM ↔ device protocol (staging rings)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../bus-errors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Bus errors
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../fpu-cop1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FPU (COP1)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--implemented (MAME-validated workload)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_13" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_13" id="__nav_13_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Peripherals
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_13_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_13">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Peripherals
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mc/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MC (memory controller)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated; henry RTL status audited 2026-10-27 against main eea6ecb)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ioc2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    IOC2 (serial console)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated; henry RTL status audited 2026-10-27 against main @eea6ecb)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../scc/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SCC (Z85C30 console)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (silicon-validated; audited 2026-10-27 against henry main @eea6ecb)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hpc3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    HPC3 (SCSI/enet/DMA, RTC)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME + live-IRIX-trace validated; henry RTL status audited 2026-10-27 against main eea6ecb)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../scsi_disk_theory_of_operation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SCSI disk theory of operation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gio64/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GIO64 (bus)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated; henry RTL status audited 2026-10-27 against henry main eea6ecb)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VDMA (virtual DMA)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--implemented for memory -> GIO (dma_engine CH_V), 2026-10-18"></span>
+  
+
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VDMA (virtual DMA)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--implemented for memory -> GIO (dma_engine CH_V), 2026-10-18"></span>
+  
+
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#role-in-henry-implemented-for-memory-gio-graphics-only" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Role in Henry (implemented for memory → GIO; graphics-only)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#address-translation-the-ptebase-tlb-hardware-page-table-walker" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Address translation — the PTEBase µTLB + hardware page-table walker
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cache-coherence-non-coherent-on-uniprocessor-snoop-r4000mp-only" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cache coherence (non-coherent on uniprocessor; snoop = R4000MP-only)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#descriptor-register-set-a-register-set-not-an-in-memory-linked-list" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Descriptor register set (a register set, not an in-memory linked list)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#software-model-system-call-dma-on-uniprocessor-kick-off-restartable-on-fault" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Software model (system-call DMA on uniprocessor; kick-off; restartable on fault)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#henry-implementation-notes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Henry implementation notes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sources" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sources
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dmux1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DMUX (data mux)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (henry status audited 2026-10-27 against main @eea6ecb)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_14" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../graphics/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Graphics
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--implemented (ARM-served model), 2026-10-18"></span>
+  
+
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_14" id="__nav_14_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_14_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_14">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Graphics
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../newport-on-henry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Newport on henry (working, screenshots)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../graphics/rex3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    REX3 (raster engine)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--reference; implemented as an ARM-served software model (2026-10-18)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../graphics/vc2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VC2 (video timing/cursor)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--reference; implemented as part of the ARM-side Newport model (2026-10-18)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../graphics/xmap9/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    XMAP9 (colormap)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--reference; implemented in the ARM-side Newport model (2026-10-18)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../graphics/rb2-ro1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RB2 & RO1 (framebuffer/output)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--reference; RB2 semantics implemented in the ARM-side Newport model (2026-10-18)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../graphics/express-xz/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Express / XZ (hardware geometry)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--reference only (not implemented)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../graphics/irix-software/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How IRIX drives Newport (Xsgi, ng1, GL)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--reference (static reverse engineering of IRIX 6.5.22) + what henry observed on silicon (section 7)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../irix-boot-flow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    IRIX boot flow (annotated)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../methodology/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Methodology (MAME oracle)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--stable"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../fpga_stats/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FPGA build stats
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#role-in-henry-implemented-for-memory-gio-graphics-only" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Role in Henry (implemented for memory → GIO; graphics-only)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#address-translation-the-ptebase-tlb-hardware-page-table-walker" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Address translation — the PTEBase µTLB + hardware page-table walker
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cache-coherence-non-coherent-on-uniprocessor-snoop-r4000mp-only" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cache coherence (non-coherent on uniprocessor; snoop = R4000MP-only)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#descriptor-register-set-a-register-set-not-an-in-memory-linked-list" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Descriptor register set (a register set, not an in-memory linked list)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#software-model-system-call-dma-on-uniprocessor-kick-off-restartable-on-fault" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Software model (system-call DMA on uniprocessor; kick-off; restartable on fault)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#henry-implementation-notes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Henry implementation notes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sources" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sources
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="vdma-virtual-dma-henry-block-spec">VDMA — Virtual DMA (Henry block spec)<a class="headerlink" href="#vdma-virtual-dma-henry-block-spec" title="Permanent link">&para;</a></h1>
+<blockquote>
+<p>Intro: VDMA = the MC's GIO/graphics DMA master that DMAs directly from USER VIRTUAL addresses, walking the
+CPU's page tables via its OWN 4-entry PTEBase µTLB (separate from the 48-entry JTLB but R4000-PTE-compatible).
+NOT needed for headless boot; NOT the SCSI/enet path (that's HPC3). On henry it IS needed for the Newport desktop:
+IRIX's X server sends every image (wallpaper, icons, application blits) memory -&gt; GIO through it.
+Legend ✅ = confirmed against spec/MAME, ⚠️ = subtle / easy-to-miss.</p>
+</blockquote>
+<p>The "FastForward" project DMA engine that lives <strong>inside the MC</strong> (Memory Controller). Its job: move
+variable-sized blocks between <strong>user-space main memory</strong> and the <strong>graphics/GIO subsystem</strong>, with the block
+described by <em>user virtual addresses</em> that the engine translates on the fly. Optimised for the graphics
+library <code>v3f()</code> call (ship a 3-float / 12-byte vertex to the pipe). Authored by Karim Abdalla &amp; James Tornes,
+Draft 1.5 (1992).</p>
+<h2 id="role-in-henry-implemented-for-memory-gio-graphics-only">Role in Henry  (implemented for memory → GIO; graphics-only)<a class="headerlink" href="#role-in-henry-implemented-for-memory-gio-graphics-only" title="Permanent link">&para;</a></h2>
+<ul>
+<li>✅ <strong>Implemented (2026-10-17) for what IRIX uses: mode <code>0x50</code>, memory → GIO, upward.</strong> IRIX makes no
+  VDMA transfers before the xdm login; after login, Xsgi uses it for every image put (wallpaper tiles, icons,
+  Doom's frames). Measured with the usage counters at AXI-Lite <code>0x22</code>/<code>0x23</code>.</li>
+<li><strong>Engine.</strong> Channel <code>CH_V</code> (3) of <code>rtl/dma_engine.sv</code>, the DMA engine shared with SCSI and ENET. It runs the
+    linecount/zoomcount/bytecount loop with <code>stride</code>/<code>DMA_COUNT</code> semantics copied from indysim's <code>dma_perform</code>.
+    Each 8-byte group becomes a <code>VDMA STORE</code> record in the Newport <code>gio_window</code> ring, bracketed by BEGIN/END
+    markers (<a href="../../newport-on-henry/#mc-vdma-memory-gio">Newport on henry</a>). Since eea6ecb the pixel loads fetch
+    whole 64 B lines (AXI lane 1 burst) into a one-line buffer; PTE loads stay 16 B.</li>
+<li><strong>Registers</strong> (<code>rtl/mc.sv</code>): the DMA TLB <code>0x180–0x1bc</code>, <code>DMA_CTL</code>/<code>DMA_CAUSE</code>/<code>DMA_COUNT</code>, the descriptor
+    registers, and the final <code>MEMADR</code> written back at completion. <code>DMA_CTL</code> bit 4 enables the completion
+    interrupt on INT3 <code>local0</code> bit 4.</li>
+<li><strong>Fill to memory</strong> (mode <code>FILL|TO_HOST</code>, physical addresses, zoom 1, upward) runs on a separate fill
+    engine in <code>rtl/mc.sv</code>; the SGI PROM uses it for its power-on memory clear. Its writes are not snooped.</li>
+<li><strong>Not modeled:</strong> GIO → memory and any other mode complete at once without moving data. Writes to the
+    <code>0x2070</code> start alias are only counted (AXI-Lite <code>0x22</code>/<code>0x23</code>), not acted on. The µTLB/PTE fault causes
+    are not raised; an address no µTLB entry maps is used as physical.</li>
+<li><strong>Validation:</strong> <code>sim/vdma_test</code> (RTL against indysim's <code>dma_perform</code>, 3000 random transfers × 6 seeds) and
+    <code>tests/vdma</code> under <code>henry_tb</code> (39/39 doublewords, IRQ/CAUSE/MEMADR).</li>
+<li>⚠️ <strong>The PTE-page field is <code>TLB_LO[25:6]</code>, like a PTE's PFN.</strong> MAME masks the entry with <code>0x003fffc0</code>, dropping
+  <code>lo[25:22]</code>. That works only while the page tables sit below PA <code>0x10000000</code>. IRIX's sit higher (seen:
+  <code>lo = 0x005bf642</code> → PTE page <code>0x16fd9000</code>; MAME read <code>0x06fd9000</code>, all zeros, so every page went to PA 0 and
+  the wallpaper was garbage). Henry and indysim use <code>[25:6]</code>.</li>
+<li>✅ <strong>Distinct from HPC3.</strong> VDMA is the <strong>graphics/GIO</strong> master and the only DMA path that touches <em>virtual</em>
+  addresses + page tables. The real SCSI / Ethernet / PBUS DMA (the boot-critical I/O) is <strong>HPC3</strong>, which is
+  pure-physical scatter-gather — see <code>hpc3</code>. Don't conflate them.</li>
+<li>⚠️ <strong>Henry is uniprocessor R4000.</strong> Cache snooping in VDMA is an <strong>R4000MP-only</strong> feature (the large package).
+  Henry's DMA engine does its memory reads through its own coherent snoop shim instead, so VDMA needs no
+  cache flush from IRIX or the ARM.</li>
+</ul>
+<h2 id="address-translation-the-ptebase-tlb-hardware-page-table-walker">Address translation — the PTEBase µTLB + hardware page-table walker<a class="headerlink" href="#address-translation-the-ptebase-tlb-hardware-page-table-walker" title="Permanent link">&para;</a></h2>
+<p>The novel feature: the engine translates user virtual addresses <em>itself</em>, page-by-page, so the OS no longer has
+to pre-translate + lock-down a long physical descriptor list per transfer. Flow:</p>
+<pre class="mermaid"><code>flowchart TD
+    VA([User virtual address]) --&gt;|split| F["VPNhi · VPNlo · page-offset"]
+    F --&gt;|VPNhi| UTLB{{"4-entry PTEBase µTLB (CAM)"}}
+    UTLB --&gt;|"hit → PTEBase[25:6] + V"| PB[PTEBase = phys base of page table]
+    PB --&gt;|"index by VPNlo&lt;br/&gt;(one DRAM read)"| PTE[Read PTE from DRAM]
+    PTE --&gt;|"decode → PFN (+ valid/dirty)"| PFN[PFN]
+    PFN --&gt;|"PFN &amp;#124; page-offset"| PA[Physical address]
+    PA --&gt; DMA([DMA the data])
+
+    UTLB -.-&gt;|miss / invalid| FB[["PTEBase fault → CPU supplies a PTEBase"]]
+    PTE -.-&gt;|"PTE invalid (GIO_CAUSE[1])"| TM[["TLB-miss interrupt"]]
+    PTE -.-&gt;|"page not resident (GIO_CAUSE[0])"| PFa[["Page-Fault interrupt"]]
+
+    classDef fault fill:#fbe9e7,stroke:#d84315,color:#bf360c;
+    class FB,TM,PFa fault;</code></pre>
+<ul>
+<li><strong>The µTLB</strong> (<code>GIO_TLBHI[n]</code> / <code>GIO_TLBLO[n]</code>, n = 0..3). Each PTEBase maps one ~2 MB-aligned slice of user
+  VA (a single user page table). 4 entries -&gt; 4 such slices resident without a miss. ⚠️ The µTLB is
+  <strong>software-loaded and software-maintained</strong>: the DMA engine <em>reads</em> it but never modifies it; the CPU sets the
+  hardware-valid <code>V</code> bit when writing an entry and must <em>clear</em> it when the mapping goes stale (context switch,
+  unmap). It is <strong>separate from the CPU's 48-entry JTLB</strong> but walks the <em>same</em> R4000 page tables in DRAM.</li>
+<li><code>GIO_TLBHI[n]</code>: <code>VPNhi[31:21]</code> (CAM tag), rest zero. Which VA bits form VPNhi depends on page size (GIO_CTL).</li>
+<li><code>GIO_TLBLO[n]</code>: <code>PTEBase[25:6]</code>, <code>V[1]</code> (hw-valid). ⚠️ Remaining bits read as zero.</li>
+<li>✅ <strong>PTE format is R4000-compatible.</strong> "The format of GIO_TLBLO is chosen for maximum compatibility with the
+  R4000 (MIPS II &amp; III) EntryLo format." That's the key Henry reuse hook — the walker can share the core's
+  existing EntryLo/PTE decode rather than inventing a second one.</li>
+<li><strong>Geometry from <code>GIO_CTL</code></strong> (set once at boot): <code>Page Size</code> (CTL[1]) 0=4 KB / 1=16 KB; <code>PT Size</code> (CTL[0])
+  0=4 B/PTE / 1=8 B/PTE (so VPNlo indexes the right stride); <code>Cache Size</code> (CTL[3:2]) = L line size 16·2^x.</li>
+<li><strong><code>GIO_CTL.Xlate</code> (CTL[8])</strong> gates the whole thing. Set (the normal user-mode case) -&gt; <code>GIO_MEMADR</code> is a
+  <strong>virtual</strong> address and goes through the µTLB+walker. Clear -&gt; <code>GIO_MEMADR</code> is taken as a <strong>physical</strong> address
+  directly (kernel-only debug / OS-initiated DMA to a known physical block). The top bit of GIO_MEMADR is
+  ignored in the virtual case.</li>
+<li><strong>Four fault causes</strong> (reported in <code>GIO_CAUSE</code>, also mirrored read-only in <code>GIO_RUN[3:0]</code>):</li>
+<li><strong>PTEBase miss</strong> — VPNhi not in the µTLB. Engine interrupts the CPU (or, optionally, the CPU re-loads the
+     µTLB) and the transfer is restarted.</li>
+<li><strong>TLB miss</strong> (<code>CAUSE[1]</code>) — the PTE itself is missing/invalid at the end of the lookup.</li>
+<li><strong>Page Fault</strong> (<code>CAUSE[0]</code>) — the user data page is not resident.</li>
+<li><strong>Clean</strong> (<code>CAUSE[2]</code>) — a DMA <em>write</em> (GIO-&gt;memory) hit a page marked clean (so the OS can do
+     dirty-bit/COW bookkeeping before the write lands).
+  All four are <strong>restartable</strong>: the descriptor registers hold enough state to resume; the CPU services the fault
+  then re-asserts <code>GIO_STDMA.Start</code> to continue.</li>
+</ul>
+<h2 id="cache-coherence-non-coherent-on-uniprocessor-snoop-r4000mp-only">Cache coherence  (non-coherent on uniprocessor; snoop = R4000MP-only)<a class="headerlink" href="#cache-coherence-non-coherent-on-uniprocessor-snoop-r4000mp-only" title="Permanent link">&para;</a></h2>
+<p>⚠️ <strong>This is the load-bearing part of the spec.</strong> The spec lays out two
+coherence options and explicitly scopes one of them out for the uniprocessor:
+- <strong>Snoop</strong> (the engine watches the CPU's cache) — <code>GIO_MODE.Snoop</code> (MODE[5]) requests it, but it exists
+  <strong>only on R4000MP</strong>. Henry / r9999 is uniprocessor R4000: there is <strong>no snoop hardware</strong>.
+- <strong>Flush</strong> (software keeps memory and cache consistent) — the only option on a uniprocessor. The R4000 cache
+  ops are <strong>privileged</strong>, so the DMA is set up/managed inside a <strong>system call</strong>.
+- ✅ Therefore the writeback-vs-invalidate split is <strong>architecturally mandated, not an IRIX quirk</strong> (vdma.pdf
+  p.1–2, 7):
+  - <strong>DMA-in</strong> (device -&gt; memory, GIO-&gt;memory write): after the transfer, <strong><code>cache Hit-Invalidate-D</code></strong> the target
+    lines (no writeback — the DMA'd data is the truth; writing back stale cache lines would clobber it).
+  - <strong>DMA-out</strong> (memory -&gt; device, memory-&gt;GIO read): before the transfer, <strong><code>cache Hit-WB-Invalidate-D</code></strong> so
+    dirty lines are flushed to DRAM and the engine reads current data.
+- This is the <em>same</em> coherence story as HPC3 (which has zero coherence hardware) — see the cache/coherence notes
+  in <code>hpc3</code> and the chip-registers digest.
+- ⚠️ <strong>Henry caveat.</strong> On henry, guest L1 cache ops alone are <strong>not</strong> sufficient: r9999 has an L2 that IRIX
+  cannot see (<code>Config.SC</code> = no secondary cache), so IRIX never maintains it. Henry's VDMA channel avoids the
+  problem by reading memory through the DMA engine's coherent snoop shim.</p>
+<h2 id="descriptor-register-set-a-register-set-not-an-in-memory-linked-list">Descriptor register set  (a register set, not an in-memory linked list)<a class="headerlink" href="#descriptor-register-set-a-register-set-not-an-in-memory-linked-list" title="Permanent link">&para;</a></h2>
+<p>⚠️ Unlike HPC3's in-memory descriptor chain, a VDMA "descriptor" <em>is</em> the set of MC registers below. Once a DMA
+starts they implicitly hold the running state, so the whole transfer is <strong>context-switchable</strong> (read them out /
+write them back to save/restore). It is a <strong>2D strided/zoom blitter</strong> over <em>virtual</em> memory.</p>
+<table>
+<thead>
+<tr>
+<th>Register</th>
+<th>Fields</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GIO_MEMADR</code> (RW)</td>
+<td>Memory Address[31:0]</td>
+<td>next mem addr (virtual unless Xlate=0); written plain = "don't set defaults"</td>
+</tr>
+<tr>
+<td><code>GIO_MEMADRD</code> (RW)</td>
+<td>Memory Address[31:0]</td>
+<td>write <strong>also loads the default descriptor</strong> (Table 2) + clears Byte/Zoom counts — the "kick a simple DMA in few writes" path</td>
+</tr>
+<tr>
+<td><code>GIO_SIZE</code> (RW)</td>
+<td>Line Count[31:16], Line Width[15:0]</td>
+<td>#scan lines remaining; bytes per scan line</td>
+</tr>
+<tr>
+<td><code>GIO_STRIDE</code> (RW)</td>
+<td>Line Zoom[25:16], Stride[15:0]</td>
+<td>Stride is <strong>signed</strong> (negative = x-axis reflect); Line Zoom = vertical zoom replication</td>
+</tr>
+<tr>
+<td><code>GIO_ADR</code> (RW)</td>
+<td>GIO Address[31:0]</td>
+<td>phys addr of the GIO device; write does <strong>not</strong> start DMA</td>
+</tr>
+<tr>
+<td><code>GIO_ADRS</code> (RW)</td>
+<td>GIO Address[31:0]</td>
+<td>write-only alias of GIO_ADR that <strong>starts the DMA</strong></td>
+</tr>
+<tr>
+<td><code>GIO_MODE</code> (RW)</td>
+<td>Long[6] Snoop[5] Dir[4] Fill[3] Sync[2] Mode[1:0]</td>
+<td>see below</td>
+</tr>
+<tr>
+<td><code>GIO_COUNT</code> (RW)</td>
+<td>Zoom Count[25:16], Byte Count[15:0]</td>
+<td>down-counters, context-switch state only</td>
+</tr>
+</tbody>
+</table>
+<p><code>GIO_MODE</code> fields: <strong>Mode[1:0]</strong> 00 = DMA read (mem-&gt;GIO), 10 = DMA write (GIO-&gt;mem), X1 = accumulation
+(unimplemented). <strong>Long[6]</strong> = use the GIO bus time-slice (long burst) vs the CPU slice. <strong>Snoop[5]</strong> = R4000MP
+snoop (n/a on Henry). <strong>Dir[4]</strong> = scan-line address increment (1) / decrement (0). <strong>Fill[3]</strong> = on a memory
+write, use <code>GIO_ADR</code> itself as the source <em>data</em> (constant fill, GIO device not involved). <strong>Sync[2]</strong> = delay
+start until the external <code>DMASYNC</code> pin (vertical-retrace, anti-flicker). The transfer loop is the nested
+linecount→zoomcount→bytecount walk with <code>stride</code>/<code>linewidth</code> address arithmetic (vdma.pdf p.15).</p>
+<p><strong>Kernel-only control registers</strong> (<code>GIO_CTL</code> page, protected for security):
+- <code>GIO_MASK</code> / <code>GIO_SUBST</code> — per-bit clamp on the user-supplied GIO physical address: where MASK[i]=1 the engine
+  substitutes SUBST[i] for the user's bit, so user-mode can only reach the GIO range the OS allows.
+- <code>GIO_CAUSE</code> — interrupt cause: Complete[3], Clean[2], TLB miss[1], Page Fault[0]; CPU clears by writing zeros.
+- <code>GIO_CTL</code> — TLimit[29:20] (max GIO-bus cycles held before re-arbitration), SLimit[16:12] (R4000SC snoop lines),
+  DecSlv[9], <strong>Xlate[8]</strong>, IntMask[4] (masks only Complete), Cache Size[3:2], Page Size[1], PT Size[0].</p>
+<p><strong>Run/start (unprotected, user-visible):</strong>
+- <code>GIO_STDMA.Start</code> (bit0, RW) — CPU sets to begin / <strong>restart-after-fault</strong>; clears to stop (response not
+  instantaneous — engine winds down to a save-able point).
+- <code>GIO_RUN</code> (R only) — <code>Run</code> (bit4) polled to tell if a transfer is in flight; <code>[3:0]</code> mirrors the CAUSE cause
+  bits. ⚠️ A Cause bit and Run can both read 1 transiently (fault set before the engine fully halted).</p>
+<h2 id="software-model-system-call-dma-on-uniprocessor-kick-off-restartable-on-fault">Software model  (system-call DMA on uniprocessor; kick-off; restartable on fault)<a class="headerlink" href="#software-model-system-call-dma-on-uniprocessor-kick-off-restartable-on-fault" title="Permanent link">&para;</a></h2>
+<ul>
+<li>✅ On a uniprocessor R4000 (Henry), VDMA is a <strong>system call</strong> (the cache ops are privileged, and the OS wants
+  to swap in another process rather than spin). The R4000MP user-mode-DMA path needs snoop and does not apply.</li>
+<li><strong>Kick-off (short transfer):</strong> load the default descriptor via <code>GIO_MEMADRD</code>, then <code>GIO_SIZE</code>, then the
+  <code>GIO_ADRS</code> write that starts it — a <code>v3f()</code> DMA is just <strong>2–3 register writes</strong>.</li>
+<li><strong>Synchronization:</strong> the program <strong>polls <code>GIO_RUN.Run</code></strong> (the MC stalls that read until the transfer / snoop
+  completes), or the OS takes the maskable <strong>Complete</strong> interrupt and reschedules.</li>
+<li><strong>Fault path:</strong> on any of the four faults the engine stops with full state in the descriptor registers; the
+  CPU services it (load a µTLB entry, page in, set dirty) and <strong>re-asserts <code>GIO_STDMA.Start</code></strong> to resume from
+  exactly where it stopped. Context switch = read out all descriptor regs, restore later.</li>
+</ul>
+<h2 id="henry-implementation-notes">Henry implementation notes<a class="headerlink" href="#henry-implementation-notes" title="Permanent link">&para;</a></h2>
+<p>What henry built, against the list a VDMA model needs:
+1. <strong>The blitter loop</strong> over <code>GIO_MEMADR</code>/<code>GIO_SIZE</code>/<code>GIO_STRIDE</code>/<code>GIO_MODE</code>: in <code>dma_engine</code> channel <code>CH_V</code>.
+   It sinks to the ARM-served Newport through the <code>gio_window</code> ring, not a GIO64 bus. The ring writer batches
+   four records into one 64 B burst when the slot is aligned (eea6ecb).
+2. <strong>TLB + page-table walk:</strong> 4 software-loaded entries (4 MB each) and a leaf PTE load per page, with the last
+   page cached; the PTE page comes from <code>TLB_LO[25:6]</code> (see above).
+3. <strong>Faults:</strong> not modeled. IRIX's transfers have not faulted so far.
+4. <strong>Coherence:</strong> the engine's reads go through the coherent snoop shim, which covers the IRIX-invisible L2,
+   so no cache flushes are needed.</p>
+<p>This block reinforces (does not introduce) the IP22 coherence rule: the cache-op discipline that makes HPC3
+correct is the <em>same</em> discipline VDMA's spec mandates, and the spec says so explicitly for the uniprocessor.
+henry adds the extra L2 requirement noted above.</p>
+<h2 id="sources">Sources<a class="headerlink" href="#sources" title="Permanent link">&para;</a></h2>
+<ul>
+<li><code>~/code/sgi/docs/indy_docs/ip22/vdma.pdf</code> — SGI "Virtual DMA Specification", FastForward Project, Draft 1.5,
+  Feb 13 1992 (Abdalla, Tornes). §2.1 cache coherency, §2.3 + §3.3 PTEBase µTLB / why-in-HW, §5.2 Table 1
+  descriptor registers + Table 2 default descriptor, §5.3 Tables 3–4 control registers, §5.4 Table 5 µTLB entry
+  format (EntryLo-compatible).</li>
+<li><code>~/code/r9999/IP22_CHIP_REGISTERS.md</code> — VDMA section (FUTURE WORK) + coherence findings #8/#9; cross-checked
+  against this session's MAME reverse-engineering.</li>
+<li>Related Henry docs: <code>gio64</code> (the bus VDMA masters; bus-error-on-empty headless), <code>hpc3</code> (the real SCSI/enet
+  DMA path; same zero-coherence-hardware + mandatory cache-ops contract).</li>
+</ul>
+
+
+
+
+
+
+
+  
+  
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.sections", "navigation.top", "navigation.indexes", "navigation.tracking", "toc.follow", "content.code.copy"], "search": "../../assets/javascripts/workers/search.a7633da7.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.c21346df.min.js"></script>
+      
+    
+  </body>
+</html>

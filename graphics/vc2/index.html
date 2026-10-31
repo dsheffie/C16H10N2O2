@@ -1,0 +1,1983 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A from-scratch SoC that impersonates the SGI Indy (IP22) well enough to boot IRIX, built around the r9999 MIPS core.">
+      
+      
+      
+      
+        <link rel="prev" href="../rex3/">
+      
+      
+        <link rel="next" href="../xmap9/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.0">
+    
+    
+      
+        <title>VC2 — Video timing & cursor (Newport) - Henry — the wannabe IP22 SoC</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.57a0d79d.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.fb2fffe2.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="amber">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#vc2-video-timing-cursor-controller-henrynewport-block-spec" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Henry — the wannabe IP22 SoC" class="md-header__button md-logo" aria-label="Henry — the wannabe IP22 SoC" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M6 4h12v1h3v2h-3v2h3v2h-3v2h3v2h-3v2h3v2h-3v1H6v-1H3v-2h3v-2H3v-2h3v-2H3V9h3V7H3V5h3zm5 11v3h1v-3zm2 0v3h1v-3zm2 0v3h1v-3z"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Henry — the wannabe IP22 SoC
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              VC2 — Video timing & cursor (Newport)
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="amber"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="amber"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Henry — the wannabe IP22 SoC" class="md-nav__button md-logo" aria-label="Henry — the wannabe IP22 SoC" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M6 4h12v1h3v2h-3v2h3v2h-3v2h3v2h-3v2h3v2h-3v1H6v-1H3v-2h3v-2H3v-2h3v-2H3V9h3V7H3V5h3zm5 11v3h1v-3zm2 0v3h1v-3zm2 0v3h1v-3z"/></svg>
+
+    </a>
+    Henry — the wannabe IP22 SoC
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../minimum-mmio-to-banner/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Minimum MMIO to boot banner
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (functional-sim validated, MAME-corroborated; Henry-RTL notes re-checked 2026-10-27 against henry eea6ecb)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cpu-integration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CPU integration (r9999)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../r9999-microarchitecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    r9999 microarchitecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../r9999-lineage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    r9999 lineage (MIPS -> RISC-V -> MIPS)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../firmware-arcs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Firmware (ARCS shim)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated; Henry FSBL section checked 2026-10-27 against r9999/arcs/henry_arcs.S + henry_fw.c @ 788c412)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../boot-and-console/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Boot & console
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated; Henry FSBL/console re-checked 2026-10-27 against henry eea6ecb / r9999 788c412)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../coherence-cache-tlb/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cache, coherence & TLB
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated; silicon-refined 2026-07; RTL state re-checked 2026-10-27 against henry eea6ecb / r9999 788c412)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../arm-device-protocol/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ARM ↔ device protocol (staging rings)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../bus-errors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Bus errors
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../fpu-cop1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FPU (COP1)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--implemented (MAME-validated workload)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_13" >
+        
+          
+          <label class="md-nav__link" for="__nav_13" id="__nav_13_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Peripherals
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_13_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_13">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Peripherals
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../peripherals/mc/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MC (memory controller)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated; henry RTL status audited 2026-10-27 against main eea6ecb)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../peripherals/ioc2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    IOC2 (serial console)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated; henry RTL status audited 2026-10-27 against main @eea6ecb)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../peripherals/scc/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SCC (Z85C30 console)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (silicon-validated; audited 2026-10-27 against henry main @eea6ecb)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../peripherals/hpc3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    HPC3 (SCSI/enet/DMA, RTC)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME + live-IRIX-trace validated; henry RTL status audited 2026-10-27 against main eea6ecb)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../peripherals/scsi_disk_theory_of_operation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SCSI disk theory of operation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../peripherals/gio64/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GIO64 (bus)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated; henry RTL status audited 2026-10-27 against henry main eea6ecb)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../peripherals/vdma/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VDMA (virtual DMA)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--implemented for memory -> GIO (dma_engine CH_V), 2026-10-18"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../peripherals/dmux1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DMUX (data mux)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (henry status audited 2026-10-27 against main @eea6ecb)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_14" checked>
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Graphics
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--implemented (ARM-served model), 2026-10-18"></span>
+  
+
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_14" id="__nav_14_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_14_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_14">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Graphics
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../newport-on-henry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Newport on henry (working, screenshots)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../rex3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    REX3 (raster engine)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--reference; implemented as an ARM-served software model (2026-10-18)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VC2 (video timing/cursor)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--reference; implemented as part of the ARM-side Newport model (2026-10-18)"></span>
+  
+
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VC2 (video timing/cursor)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--reference; implemented as part of the ARM-side Newport model (2026-10-18)"></span>
+  
+
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#role-architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Role &amp; architecture
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#register-ram-interface" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Register / RAM interface
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Register / RAM interface">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#table-formats-in-sram" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Table formats in SRAM
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#programming-model-irixx" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Programming model (IRIX/X)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#henry-relevance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Henry relevance
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sources" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sources
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../xmap9/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    XMAP9 (colormap)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--reference; implemented in the ARM-side Newport model (2026-10-18)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../rb2-ro1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RB2 & RO1 (framebuffer/output)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--reference; RB2 semantics implemented in the ARM-side Newport model (2026-10-18)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../express-xz/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Express / XZ (hardware geometry)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--reference only (not implemented)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../irix-software/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How IRIX drives Newport (Xsgi, ng1, GL)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--reference (static reverse engineering of IRIX 6.5.22) + what henry observed on silicon (section 7)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../irix-boot-flow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    IRIX boot flow (annotated)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../methodology/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Methodology (MAME oracle)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--stable"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../fpga_stats/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FPGA build stats
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#role-architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Role &amp; architecture
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#register-ram-interface" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Register / RAM interface
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Register / RAM interface">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#table-formats-in-sram" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Table formats in SRAM
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#programming-model-irixx" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Programming model (IRIX/X)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#henry-relevance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Henry relevance
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sources" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sources
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="vc2-video-timing-cursor-controller-henrynewport-block-spec">VC2 — Video Timing &amp; Cursor Controller (Henry/Newport block spec)<a class="headerlink" href="#vc2-video-timing-cursor-controller-henrynewport-block-spec" title="Permanent link">&para;</a></h1>
+<blockquote>
+<p>VC2 generates the CRT timing (sync/blank), the display ID (DID), and the cursor (glyph or
+crosshair) for the Newport graphics board. It interprets tables held in its own external SRAM:
+a programmable video-timing state machine, a DID run-length stream, and a cursor pixel pattern.
+It is <strong>not</strong> programmed directly by the host — it sits on REX3's Display Control Bus (DCB), and
+the host pokes its registers/RAM through REX3. <strong>On Henry, VC2 is software on the Zynq ARM</strong>,
+part of the Newport model behind the ARM-served GIO window (no VC2 logic in the RTL); see
+<a href="../../newport-on-henry/">Newport on henry</a>. This page is the chip reference.</p>
+</blockquote>
+<p>Part: VC2, SGI 099-8918-001, Toshiba TC160G, 144 PQFP, ~27.5k gates (vc2.pdf p.2).</p>
+<h2 id="role-architecture">Role &amp; architecture<a class="headerlink" href="#role-architecture" title="Permanent link">&para;</a></h2>
+<p>VC2 is one chip in the Newport pipeline. Newport datapath (p.3 block diagram):</p>
+<pre class="mermaid"><code>flowchart LR
+    REX3["REX3"] -.-&gt;|DCB| VC2["&lt;b&gt;VC2&lt;/b&gt;&lt;br/&gt;video timing + cursor"]
+    SRAM[("32K×16 SRAM&lt;br/&gt;&lt;small&gt;cursor / DID / timing tables&lt;/small&gt;")] --- VC2
+    XMAP9["XMAP9"] --&gt; CMAP["CMAP"] --&gt; RAMDAC["RAMDAC"] --&gt; RGB([R/G/B])
+    VC2 --&gt;|CURSOR| XMAP9
+    VC2 -.-&gt;|"DID · video timing&lt;br/&gt;(→ XMAP9, CMAP, RAMDAC, RO1, monitor sync)"| XMAP9</code></pre>
+<p>The host (via REX3/DCB) writes three table types into the external SRAM; VC2 walks them in real
+time to drive its outputs. It has six internal blocks (p.24):</p>
+<ul>
+<li><strong>DCB interface</strong> — async handshake to REX3's DCB; the only host-facing port.</li>
+<li><strong>Master controller + master datapath</strong> — a 16x16 register file of table pointers/counters and
+  the memory controller that reads/writes the external SRAM on behalf of the other blocks.</li>
+<li><strong>Video Timing Generation (VTG)</strong> — 16x28 FIFO (21 timing channels + 7-bit duration); drives the
+  21 (+ duplicates) video timing channels: sync, blank, transfer-request, internal cursor/DID
+  position strobes. Error flag on FIFO underflow.</li>
+<li><strong>DID Generation</strong> — 64x20 FIFO; emits 5-bit window display IDs run-length-encoded across the
+  scanline, 2 pixels wide, to XMAP9. Error flag on underflow.</li>
+<li><strong>Cursor Generation</strong> — reads the cursor pattern table; emits a 2-wide cursor pixel stream to
+  XMAP9. Supports 32x32x2 glyph, 64x64x1 glyph, and a full-screen crosshair.</li>
+</ul>
+<p>DID and cursor are output 2 pixels wide at PCLK/2 (half the monitor pixel clock), so the timing
+channels have 2-pixel resolution (p.2).</p>
+<p><strong>Clocks (p.24):</strong> VC2 takes PCLK/2 (≤70 MHz; max pixel rate 140 MHz). Backend (VTG/DID/cursor)
+and the DCB always run at PCLK/2. The master controller/datapath run at PCLK/4 for hi-res
+(pixel clock ≥70 MHz) and PCLK/2 for lo-res; a clock-enable gates the flops rather than muxing
+clocks. The <code>Slow Clock</code> config bit selects the mode.</p>
+<p><strong>External RAM:</strong> 64 KB static RAM as 32Kx16, expandable to 64Kx16. RAM-address pointers are
+15 bits (max 32767). Accessed by the host only through the DCB (RAM Address register + RAM Data
+virtual register), big-endian, 2 bytes atomic.</p>
+<h2 id="register-ram-interface">Register / RAM interface<a class="headerlink" href="#register-ram-interface" title="Permanent link">&para;</a></h2>
+<p>Accessed over the DCB. The DCB exposes only 4 control-register-selects (CRS): CRS0 = Index reg,
+CRS1/CRS2 = high/low byte of the indexed register, CRS3 = external RAM data. Because VC2's register
+space is larger than the DCB address space, an <strong>Index register</strong> (5 bits) selects which internal
+register CRS1/CRS2 touch. REX3's DCB auto-increment lets the host write Index then the 2 data
+bytes in one burst; for RAM it writes the start address once then streams 2-byte words to CRS3
+(RAM Address auto-increments) (p.16).</p>
+<blockquote>
+<p><strong>Hang warning (p.11):</strong> before touching any register other than Index/Config, or the SRAM, the
+<code>Soft Reset</code> bit in the Configuration register must be set to 1 (normal operation). Otherwise VC2
+never acknowledges and both VC2 and the DCB hang.</p>
+</blockquote>
+<p><strong>Register summary (p.10).</strong> Shaded = host-programmed; rest are internal running pointers exposed
+read-only for diagnostics. Addresses are the Index value.</p>
+<table>
+<thead>
+<tr>
+<th>Idx</th>
+<th>Name</th>
+<th>Bits</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>—</td>
+<td>Index</td>
+<td>5</td>
+<td>selects register for DCB access</td>
+</tr>
+<tr>
+<td>0x00</td>
+<td>Video Entry Pointer</td>
+<td>16</td>
+<td>start of video-timing frame table in SRAM</td>
+</tr>
+<tr>
+<td>0x01</td>
+<td>Cursor Entry Pointer</td>
+<td>16</td>
+<td>start of cursor glyph data; 128-word align (32x32x2) / 256-word (64x64x1)</td>
+</tr>
+<tr>
+<td>0x02</td>
+<td>Cursor X Location</td>
+<td>16</td>
+<td>next cursor X (max 2047/4095); shadowed</td>
+</tr>
+<tr>
+<td>0x03</td>
+<td>Cursor Y Location</td>
+<td>16</td>
+<td>next cursor Y (max 2047); write triggers X→CurrentX copy</td>
+</tr>
+<tr>
+<td>0x04</td>
+<td>Current Cursor X</td>
+<td>16</td>
+<td>current X after update (R/O for programmer)</td>
+</tr>
+<tr>
+<td>0x05</td>
+<td>DID Entry Pointer</td>
+<td>16</td>
+<td>start of Display-ID table in SRAM</td>
+</tr>
+<tr>
+<td>0x06</td>
+<td>Scanline Length</td>
+<td>16</td>
+<td>visible pixels per scanline, bits[15:5] (max 2046); for DID gen</td>
+</tr>
+<tr>
+<td>0x07</td>
+<td>RAM Address</td>
+<td>16</td>
+<td>address for host RAM access; auto-increments</td>
+</tr>
+<tr>
+<td>0x08–0x0F</td>
+<td>(VT/DID/cursor running pointers + Vertical Line Counter)</td>
+<td>16</td>
+<td>diagnostic / R/O</td>
+</tr>
+<tr>
+<td>0x10</td>
+<td>Display Control</td>
+<td>16</td>
+<td>enables + cursor/genlock mode (below)</td>
+</tr>
+<tr>
+<td>0x1F</td>
+<td>Configuration</td>
+<td>16</td>
+<td>soft reset, slow clock, error flags, revision</td>
+</tr>
+<tr>
+<td>—</td>
+<td>RAM Data</td>
+<td>16</td>
+<td>virtual register: external RAM data (CRS3)</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Configuration register (Idx 0x1F, p.11):</strong> bit0 <code>Soft Reset</code> (0=reset, 1=run; resets all but
+DCB), bit1 <code>Slow Clock</code> (1 = monitor pixel rate &lt;70 MHz), bit2 <code>Cursor Error</code>, bit3 <code>DID Error</code>
+(DID FIFO underflow), bit4 <code>VTG Error</code> (VTG FIFO underflow) — error flags set by HW, cleared by
+writing 0; bits[7:5] revision (000 = first rev); bits[15:8] read-only "Temp Hibyte" (high byte of
+the last DCB transfer).</p>
+<p><strong>Display Control register (Idx 0x10, p.12):</strong></p>
+<table>
+<thead>
+<tr>
+<th>Bit</th>
+<th>Name</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>VINTR enable</td>
+<td>enable vertical interrupt (when VINT timing channel active)</td>
+</tr>
+<tr>
+<td>1</td>
+<td>Blackout</td>
+<td>0 = blank display (forces CBLANK to RAMDAC), 1 = enable display</td>
+</tr>
+<tr>
+<td>2</td>
+<td>Video Timing Enable</td>
+<td>1 = run VTG from SRAM; 0 = channels driven to default</td>
+</tr>
+<tr>
+<td>3</td>
+<td>DID Function Enable</td>
+<td>1 = read DIDs from SRAM; 0 = drive DID 0</td>
+</tr>
+<tr>
+<td>4</td>
+<td>Cursor Function Enable</td>
+<td>1 = read cursor pattern from SRAM</td>
+</tr>
+<tr>
+<td>5</td>
+<td>Gensync Enable</td>
+<td>1 = reset frame on GENSYNC input (genlock)</td>
+</tr>
+<tr>
+<td>6</td>
+<td>Interlace</td>
+<td>monitor type: 0 = non-interlaced, 1 = interlaced</td>
+</tr>
+<tr>
+<td>7</td>
+<td>Cursor Enable</td>
+<td>1 = drive cursor pixels (effect immediate, not deferred to retrace)</td>
+</tr>
+<tr>
+<td>8</td>
+<td>Cursor Mode</td>
+<td>0 = glyph, 1 = crosshair</td>
+</tr>
+<tr>
+<td>9</td>
+<td>Cursor Size</td>
+<td>0 = 32x32x2, 1 = 64x64x1 (glyph mode only)</td>
+</tr>
+<tr>
+<td>10</td>
+<td>Genlock Select</td>
+<td>0 = GEN0, 1 = GEN1</td>
+</tr>
+<tr>
+<td>15:11</td>
+<td>reserved</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<p>All Display-Control bits power up 0 (video disabled, blacked out).</p>
+<h3 id="table-formats-in-sram">Table formats in SRAM<a class="headerlink" href="#table-formats-in-sram" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Video Timing Table (p.17–19):</strong> a <em>frame table</em> of (line-sequence-pointer, line-count) runs,
+  terminated by a 0x0000 run; each line-sequence is a circular linked list of <em>lines</em>; each line is
+  a list of <em>state runs</em>. A state = 21 timing-channel bits split into State A/B/C (7 bits each:
+  SA=VT[20:14], SB=VT[13:7], SC=VT[6:0]) plus a 7-bit duration (SRUN) in 2-pixel-clock units (max
+  127). The A word always present; B/C word optional (bit7 of A flags presence). bit15 of the A
+  word = end-of-line, followed by a pointer to the next line. ~150 words for a hi-res non-interlaced
+  table, ~300 for NTSC/PAL.</li>
+<li><strong>Cursor Pattern Table (p.20–21):</strong> raw glyph bitmap. 32x32x2 = 128 words (128-word aligned),
+  two bit-planes; 64x64x1 = 256 words (256-word aligned). Crosshair needs no table.</li>
+<li><strong>Display ID Table (p.21–22):</strong> a <em>frame table</em> of per-scanline pointers terminated by 0xFFFF,
+  into a <em>scanline table</em> of transition records <code>{X-location[15:5], DID[4:0]}</code>; first X must be 0,
+  end-of-line = X 0x7FF (2047). Run-length-encoded, so a sparse line is cheap. The same DID table
+  serves multiple resolutions by changing only Scanline Length + DID Entry Pointer.</li>
+</ul>
+<h2 id="programming-model-irixx">Programming model (IRIX/X)<a class="headerlink" href="#programming-model-irixx" title="Permanent link">&para;</a></h2>
+<p>Power-on leaves VC2 with video disabled and blacked out; only Soft Reset is known. Bring-up
+(p.15):</p>
+<ol>
+<li>Program the RAMDAC for the target pixel clock.</li>
+<li>Set <code>Slow Clock</code> if needed and release <code>Soft Reset</code> in Configuration (→ normal operation).</li>
+<li>Load the video-timing tables into SRAM; write Video Entry Pointer.</li>
+<li>Set <code>Video Timing Enable</code> (and Interlace) in Display Control; ~32 pixel clocks later video
+   starts. VINTR / Blackout / Gensync may be enabled now or later.</li>
+<li>Load DID tables; write DID Entry Pointer + Scanline Length.</li>
+<li>Set <code>DID Function Enable</code>.</li>
+<li>Set <code>Cursor Function Enable</code> (comes up glyph + disabled); write the cursor pattern into SRAM,
+   set Cursor Enable + mode/size and the X/Y registers.</li>
+</ol>
+<p>In steady state Video/DID/Cursor enables stay on. <strong>Hardware cursor:</strong> write Cursor X <em>then</em>
+Cursor Y (the Y write copies X→Current X so the move is atomic); X/Y are relative to a point 31
+px above/left of the visible screen so the glyph can slide partly off-screen (X=Y=31 = top-left
+fully visible). VC2 double-buffers cursor pointer/position and swaps them during vertical
+blanking, so the host need not disable the cursor to move it. Changing the <em>pattern</em> pointer or
+mode coincident with an X/Y move should be done with the cursor disabled.</p>
+<p><strong>Mode/clock change (p.15):</strong> disable Cursor/DID/Video/VINTR/Gensync/Blackout, assert Soft Reset,
+redo bring-up steps 1–4; DID and cursor tables/registers retain their values.</p>
+<h2 id="henry-relevance">Henry relevance<a class="headerlink" href="#henry-relevance" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>Status (2026-10): implemented in software on the ARM.</strong> No VC2 is built in the PL. The
+  driver's Newport model (<code>sgi_newport</code>, a condensed MAME <code>newport.cpp</code>; the henry copy is
+  <code>sim/newport/sgi_newport.cc</code>) receives the DCB accesses to VC2 through REX3 and keeps its
+  registers and table RAM. Scanout (<code>render()</code>) walks the VC2 DID tables per scanline and
+  composites the VC2 glyph cursor in software. See <a href="../../newport-on-henry/">Newport on henry</a>.</li>
+<li><strong>Vertical retrace:</strong> the model's <code>vblank()</code> sets REX3 STATUS VRINT and raises INT3 <code>local1</code>
+  bit 7 when VC2 Display Control bit 0 (VINTR enable) is set; the ARM drives the line through
+  <code>gio_window</code>'s ARM-written IRQ level register. A REX3 STATUS read acknowledges it. With the
+  <code>DISABLE_NEWPORT</code> build knob the Newport <code>local1</code> sources are tied to 0 (<code>rtl/henry_soc.sv</code>).</li>
+<li><strong>Feasibility study (2026-10-02, <code>NEWPORT_FEASIBILITY.md</code>):</strong> recommended exactly this split:
+  no VC2 hardware, VC2 state in an ARM-side model fed by the DCB writes, the cursor composited in
+  software, and a 60 Hz retrace interrupt gated by DCR bit 0 (the study put that timer in the PL;
+  it ended up on the ARM). The study found IRIX
+  <em>requires</em> that interrupt: the kernel's retrace handler does cursor, buffer-swap and gamma work,
+  and IRIS GL <code>swapbuffers</code> waits on it.</li>
+</ul>
+<h2 id="sources">Sources<a class="headerlink" href="#sources" title="Permanent link">&para;</a></h2>
+<ul>
+<li>vc2.pdf p.2 — part/features, 2-wide PCLK/2 output, external RAM size.</li>
+<li>vc2.pdf p.3 — Newport system block diagram (REX3/DCB → VC2 → XMAP9/CMAP/RAMDAC).</li>
+<li>vc2.pdf p.5–6 — pin descriptions (DCB, MEM, XMAP, video timing channels).</li>
+<li>vc2.pdf p.10 — register summary table.</li>
+<li>vc2.pdf p.11 — Configuration register + soft-reset hang warning.</li>
+<li>vc2.pdf p.12 — Display Control register detail.</li>
+<li>vc2.pdf p.13–14 — cursor positioning, entry/X/Y registers, scanline length.</li>
+<li>vc2.pdf p.15 — reset / start-up / mode-change procedures.</li>
+<li>vc2.pdf p.16 — programming via the DCB (CRS, Index, atomic RAM access).</li>
+<li>vc2.pdf p.17–22 — table formats (video timing, cursor pattern, display ID).</li>
+<li>vc2.pdf p.24–25 — architecture: six blocks, clocks, VTG/DID/cursor generation.</li>
+</ul>
+
+
+
+
+
+
+
+  
+  
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.sections", "navigation.top", "navigation.indexes", "navigation.tracking", "toc.follow", "content.code.copy"], "search": "../../assets/javascripts/workers/search.a7633da7.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.c21346df.min.js"></script>
+      
+    
+  </body>
+</html>

@@ -1,0 +1,2157 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A from-scratch SoC that impersonates the SGI Indy (IP22) well enough to boot IRIX, built around the r9999 MIPS core.">
+      
+      
+      
+      
+        <link rel="prev" href="../rb2-ro1/">
+      
+      
+        <link rel="next" href="../irix-software/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.0">
+    
+    
+      
+        <title>Express / XZ — hardware-geometry graphics (Indy's other option) - Henry — the wannabe IP22 SoC</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.57a0d79d.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.fb2fffe2.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="amber">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#express-xz-the-indys-hardware-geometry-graphics-option" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Henry — the wannabe IP22 SoC" class="md-header__button md-logo" aria-label="Henry — the wannabe IP22 SoC" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M6 4h12v1h3v2h-3v2h3v2h-3v2h3v2h-3v2h3v2h-3v1H6v-1H3v-2h3v-2H3v-2h3v-2H3V9h3V7H3V5h3zm5 11v3h1v-3zm2 0v3h1v-3zm2 0v3h1v-3z"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Henry — the wannabe IP22 SoC
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Express / XZ — hardware-geometry graphics (Indy's other option)
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="amber"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="amber"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Henry — the wannabe IP22 SoC" class="md-nav__button md-logo" aria-label="Henry — the wannabe IP22 SoC" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M6 4h12v1h3v2h-3v2h3v2h-3v2h3v2h-3v2h3v2h-3v1H6v-1H3v-2h3v-2H3v-2h3v-2H3V9h3V7H3V5h3zm5 11v3h1v-3zm2 0v3h1v-3zm2 0v3h1v-3z"/></svg>
+
+    </a>
+    Henry — the wannabe IP22 SoC
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../minimum-mmio-to-banner/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Minimum MMIO to boot banner
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (functional-sim validated, MAME-corroborated; Henry-RTL notes re-checked 2026-10-27 against henry eea6ecb)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cpu-integration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CPU integration (r9999)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../r9999-microarchitecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    r9999 microarchitecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../r9999-lineage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    r9999 lineage (MIPS -> RISC-V -> MIPS)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../firmware-arcs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Firmware (ARCS shim)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated; Henry FSBL section checked 2026-10-27 against r9999/arcs/henry_arcs.S + henry_fw.c @ 788c412)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../boot-and-console/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Boot & console
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated; Henry FSBL/console re-checked 2026-10-27 against henry eea6ecb / r9999 788c412)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../coherence-cache-tlb/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cache, coherence & TLB
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated; silicon-refined 2026-07; RTL state re-checked 2026-10-27 against henry eea6ecb / r9999 788c412)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../arm-device-protocol/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ARM ↔ device protocol (staging rings)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../bus-errors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Bus errors
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../fpu-cop1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FPU (COP1)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--implemented (MAME-validated workload)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_13" >
+        
+          
+          <label class="md-nav__link" for="__nav_13" id="__nav_13_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Peripherals
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_13_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_13">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Peripherals
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../peripherals/mc/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MC (memory controller)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated; henry RTL status audited 2026-10-27 against main eea6ecb)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../peripherals/ioc2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    IOC2 (serial console)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated; henry RTL status audited 2026-10-27 against main @eea6ecb)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../peripherals/scc/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SCC (Z85C30 console)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (silicon-validated; audited 2026-10-27 against henry main @eea6ecb)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../peripherals/hpc3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    HPC3 (SCSI/enet/DMA, RTC)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME + live-IRIX-trace validated; henry RTL status audited 2026-10-27 against main eea6ecb)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../peripherals/scsi_disk_theory_of_operation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SCSI disk theory of operation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../peripherals/gio64/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GIO64 (bus)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated; henry RTL status audited 2026-10-27 against henry main eea6ecb)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../peripherals/vdma/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VDMA (virtual DMA)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--implemented for memory -> GIO (dma_engine CH_V), 2026-10-18"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../peripherals/dmux1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DMUX (data mux)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (henry status audited 2026-10-27 against main @eea6ecb)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_14" checked>
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Graphics
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--implemented (ARM-served model), 2026-10-18"></span>
+  
+
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_14" id="__nav_14_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_14_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_14">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Graphics
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../newport-on-henry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Newport on henry (working, screenshots)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../rex3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    REX3 (raster engine)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--reference; implemented as an ARM-served software model (2026-10-18)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../vc2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VC2 (video timing/cursor)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--reference; implemented as part of the ARM-side Newport model (2026-10-18)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../xmap9/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    XMAP9 (colormap)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--reference; implemented in the ARM-side Newport model (2026-10-18)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../rb2-ro1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RB2 & RO1 (framebuffer/output)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--reference; RB2 semantics implemented in the ARM-side Newport model (2026-10-18)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Express / XZ (hardware geometry)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--reference only (not implemented)"></span>
+  
+
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Express / XZ (hardware geometry)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--reference only (not implemented)"></span>
+  
+
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#why-it-exists-hardware-geometry-vs-newports-host-geometry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why it exists: hardware geometry vs Newport's host geometry
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-pipeline-and-the-real-asics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The pipeline and the real ASICs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#geometry-engine-ge7-the-custom-fp-core" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Geometry Engine (GE7) — the custom FP core
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#simd-array-hq2-the-ge7s" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SIMD array (HQ2 + the GE7s)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#raster-engine-re3-hyper-pipelined" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Raster Engine (RE3) — hyper-pipelined
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#host-programming-interface-the-fifo-token-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Host programming interface (the FIFO token model)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#indy-board-set-gr4-express" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Indy board set (GR4 Express)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#henry-relevance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Henry relevance
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sources" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sources
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../irix-software/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How IRIX drives Newport (Xsgi, ng1, GL)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--reference (static reverse engineering of IRIX 6.5.22) + what henry observed on silicon (section 7)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../irix-boot-flow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    IRIX boot flow (annotated)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../methodology/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Methodology (MAME oracle)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--stable"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../fpga_stats/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FPGA build stats
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#why-it-exists-hardware-geometry-vs-newports-host-geometry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why it exists: hardware geometry vs Newport's host geometry
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-pipeline-and-the-real-asics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The pipeline and the real ASICs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#geometry-engine-ge7-the-custom-fp-core" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Geometry Engine (GE7) — the custom FP core
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#simd-array-hq2-the-ge7s" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SIMD array (HQ2 + the GE7s)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#raster-engine-re3-hyper-pipelined" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Raster Engine (RE3) — hyper-pipelined
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#host-programming-interface-the-fifo-token-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Host programming interface (the FIFO token model)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#indy-board-set-gr4-express" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Indy board set (GR4 Express)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#henry-relevance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Henry relevance
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sources" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sources
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="express-xz-the-indys-hardware-geometry-graphics-option">Express / XZ — the Indy's hardware-geometry graphics option<a class="headerlink" href="#express-xz-the-indys-hardware-geometry-graphics-option" title="Permanent link">&para;</a></h1>
+<blockquote>
+<p>The SGI Indy shipped with <strong>two</strong> mutually-exclusive graphics options on its GIO slot:
+<strong>XL / Newport</strong> (documented <a href="../">here</a> — host does geometry, REX3 is raster-only) and
+<strong>Express / XZ</strong> (this page — a dedicated <strong>hardware geometry</strong> pipeline). Express is the
+"Elan-class" board: a SIMD array of floating-point <strong>Geometry Engines</strong> feeding a
+hyper-pipelined <strong>Raster Engine</strong>.</p>
+<p><strong>Not implemented in Henry, and not planned</strong> — Henry's graphics board is an ARM-served
+<strong>Newport</strong> (see <a href="../#henry-relevance">the overview</a> and
+<a href="../../newport-on-henry/">Newport on henry</a>). This page is reference only: it captures the architecture and maps it onto the real Indy ASICs.
+<strong>Newport was the far smaller target</strong>, which is why henry built it — Express adds a microcoded
+SIMD FP array <em>and</em> a command-FIFO front-end on top of a REX3-class rasterizer.</p>
+</blockquote>
+<p>The canonical architecture reference is <strong>Harrell &amp; Fouladi, "Graphics Rendering Architecture for a High
+Performance Desktop Workstation"</strong> (ACM, 1993) — the SGI design paper for this pipeline, shipping as the
+<strong>IRIS Indigo Extreme</strong> and (scaled) the <strong>Indigo² Elan</strong>. sgistuff.net cites the same paper as the
+Express reference. The paper describes the <em>full</em> <strong>8-GE / 2-RE</strong> topology (that maximal config is
+<em>Extreme</em>); the <strong>Indy</strong> runs the scaled <strong>4-GE / 1-RE</strong> Elan-class variant.</p>
+<h2 id="why-it-exists-hardware-geometry-vs-newports-host-geometry">Why it exists: hardware geometry vs Newport's host geometry<a class="headerlink" href="#why-it-exists-hardware-geometry-vs-newports-host-geometry" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th></th>
+<th><strong>XL / Newport</strong></th>
+<th><strong>Express / XZ</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Geometry (transform + slope)</td>
+<td>on the <strong>host CPU FPU</strong></td>
+<td><strong>in hardware</strong> — SIMD array of GE7 Geometry Engines</td>
+</tr>
+<tr>
+<td>Rasterization</td>
+<td>REX3</td>
+<td>RE3 Raster Engine (hyper-pipelined)</td>
+</tr>
+<tr>
+<td>Z-buffer</td>
+<td>host system memory</td>
+<td><strong>hardware</strong> 24-bit Z (ZRB4)</td>
+</tr>
+<tr>
+<td>CPU-facing interface</td>
+<td>REX3 register writes</td>
+<td><strong>command FIFO over GIO + FIFO-full interrupt</strong></td>
+</tr>
+<tr>
+<td>Board form factor</td>
+<td>single board</td>
+<td><strong>two-board set, one GIO slot</strong> (blocks other GIO options)</td>
+</tr>
+<tr>
+<td>Indy config</td>
+<td>XL8 / XL24</td>
+<td><strong>4× GE7 + 1× RE3</strong>, 24-bit color + 24-bit Z</td>
+</tr>
+</tbody>
+</table>
+<p>Curiosity worth noting: on an <strong>R5000 Indy the CPU is often faster than the GE7s</strong>, so XL/Newport can
+out-run XZ — Express only clearly wins when you need <strong>hardware depth-buffering</strong>. More silicon was not
+automatically more speed; XZ was a Z-buffer/fill play.</p>
+<h2 id="the-pipeline-and-the-real-asics">The pipeline and the real ASICs<a class="headerlink" href="#the-pipeline-and-the-real-asics" title="Permanent link">&para;</a></h2>
+<p>The paper's abstract blocks map onto named Indy ASICs (the right column is what <code>gfxinfo</code> prints):</p>
+<table>
+<thead>
+<tr>
+<th>Paper block</th>
+<th>ASIC</th>
+<th><code>gfxinfo</code> (Indy)</th>
+<th>Role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Command Parser (CP)</td>
+<td><strong>HQ2</strong></td>
+<td><strong>HQ2.1</strong></td>
+<td>reads FIFO, distributes primitives to the GEs</td>
+</tr>
+<tr>
+<td>Geometry Engine (GE)</td>
+<td><strong>GE7</strong></td>
+<td>—</td>
+<td>custom FP core, <strong>32 MFLOPS each</strong>; per-vertex + slope calc</td>
+</tr>
+<tr>
+<td>Raster Engine (RE)</td>
+<td><strong>RE3</strong></td>
+<td><strong>HQ3.1</strong></td>
+<td>edge/span scan-conversion, per-pixel ops, framebuffer writes</td>
+</tr>
+<tr>
+<td><em>(output, not in paper)</em></td>
+<td><strong>VC1</strong></td>
+<td>—</td>
+<td>video timing (cf. Newport's VC2)</td>
+</tr>
+<tr>
+<td><em>(output, not in paper)</em></td>
+<td><strong>XMAP5 → XMAP7</strong></td>
+<td>—</td>
+<td>colormap / pixel-mode (cf. Newport's XMAP9)</td>
+</tr>
+<tr>
+<td><em>(output, not in paper)</em></td>
+<td><strong>ZRB4</strong></td>
+<td>—</td>
+<td>Z-buffer + RAMDAC</td>
+</tr>
+</tbody>
+</table>
+<pre class="mermaid"><code>flowchart LR
+    HOST([host CPU]) --&gt;|"writes render cmds&lt;br/&gt;over GIO (GIO32 on Indy)"| FIFO[["command FIFO&lt;br/&gt;&lt;small&gt;full → IRQ to CPU&lt;/small&gt;"]]
+    FIFO --&gt; HQ2["&lt;b&gt;HQ2&lt;/b&gt; — Command Parser&lt;br/&gt;&lt;small&gt;round-robin distribute · primitive-type compare&lt;/small&gt;"]
+    HQ2 --&gt;|ping-pong buffers| SIMD["&lt;b&gt;GE7 ×4&lt;/b&gt; — SIMD geometry&lt;br/&gt;&lt;small&gt;shared sequencer + microcode + globals&lt;/small&gt;"]
+    SIMD --&gt;|output FIFO| RE3["&lt;b&gt;RE3&lt;/b&gt; — Raster Engine&lt;br/&gt;&lt;small&gt;edge + span + per-pixel ops&lt;/small&gt;"]
+    RE3 --&gt; FB[("framebuffer&lt;br/&gt;+ 24-bit Z (ZRB4)")]
+    FB --&gt;|scanout| VID["VC1 timing · XMAP5/7 colormap · RAMDAC"]
+    VID --&gt;|R/G/B| CRT([CRT])</code></pre>
+<p>Flow (matches sgistuff's functional description beat-for-beat): a <strong>command token + data</strong> is written into
+the <strong>FIFO</strong>; <strong>HQ2</strong> reads it, detects primitive boundaries, and round-robins data into the <strong>GE7</strong> input
+ping-pong buffers; the GE7s do per-vertex and slope math and write an <strong>output FIFO</strong>; <strong>RE3</strong> reads that
+FIFO, does edge + span scan-conversion and per-pixel operations, and writes pixels (and Z) to the
+framebuffer; the output chain (VC1 / XMAP / RAMDAC) scans it out.</p>
+<h2 id="geometry-engine-ge7-the-custom-fp-core">Geometry Engine (GE7) — the custom FP core<a class="headerlink" href="#geometry-engine-ge7-the-custom-fp-core" title="Permanent link">&para;</a></h2>
+<p>A single-chip microcoded floating-point processor, deliberately fused to do <strong>both</strong> per-vertex transform
+<strong>and</strong> triangle/line slope calculation (their cycle costs are ~equal; slope math is too irregular to
+hardwire). Design philosophy = <em>never starve the expensive FP units</em>:</p>
+<ul>
+<li><strong>1 FMPY + 1 FALU</strong> (measured near-even multiply/add balance).</li>
+<li><strong>6 busses + 4 register-file ports</strong> feed the 4 FMPY/FALU inputs; 2 busses are <strong>result→input
+  wrap-around</strong> for single-thread dependency chains.</li>
+<li><strong>Multiple in-flight threads</strong> of the same algorithm: when one thread stalls waiting on a result,
+  another fills the unit; a multi-port register file parks intermediates.</li>
+<li><strong>3 vertex data stores</strong> (input ping-pong + 2 "special" stores) because slope calc needs all three
+  triangle vertices simultaneously and the register file is too small. A <strong>6th bus</strong> reaches off-chip
+  <strong>globals</strong> memory.</li>
+</ul>
+<h2 id="simd-array-hq2-the-ge7s">SIMD array (HQ2 + the GE7s)<a class="headerlink" href="#simd-array-hq2-the-ge7s" title="Permanent link">&para;</a></h2>
+<p>The GE7s run as a <strong>SIMD</strong> array sharing one sequencer, one microcode store, and one globals memory —
+chosen over a pipeline (unequal stages → sublinear) and MIMD (per-processor sequencer overhead). The
+<em>only</em> cost over a uniprocessor is the <strong>distribution function</strong> in HQ2.</p>
+<ul>
+<li><strong>HQ2 (Command Parser)</strong> round-robins primitives GE0→GEn and detects primitive-type boundaries via a
+  <strong>current-vs-previous command-token compare</strong> (a different token → swap ping-pongs and fire the loaded
+  GEs).</li>
+<li><strong>Load-bearing assumption:</strong> primitives must arrive <strong>clumped</strong> (runs of all-triangles, then all-lines).
+  Alternating lines/polys is the SIMD <strong>worst case → collapses to uniprocessor</strong> throughput. (SGI
+  validated that CAD/CAE workloads clump.)</li>
+<li><strong>Input ping-pong buffer</strong> (HQ2 fills one side while the GE runs the other) + <strong>output FIFO</strong> (lockstep
+  writes) are both essential to the SIMD scheme. <strong>Indirect addressing</strong> into the data stores lets each
+  lane address its vertices per its primitive's screen orientation while staying in lockstep; SIMD
+  divergence (lighting / clip branches) is handled by <strong>stalling the non-taken subset</strong> during conditional
+  subroutine calls.</li>
+</ul>
+<h2 id="raster-engine-re3-hyper-pipelined">Raster Engine (RE3) — hyper-pipelined<a class="headerlink" href="#raster-engine-re3-hyper-pipelined" title="Permanent link">&para;</a></h2>
+<p>Instead of replicating N parallel iterators (the era's default), Express <strong>deep-pipelines a single
+iterator</strong> — <strong>26 stages</strong>, input ping-pong → color write — because pipe stages cost far fewer gates than
+replicated iterators. The <strong>DDA unit</strong> (adder + 2:1 mux + feedback register) is the critical path that
+sets the stage count; the clock is <strong>5× DRAM page-mode rate</strong>, matched to a <strong>5-way interleaved color
+buffer</strong> (1 pixel/clock, contentionless along a span).</p>
+<ul>
+<li><strong>Edge processor</strong> (10 stages, new span every other clock): decomposes a triangle into horizontal spans
+  via major / first-minor / second-minor edge swap at the middle-Y vertex; emits per-span start
+  R,G,B,A,X,Y,Z + pixel count.</li>
+<li><strong>Span processor</strong> (6 iterators, 3-clock latency): <strong>1 px/clk</strong> when gouraud-shaded and/or Z-buffered;
+  <strong>4 px/clk</strong> when flat-shaded and non-Z, using VRAM <strong>block-write</strong> → 4× on screen clears / flat 2D.</li>
+<li><strong>Per-pixel operators</strong> (10 stages): 3 blend multipliers (R/G/B) + a logicop ALU; <strong>Z-compare and
+  stencil run in parallel</strong> in the same stage count.</li>
+<li><strong>Memory interleave:</strong> color buffer <strong>5-way</strong>, Z-buffer <strong>10-way</strong> — Z is read-modify-write (2× accesses,
+  10-clock RMW), so 10 banks = no contention along a span. Z banks <strong>share a page address</strong> (single
+  page-fault block) with a per-bank busy <strong>scoreboard</strong>; color blend/logicop RMW runs at <strong>half</strong> fill rate.</li>
+<li>In the maximal <em>Extreme</em> config there are <strong>two</strong> REs (odd RE → odd scanlines, even RE → even scanlines);
+  the <strong>Indy runs a single RE3</strong>.</li>
+</ul>
+<p><strong>Performance</strong> (paper, full <strong>8-GE / 2-RE Extreme</strong> config): &gt;1.3M depth-cued lines/s, &gt;0.5M gouraud
+Z-buffered triangles/s, 80M pixels/s sustained fill. The Indy's <strong>4-GE / 1-RE</strong> board is the scaled-down
+fraction of this.</p>
+<h2 id="host-programming-interface-the-fifo-token-model">Host programming interface (the FIFO token model)<a class="headerlink" href="#host-programming-interface-the-fifo-token-model" title="Permanent link">&para;</a></h2>
+<p>The paper describes the <em>datapath</em>; it omits the <em>programming model</em> (the <code>sys/gr2hw.h</code> struct was never
+open-sourced). That gap is filled by <strong>Project CYAN's reverse-engineering</strong> (NetBSD <code>grtworeg.h</code> + MAME's
+<code>sgi_re2</code>) — see <a href="../../methodology/#related-work">Related work</a>. ⚠️ The addresses below are the <strong>IP20
+GR2</strong> reconstruction; the Indy's <strong>GR4</strong> shares the chips and this programming model, but exact sub-offsets
+may differ — treat as the model, not a verified GR4 register map.</p>
+<p><strong>Key principle: the CPU never touches RE3 directly.</strong> All rendering is a <strong>token write into a FIFO</strong>:
+<code>base-&gt;fifo[TOKEN] = DATA</code>. The <strong>HQ2</strong> microcode reads the token, dispatches it to a <strong>GE7</strong>, which runs
+geometry microcode that emits <strong>RE3</strong> raster commands. (For a software/HLE model you intercept at the FIFO
+token level and skip the microcode entirely.)</p>
+<p><strong>GIO slot-0 memory map</strong> (base <code>0x1f000000</code>, 4 MB):</p>
+<table>
+<thead>
+<tr>
+<th>Range</th>
+<th>Region</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>0x1f000000–0x1f01ffff</code></td>
+<td>shared data RAM (CPU↔GE communication, 128 KB)</td>
+</tr>
+<tr>
+<td><code>0x1f040000–0x1f05ffff</code></td>
+<td><strong>FIFO write port</strong> (indexed by token number)</td>
+</tr>
+<tr>
+<td><code>0x1f060000</code></td>
+<td>HQ2 microcode RAM (32 KB)</td>
+</tr>
+<tr>
+<td><code>0x1f068000</code></td>
+<td>GE7 instances (×8)</td>
+</tr>
+<tr>
+<td><code>0x1f06a000</code></td>
+<td><strong>HQ2 registers</strong></td>
+</tr>
+<tr>
+<td><code>0x1f06c000…</code></td>
+<td>board rev / clock PLL / VC1 / Bt457 DACs / XMAP5 ×5 / RE3 register banks</td>
+</tr>
+</tbody>
+</table>
+<p><strong>HQ2 registers</strong> (offset from <code>0x1f06a000</code>, selected):</p>
+<table>
+<thead>
+<tr>
+<th>Off</th>
+<th>Name</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>0x40</code></td>
+<td><code>VERSION</code></td>
+<td>RO; <code>[12:6]</code>=fifo_count, <code>[5]</code>=fifo_overflow, <code>[22:20]</code>=ge_ptr</td>
+</tr>
+<tr>
+<td><code>0x44</code></td>
+<td><code>NUMGE</code></td>
+<td>number of GE7s (OR <code>FASTSHRAMCNT_4</code> for 8)</td>
+</tr>
+<tr>
+<td><code>0x5c/0x60</code></td>
+<td><code>FIFO_FULL</code>/<code>FIFO_EMPTY</code></td>
+<td>high/low water marks (full → IRQ to CPU)</td>
+</tr>
+<tr>
+<td><code>0x64</code></td>
+<td><code>GE7_LOAD_UCODE</code></td>
+<td>GE7 microcode word <code>[25:0]</code> (triggers load)</td>
+</tr>
+<tr>
+<td><code>0x74</code></td>
+<td><code>INTR</code></td>
+<td>interrupt bit (host clears)</td>
+</tr>
+<tr>
+<td><code>0x78</code></td>
+<td><code>UNSTALL</code></td>
+<td>WO; write 0 to start HQ+GE</td>
+</tr>
+<tr>
+<td><code>0x7c</code></td>
+<td><code>MYSTERY</code></td>
+<td>RO; <strong>must read <code>0xDEADBEEF</code></strong> — the board-presence probe</td>
+</tr>
+<tr>
+<td><code>0x80</code></td>
+<td><code>REFRESH</code></td>
+<td>typ <code>0x10</code>/<code>0xf0</code></td>
+</tr>
+</tbody>
+</table>
+<p>So the board-probe contract for this option is concrete: <strong><code>MYSTERY</code> returns <code>0xDEADBEEF</code></strong>, <code>VERSION</code>
+returns a sane version, and <code>ge[i].ram0[]</code> is read/write (the GE-count probe). Linux's
+<code>arch/mips/sgi-ip22/ip22-gio.c</code> uses exactly this check (<code>HQ2_MYSTERY_OFFS = 0x6A07C</code> from the slot base)
+before falling back to a GIO product-ID word and then to Newport's <code>USER_STATUS</code> (Newport has no product-ID
+word).</p>
+<p><strong>PROM textport tokens</strong> (<code>PUC_*</code>, FIFO base <code>0x1f040000</code>) — the minimal set the PROM uses for the console
+<em>before</em> IRIX downloads its GL microcode:</p>
+<table>
+<thead>
+<tr>
+<th>Token</th>
+<th>Val</th>
+<th>Operation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>PUC_INIT</code></td>
+<td><code>0x191</code></td>
+<td>init GE7 for textport mode</td>
+</tr>
+<tr>
+<td><code>PUC_COLOR</code></td>
+<td><code>0x192</code></td>
+<td>set drawing color (CI8)</td>
+</tr>
+<tr>
+<td><code>PUC_FINISH</code></td>
+<td><code>0x193</code></td>
+<td>sync</td>
+</tr>
+<tr>
+<td><code>PUC_PNT2I</code> / <code>PUC_RECTI2D</code></td>
+<td><code>0x194</code>/<code>0x195</code></td>
+<td>pixel / filled rect</td>
+</tr>
+<tr>
+<td><code>PUC_CMOV2I</code> / <code>PUC_LINE2I</code></td>
+<td><code>0x196</code>/<code>0x197</code></td>
+<td>char-move / line</td>
+</tr>
+<tr>
+<td><code>PUC_DRAWCHAR</code> / <code>PUC_RECTCOPY</code></td>
+<td><code>0x198</code>/<code>0x199</code></td>
+<td>glyph / rect copy-scroll</td>
+</tr>
+<tr>
+<td><code>PUC_DATA</code></td>
+<td><code>0x1df</code></td>
+<td>data word for the previous command</td>
+</tr>
+</tbody>
+</table>
+<p><strong>RE3 <code>IR</code> (instruction register) commands</strong> — what the GE microcode ultimately drives RE3 with (RE2 set,
+the documented predecessor; RE3 is an evolution):</p>
+<table>
+<thead>
+<tr>
+<th>IR</th>
+<th>Op</th>
+<th>Note</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><code>SHADED</code></td>
+<td>Gouraud span</td>
+</tr>
+<tr>
+<td>2</td>
+<td><code>FLAT</code></td>
+<td>1×5 flat span</td>
+</tr>
+<tr>
+<td>3</td>
+<td><code>FLAT4</code>/<code>BLOCKWRITE</code></td>
+<td>1×20 flat span / block write</td>
+</tr>
+<tr>
+<td>4 / 5</td>
+<td><code>TOPLINE</code> / <code>BOTLINE</code></td>
+<td>anti-aliased line halves</td>
+</tr>
+<tr>
+<td>6 / 7</td>
+<td><code>READBUF</code> / <code>WRITEBUF</code></td>
+<td>framebuffer read / write</td>
+</tr>
+</tbody>
+</table>
+<p>Nice cross-check on the paper: <code>FLAT</code> writes <strong>1×5</strong> and <code>FLAT4</code>/<code>BLOCKWRITE</code> writes <strong>1×20</strong> — i.e. the
+5-way color interleave × the 4-pixel VRAM block-write, exactly the paper's "1 px/clk shaded, 4 px/clk flat
+block-write" span processor.</p>
+<h2 id="indy-board-set-gr4-express">Indy board set (GR4 Express)<a class="headerlink" href="#indy-board-set-gr4-express" title="Permanent link">&para;</a></h2>
+<p>Two boards in the Indy's <strong>GIO32 slot</strong> (occupies the slot; no other GIO option can coexist):</p>
+<ul>
+<li><strong>GP1</strong> — the Geometry Engine board (the 4× GE7 + HQ2 + RE3 side).</li>
+<li><strong>VB3</strong> — RAMDAC, the external <strong>13W3</strong> video connector, and the connector to the Indy mainboard.</li>
+</ul>
+<p>General display features: 1280×1024 @ 60/72 Hz, 24-bit color, 24-bit Z, 4 stencil planes, 4 overlay + 4
+window/clip-ID planes, accumulation buffer, hardware texture mapping, 8 light sources, full-scene
+antialiasing, genlock/stereo. (Indigo² uses the analogous <strong>GR3</strong> boards: XZ = 2-GE, Elan = 4-GE.)</p>
+<h2 id="henry-relevance">Henry relevance<a class="headerlink" href="#henry-relevance" title="Permanent link">&para;</a></h2>
+<p><strong>Status (2026-10): not implemented.</strong> Henry has no HQ2/GE7/RE3 model. In slot 0 only the REX3 window
+(<code>0x1f0f0000–0x1f0f1fff</code>) is decoded, for the ARM-served Newport; the rest of GIO space is empty and an
+access times out like an empty slot on an Indy (a load bus-errors when <code>CPUCTRL1.ABORT_EN</code> is set; see
+<a href="../../bus-errors/">Bus errors</a>). So a probe of the HQ2 <code>MYSTERY</code> register (slot + <code>0x6A07C</code>) finds no
+Express board. Nothing here is on the boot path.</p>
+<p><strong>Future (graphics console):</strong> Express is a <strong>much bigger lift than Newport</strong>, in roughly this order:</p>
+<ol>
+<li>A <strong>command-FIFO</strong> front-end over GIO with a <strong>FIFO-full interrupt</strong> — a different (and larger) CPU
+   contract than Newport's "write REX3 registers."</li>
+<li><strong>HQ2</strong> distribution + a <strong>microcoded SIMD GE7 array</strong> doing hardware geometry — there is no Newport
+   equivalent; this is the part Newport deliberately pushed onto the host CPU.</li>
+<li>An <strong>RE3-class rasterizer</strong> (comparable in scope to REX3) plus the <strong>ZRB4</strong> hardware Z-buffer.</li>
+<li>The output chain (VC1 / XMAP / RAMDAC).</li>
+</ol>
+<p>Henry's graphics path is <strong>Newport</strong> (built as an ARM-served model) precisely because it omits items
+1–2 (and 3's hardware Z). This page exists to document the high-end alternative and to tie the Harrell &amp;
+Fouladi paper to gfxinfo-visible Indy silicon — not as a build recommendation.</p>
+<h2 id="sources">Sources<a class="headerlink" href="#sources" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>Harrell, C. &amp; Fouladi, F.</strong>, "Graphics Rendering Architecture for a High Performance Desktop
+  Workstation," <em>ACM</em> (Graphics Hardware), 1993 — local copy <code>chd-dumper/166117.166129.pdf</code>. The Express
+  architecture spec (GE custom FP core, 8-GE SIMD, hyper-pipelined 26-stage RE, 5-way color / 10-way Z
+  interleave). Ships as IRIS Indigo Extreme; scaled = Indigo² Elan.</li>
+<li><strong>sgistuff.net — Express graphics</strong>, <a href="http://www.sgistuff.net/hardware/graphics/express.html">http://www.sgistuff.net/hardware/graphics/express.html</a> — ASIC
+  names (HQ2 / GE7 / RE3 / VC1 / XMAP5→7 / ZRB4), <code>gfxinfo</code> IDs (HQ2.1, HQ3.1), the Indy <strong>GR4</strong> board set
+  (GP1 + VB3), per-system summary table, and the functional-flow description. (This page cites the same
+  Harrell &amp; Fouladi paper as its reference.)</li>
+<li>Henry GIO64 peripheral notes — <a href="../../peripherals/gio64/">../peripherals/gio64.md</a> (slot map).</li>
+<li>Linux <code>arch/mips/sgi-ip22/ip22-gio.c</code> (v6.12) — <code>ip22_is_gr2()</code>: HQ2 <code>MYSTERY</code> at slot + <code>0x6A07C</code>
+  must read <code>0xDEADBEEF</code>.</li>
+<li>MAME <code>src/mame/sgi/sgi_re2.h</code> — RE2 <code>IR_*</code> command encodings (table above).</li>
+<li>Newport overview (the other Indy graphics option) — <a href="../">index.md</a>.</li>
+</ul>
+
+
+
+
+
+
+
+  
+  
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.sections", "navigation.top", "navigation.indexes", "navigation.tracking", "toc.follow", "content.code.copy"], "search": "../../assets/javascripts/workers/search.a7633da7.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.c21346df.min.js"></script>
+      
+    
+  </body>
+</html>

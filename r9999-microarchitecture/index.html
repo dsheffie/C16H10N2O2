@@ -1,0 +1,2145 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A from-scratch SoC that impersonates the SGI Indy (IP22) well enough to boot IRIX, built around the r9999 MIPS core.">
+      
+      
+      
+      
+        <link rel="prev" href="../cpu-integration/">
+      
+      
+        <link rel="next" href="../r9999-lineage/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.0">
+    
+    
+      
+        <title>r9999 microarchitecture - Henry — the wannabe IP22 SoC</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.57a0d79d.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.fb2fffe2.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="amber">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#r9999-microarchitecture" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Henry — the wannabe IP22 SoC" class="md-header__button md-logo" aria-label="Henry — the wannabe IP22 SoC" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M6 4h12v1h3v2h-3v2h3v2h-3v2h3v2h-3v2h3v2h-3v1H6v-1H3v-2h3v-2H3v-2h3v-2H3V9h3V7H3V5h3zm5 11v3h1v-3zm2 0v3h1v-3zm2 0v3h1v-3z"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Henry — the wannabe IP22 SoC
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              r9999 microarchitecture
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="amber"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="amber"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Henry — the wannabe IP22 SoC" class="md-nav__button md-logo" aria-label="Henry — the wannabe IP22 SoC" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M6 4h12v1h3v2h-3v2h3v2h-3v2h3v2h-3v2h3v2h-3v1H6v-1H3v-2h3v-2H3v-2h3v-2H3V9h3V7H3V5h3zm5 11v3h1v-3zm2 0v3h1v-3zm2 0v3h1v-3z"/></svg>
+
+    </a>
+    Henry — the wannabe IP22 SoC
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../minimum-mmio-to-banner/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Minimum MMIO to boot banner
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (functional-sim validated, MAME-corroborated; Henry-RTL notes re-checked 2026-10-27 against henry eea6ecb)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cpu-integration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CPU integration (r9999)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    r9999 microarchitecture
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    r9999 microarchitecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#block-diagram" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Block diagram
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#walking-the-pipeline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Walking the pipeline
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#r9999-vs-the-r10000-its-named-after" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        r9999 vs. the R10000 it's named after
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#why-it-diverges-from-the-r10000" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why it diverges from the R10000
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configuration-knobs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration knobs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#branch-delay-slots-and-the-control-fsm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Branch delay slots and the control FSM
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-tlb-translation-datapath" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The TLB — translation datapath
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The TLB — translation datapath">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#two-stage-lookup-and-why-conflating-the-stages-bites" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Two-stage lookup (and why conflating the stages bites)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-r_tlb_written-slot-bit-sail-entryvalid" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The r_tlb_written slot bit (= Sail entry.valid)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cp0-state-the-refill-handler-reads-all-must-be-full-width" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CP0 state the refill handler reads (all must be full-width)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#vector-selection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Vector selection
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#segment-decode-mipssegsv" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Segment decode (mipsseg.sv)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../r9999-lineage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    r9999 lineage (MIPS -> RISC-V -> MIPS)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../firmware-arcs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Firmware (ARCS shim)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated; Henry FSBL section checked 2026-10-27 against r9999/arcs/henry_arcs.S + henry_fw.c @ 788c412)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../boot-and-console/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Boot & console
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated; Henry FSBL/console re-checked 2026-10-27 against henry eea6ecb / r9999 788c412)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../coherence-cache-tlb/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cache, coherence & TLB
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated; silicon-refined 2026-07; RTL state re-checked 2026-10-27 against henry eea6ecb / r9999 788c412)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../arm-device-protocol/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ARM ↔ device protocol (staging rings)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../bus-errors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Bus errors
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../fpu-cop1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FPU (COP1)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--implemented (MAME-validated workload)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_13" >
+        
+          
+          <label class="md-nav__link" for="__nav_13" id="__nav_13_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Peripherals
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_13_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_13">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Peripherals
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../peripherals/mc/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MC (memory controller)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated; henry RTL status audited 2026-10-27 against main eea6ecb)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../peripherals/ioc2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    IOC2 (serial console)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated; henry RTL status audited 2026-10-27 against main @eea6ecb)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../peripherals/scc/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SCC (Z85C30 console)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (silicon-validated; audited 2026-10-27 against henry main @eea6ecb)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../peripherals/hpc3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    HPC3 (SCSI/enet/DMA, RTC)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME + live-IRIX-trace validated; henry RTL status audited 2026-10-27 against main eea6ecb)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../peripherals/scsi_disk_theory_of_operation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SCSI disk theory of operation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../peripherals/gio64/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GIO64 (bus)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated; henry RTL status audited 2026-10-27 against henry main eea6ecb)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../peripherals/vdma/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VDMA (virtual DMA)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--implemented for memory -> GIO (dma_engine CH_V), 2026-10-18"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../peripherals/dmux1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DMUX (data mux)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (henry status audited 2026-10-27 against main @eea6ecb)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_14" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../graphics/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Graphics
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--implemented (ARM-served model), 2026-10-18"></span>
+  
+
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_14" id="__nav_14_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_14_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_14">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Graphics
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../newport-on-henry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Newport on henry (working, screenshots)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../graphics/rex3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    REX3 (raster engine)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--reference; implemented as an ARM-served software model (2026-10-18)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../graphics/vc2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VC2 (video timing/cursor)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--reference; implemented as part of the ARM-side Newport model (2026-10-18)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../graphics/xmap9/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    XMAP9 (colormap)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--reference; implemented in the ARM-side Newport model (2026-10-18)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../graphics/rb2-ro1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RB2 & RO1 (framebuffer/output)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--reference; RB2 semantics implemented in the ARM-side Newport model (2026-10-18)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../graphics/express-xz/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Express / XZ (hardware geometry)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--reference only (not implemented)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../graphics/irix-software/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How IRIX drives Newport (Xsgi, ng1, GL)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--reference (static reverse engineering of IRIX 6.5.22) + what henry observed on silicon (section 7)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../irix-boot-flow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    IRIX boot flow (annotated)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../methodology/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Methodology (MAME oracle)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--stable"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../fpga_stats/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FPGA build stats
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#block-diagram" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Block diagram
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#walking-the-pipeline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Walking the pipeline
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#r9999-vs-the-r10000-its-named-after" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        r9999 vs. the R10000 it's named after
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#why-it-diverges-from-the-r10000" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why it diverges from the R10000
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configuration-knobs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration knobs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#branch-delay-slots-and-the-control-fsm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Branch delay slots and the control FSM
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-tlb-translation-datapath" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The TLB — translation datapath
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The TLB — translation datapath">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#two-stage-lookup-and-why-conflating-the-stages-bites" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Two-stage lookup (and why conflating the stages bites)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-r_tlb_written-slot-bit-sail-entryvalid" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The r_tlb_written slot bit (= Sail entry.valid)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cp0-state-the-refill-handler-reads-all-must-be-full-width" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CP0 state the refill handler reads (all must be full-width)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#vector-selection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Vector selection
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#segment-decode-mipssegsv" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Segment decode (mipsseg.sv)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="r9999-microarchitecture">r9999 microarchitecture<a class="headerlink" href="#r9999-microarchitecture" title="Permanent link">&para;</a></h1>
+<p><em>The CPU at the center of Henry. <code>r9999</code> is an <strong>out-of-order, superscalar MIPS</strong> core — its name is a wink at the <strong>R10000</strong> (<code>9999 = 10000 − 1</code>), and its shape is deliberately R10000-flavored: register renaming, a reorder buffer, out-of-order issue, separate integer/FP register files. But it implements the <strong>MIPS III</strong> ISA and presents itself as an <strong>R4400</strong> (so IRIX/Indy runs the right path), it fetches, decodes, renames and retires <strong>2 instructions/cycle</strong> instead of 4, and it's tuned to <strong>fit and close timing on an FPGA</strong>.</em></p>
+<p>This page is the r9999 answer to the <strong>R10000 block diagram (Fig. 1-5)</strong> from the MIPS R10000 User's Manual — written in the spirit of <a href="https://www.maizure.org/projects/evolution_x86_context_switch_linux/">maizure.org's reverse-engineering writeups</a>. Every number below is from the RTL in the <a href="https://github.com/dsheffie/r9999"><code>r9999</code></a> submodule (canonical, non-<code>FORMAL</code> config, submodule @ <code>788c412</code>, the commit henry <code>main</code> pins); <code>machine.vh</code> is the parameter header. Sizes are the <code>machine.vh</code> defaults; the bigger configurations built for silicon are listed under <a href="#configuration-knobs">Configuration knobs</a>.</p>
+<h2 id="block-diagram">Block diagram<a class="headerlink" href="#block-diagram" title="Permanent link">&para;</a></h2>
+<pre class="mermaid"><code>flowchart TD
+    SYS["&lt;b&gt;System interface&lt;/b&gt;&lt;br/&gt;→ Henry SoC / MC · AXI on FPGA&lt;br/&gt;physical address = 36-bit"]
+    L2["&lt;b&gt;L2 cache&lt;/b&gt;&lt;br/&gt;128 KB · direct-mapped · 16 B line&lt;br/&gt;on-die · inclusive of the L1D&lt;br/&gt;presence + colour per line · back-invalidate probes"]
+    SYS --- L2
+
+    subgraph FE["Front end — 2 instructions / cycle"]
+        BP["&lt;b&gt;Branch predictor&lt;/b&gt; — mini-TAGE&lt;br/&gt;bimodal 16K × 4 slots × 2-bit&lt;br/&gt;+ T1 (16b hist) + T2 (48b hist), 1K tagged each&lt;br/&gt;BTB 128 + mini-ITTAGE 256 · return stack 4"]
+        L1I["&lt;b&gt;L1 I-cache&lt;/b&gt;&lt;br/&gt;32 KB · 2-way (1-bit LRU) · 16 B line"]
+        FQ["Fetch queue · 8 entries&lt;br/&gt;2 LUTRAM banks"]
+        BP --&gt; L1I --&gt; FQ
+    end
+
+    subgraph REN["Decode / rename — 2-wide"]
+        DEC["&lt;b&gt;decode_mips&lt;/b&gt;&lt;br/&gt;2 uops / cycle"]
+        DQ["Decode queue · 4"]
+        MAP["&lt;b&gt;Rename maps&lt;/b&gt;&lt;br/&gt;INT-RAT · FP-RAT · HILO-RAT · FCR-RAT&lt;br/&gt;+ free lists"]
+        DEC --&gt; DQ --&gt; MAP
+    end
+
+    subgraph OOO["Out-of-order issue"]
+        ROB["&lt;b&gt;Reorder buffer&lt;/b&gt; · 16 entries&lt;br/&gt;even/odd banked · alloc (mrob) / completion (crob) split&lt;br/&gt;retire 2 / cycle"]
+        ISCH["&lt;b&gt;Integer scheduler&lt;/b&gt; · 8 entries&lt;br/&gt;age-matrix oldest-ready · 1 ALU / cycle"]
+        MQS["&lt;b&gt;LSU&lt;/b&gt;&lt;br/&gt;mem UQ 4 → age-matrix pool 8&lt;br/&gt;→ request queue 4"]
+        FQS["&lt;b&gt;FP queue&lt;/b&gt; · 8 entries&lt;br/&gt;+ registered FP read stage"]
+    end
+
+    subgraph PRF["Physical register files"]
+        IPRF["&lt;b&gt;INT PRF&lt;/b&gt; (clustered) · 2 banks × 64&lt;br/&gt;rf4r2w 4R/2W · 1 write port per bank&lt;br/&gt;non-mem bank + mem (load) bank"]
+        FPRF["&lt;b&gt;FP PRF&lt;/b&gt; (clustered) · 2 banks × 64&lt;br/&gt;FP-arith/move + mem (load) banks"]
+        HILO["&lt;b&gt;HILO PRF&lt;/b&gt; · 4 × 128-bit"]
+    end
+
+    subgraph EXU["Execution units"]
+        ALU["&lt;b&gt;Integer ALU&lt;/b&gt;&lt;br/&gt;1-cycle"]
+        MUL["&lt;b&gt;Multiplier&lt;/b&gt;&lt;br/&gt;3-cycle → HILO"]
+        DIV["&lt;b&gt;Unified divider&lt;/b&gt;&lt;br/&gt;int div → HILO · FP div/sqrt&lt;br/&gt;iterative · 1 op in flight"]
+        LSU["&lt;b&gt;Load / Store&lt;/b&gt;&lt;br/&gt;AGU integrated"]
+        FPU["&lt;b&gt;COP1 FPU&lt;/b&gt;&lt;br/&gt;S/D add · mul · compare (4-cycle)&lt;br/&gt;convert · abs/neg/mov"]
+    end
+
+    ITLB["&lt;b&gt;I-TLB&lt;/b&gt;&lt;br/&gt;2-entry micro-ITLB → 48-entry FA CAM"]
+    DTLB["&lt;b&gt;D-TLB&lt;/b&gt;&lt;br/&gt;48-entry FA CAM"]
+    TSH["TLB shadow RAM · 48&lt;br/&gt;tlbr index reads · tlbwi/tlbwr broadcast to both CAMs"]
+    L1D["&lt;b&gt;L1 D-cache&lt;/b&gt;&lt;br/&gt;16 KB · direct-mapped · 16 B line · VA-indexed&lt;br/&gt;hit-under-miss · 8-slot store buffer · skid bypass"]
+
+    FQ --&gt; DEC
+    MAP --&gt; ROB
+    MAP --&gt; ISCH
+    MAP --&gt; MQS
+    MAP --&gt; FQS
+    ISCH --&gt; ALU
+    ISCH --&gt; MUL
+    ISCH --&gt; DIV
+    MQS --&gt; LSU
+    FQS --&gt; FPU
+    FQS --&gt; DIV
+    IPRF -.-&gt;|read| ALU
+    IPRF -.-&gt;|read| LSU
+    FPRF -.-&gt;|read| LSU
+    FPRF -.-&gt;|read| FPU
+    HILO -.-&gt; MUL
+    HILO -.-&gt; DIV
+    FPU --&gt; ROB
+    ALU --&gt; ROB
+    LSU --&gt; L1D
+    LSU --&gt; DTLB
+    L1I --&gt; ITLB
+    L1I --&gt; L2
+    L1D --&gt; L2
+    TSH -.-&gt;|sync| ITLB
+    TSH -.-&gt;|sync| DTLB</code></pre>
+<h2 id="walking-the-pipeline">Walking the pipeline<a class="headerlink" href="#walking-the-pipeline" title="Permanent link">&para;</a></h2>
+<p><strong>Front end.</strong> Fetch is <strong>2-wide</strong>: each cycle the <strong>L1 I-cache</strong> (32 KB, <strong>2-way</strong> set-associative, 16 B lines, 1 bit/set LRU; victim = an invalid way, else the LRU way) pushes <strong>at most two instructions</strong> into an <strong>8-entry fetch queue</strong>, pairing an instruction with a following taken direct branch. The queue is two LUTRAM banks (entry <em>i</em> lives in bank <em>i</em>[0]), so each bank sees one write and one read per cycle. A 4-wide fetch was tried and dropped: it bought nothing on <code>compress</code>/CoreMark/Dhrystone (within 0.3%) and cost ~3.3K LUTs. The second L1I way uses the same index bits, so it adds no VIPT alias bits; it removed most L1I conflict misses (<code>m88ksim</code> 1.48M → 0.41M per 10M instructions). <em>(<code>l1i.sv</code> — <code>t_push_insn{,2}</code>, <code>r_lru_out</code>)</em></p>
+<p><strong>Branch prediction (mini-TAGE + mini-ITTAGE).</strong> Direction comes from a small TAGE:
+- <strong>Bimodal base.</strong> A PC-indexed table of <strong>16K entries</strong>, one per 16 B fetch line, each packing <strong>four 2-bit counters</strong> (one per instruction slot). <em>(<code>compute_pht_idx</code>, <code>LG_PHT_SZ=14</code>)</em>
+- <strong>Two tagged tables.</strong> <strong>T1</strong> folds the newest <strong>16 bits</strong> of global history into its index and tag; <strong>T2</strong> folds all <strong>48 bits</strong> (<code>GBL_HIST_LEN=48</code>). Each has <strong>1K entries</strong> of <code>{valid, 9-bit tag, 2-bit slot, 3-bit counter, 2-bit useful}</code> in one RAMB18 (<code>LG_TAGE_SZ=10</code>, <code>TAGE_TAG_W=9</code>). Lookup is single-cycle; the longest-history table that hits overrides the bimodal for its slot.
+- <strong>Training at retire.</strong> Updates come from fetch-time copies of the entries, kept per fetch group in a 64-entry front-end table (<code>LG_BPU_TBL_SZ=6</code>), so retire does blind writes with no read. Only the provider trains. A provider mispredict allocates in the first longer table whose entry is free (<code>!valid || u==0</code>), else ages the candidates. Useful bits count when the provider and the alternate disagree and the provider was right.</p>
+<p>Indirect targets: a <strong>128-entry PC-indexed BTB</strong> is the default and trains on every retired indirect. A <strong>256-entry mini-ITTAGE</strong> (<code>LG_ITT_SZ=8</code>, <code>{valid, 9-bit tag, 2-bit confidence, target}</code>, indexed by PC ^ the T1 16-bit history) is read beside it, and a tag hit overrides the BTB. It allocates only when the BTB mispredicts, so single-target jumps stay in the BTB (<code>perl</code> indirect mispredicts 42% → ~10%). A <strong>4-entry return stack</strong> completes the predictor. Speculative <em>and</em> architectural copies of the history and return stack are kept. On a restart both are restored from the post-retire state (<code>n_arch_*</code>), so a mispredicted call/return can't leave the speculative stack one entry off. Against the old 128 Kbit gshare, the mini-TAGE cut <code>go</code> mispredicts per 1K instructions by 19–22%. <em>(<code>l1i.sv</code>; <code>machine.vh</code>)</em></p>
+<p><strong>Decode / rename (2-wide).</strong> <code>decode_mips</code> cracks up to two instructions into uops; a <strong>4-entry decode queue</strong> buffers them for the allocator, which renames through four maps — <strong>integer</strong>, <strong>FP</strong>, <strong>HILO</strong>, and the FP condition-code (<strong>FCR</strong>) RATs with free lists — onto the physical register files. <em>(<code>decode_mips.sv</code>, <code>core.sv</code>)</em></p>
+<p><strong>Out-of-order issue.</strong> Renamed uops allocate into a <strong>16-entry reorder buffer</strong>, banked even/odd so the two entries allocated (or retired) in a cycle always land in different banks → 2 allocate and 2 retire per cycle. The ROB's storage is further split rv64core-style into <strong>alloc-only fields</strong> (<code>mrob_entry_t</code>, one write port per bank, no reset → LUTRAM) and <strong>completion-written fields</strong> (<code>crob_entry_t</code>, multi-ported flops); <code>rob_merge</code> presents the union to readers. Integer ALU ops wait in an <strong>8-entry scheduler</strong> that picks the <strong>oldest ready</strong> entry via an age matrix. Memory ops go through an in-order <strong>mem uop queue (4)</strong> into the <strong>LSU</strong> (below), and FP-compute ops flow through a separate <strong>8-entry FP queue</strong> with a registered FP read stage feeding the COP1 FPU (or the divider, for div/sqrt). <em>(<code>core.sv</code> — <code>r_rob_even/odd</code>, <code>r_mrob_even/odd</code>; <code>exec.sv</code>)</em></p>
+<p><strong>Memory pipeline (LSU, non-blocking L1D).</strong> The LSU is an <strong>8-entry age-matrix pool</strong> (<code>LG_MEM_SCHED_ENTRIES=3</code>) behind the mem uop queue. Simple loads stay in the pool until answered; plain stores do their <strong>address pass at issue</strong> (translation, fault check, PA/mask recorded in the L1D-side <strong>store buffer</strong>, one slot per LSU entry), capture their data separately, and are <strong>written to the cache in program order after they retire</strong>. A younger load compares its PA against the older stores' store-buffer slots and <strong>forwards from the youngest fully covering store</strong>; partial overlaps block the load until the store drains. Merge loads/stores (<code>lwl/lwr/ldl/ldr</code>, <code>swl/swr/sdl/sdr</code>) and <code>sc/scd</code> are LSU ops too (SC issues only when oldest). The <strong>L1D</strong> serves <strong>hits under an outstanding miss</strong> (port 2 keeps running while a fill is in flight), returns fill data straight to the owning load, and parks misses/conflicts in an <strong>8-entry retry queue</strong> (MRQ). Loads that are uncacheable — by segment <em>or</em> by the matched TLB entry's <code>C</code> attribute — are released by the MRQ only when non-speculative (at the ROB head, or the head's committable delay slot). Wrong-path memory ops are dropped by a 1-bit <strong>restart color</strong> rather than waited out, so a flush only waits for non-memory ops. CACHE hit-type ops (<code>Hit-Invalidate</code>/<code>Hit-WB-Invalidate</code>/<code>Hit-WB</code> on the D-side) are LSU ops translated through the D-TLB and admitted only at the ROB head; a D CACHE op acts on exactly the one 16 B line containing its address. I-side CACHE ops invalidate a <strong>single L1I set</strong> (both ways), not the whole cache, which took IRIX's <code>__cache_wb_inval</code> from 28.8% to 2.1% of samples under Xsgi. A <strong>skid buffer</strong> (<code>ENABLE_L1D_SKID</code>) bypasses the request FIFO when it is empty and the L1D can accept, shortening load-to-use. FP↔GPR moves (<code>mfc1</code>/<code>mtc1</code>/<code>dmfc1</code>/<code>dmtc1</code>) only borrow the mem pipe as a cross-register-file path, so they issue as soon as their operand is ready and are not ordered against other memory ops (<code>ctc1</code>/<code>cfc1</code> still are). An uncached load whose response comes back marked bad takes a <strong>precise data bus error</strong> (DBE, <code>ExcCode 7</code>) at the ROB head. <em>(<code>exec.sv</code> LSU block; <code>l1d.sv</code> — store buffer <code>r_sb_*</code>, MRQ <code>r_mem_q</code>; <code>core.sv</code> <code>is_bus_err</code>; <code>machine.vh</code>)</em></p>
+<p><strong>CP0 ordering.</strong> CP0 writes commit <strong>at retire</strong>, not at execute: <code>mtc0</code>/<code>dmtc0</code> stage <code>{data, reg, 64-bit}</code> in a ROB-indexed buffer (<code>exec.sv r_cp0_stage_*</code>) that <code>core.sv</code> commits when the writer retires (a CP0 writer retires alone), so a wrong-path, squashed or nullified <code>mtc0</code> never changes CP0. All CP0 accesses are <strong>totally ordered</strong> as if CP0 were one renamed register: writers (<code>MTC0/DMTC0/TLBP/TLBR</code>) bump an allocation and a retirement sequence number, and readers (<code>MFC0/DMFC0/TLBR/TLBWI/TLBWR/TLBP/ERET</code>) snapshot the allocation sequence and issue once the committed sequence catches up. <code>mfc0</code>/<code>dmfc0</code> are therefore not oldest-first, except reads of <code>Cause</code>: its IP bits are asynchronous and the CP0 sequence does not order a read behind older loads and stores, so an <code>mfc0</code> of <code>Cause</code> waits for the ROB head (IRIX's <code>wbadaddr</code> reads <code>Cause.IP6</code> right after flushing a posted store). <code>mtc0</code> to registers only software reads (<code>Index</code>, <code>EntryLo0/1</code>, <code>Context</code>, <code>PageMask</code>, <code>EPC</code>, <code>XContext</code>, <code>ErrorEPC</code>, the console reg) is a plain pipelined op, while writes to registers the machine consumes implicitly (<code>Status</code>, <code>EntryHi</code>, <code>Config</code>, <code>Cause</code>, <code>Count</code>, <code>Compare</code>, <code>Wired</code>, Watch) still serialize. <em>(<code>core.sv</code> — <code>r_cp0_alloc_seq</code>/<code>r_cp0_retire_seq</code>; <code>exec.sv</code>; <code>decode_mips.sv</code> MFC0/DMFC0)</em></p>
+<p><strong>Misprediction / exception recovery — no RAT checkpoints.</strong> r9999 keeps two rename maps per register class: the speculative <strong>allocation RAT</strong> and a <strong>retirement RAT</strong> that follows the committed architectural map. On a branch mispredict or exception it does <strong>not</strong> roll back to a per-branch snapshot. Instead the machine <strong>drains</strong> (state <code>DRAIN</code>): younger uops are squashed and it waits for the offending op to reach the head of the 16-entry ROB — at which point the <em>retirement</em> RAT already holds the correct map. It waits only for in-flight <strong>non-memory</strong> ops (dead memory ops are left to finish and their responses are discarded by restart color), then copies <strong>retirement RAT → allocation RAT</strong> in a single cycle (state <code>RAT</code>: <code>r_alloc_rat &lt;= t_rat_copy ? r_retire_rat : …</code>, and likewise for FP/HILO/FCR) and restarts fetch. No checkpoint storage, no finite-checkpoint allocation stall, and the <em>same</em> path handles both mispredictions and exceptions. <em>(<code>core.sv</code> — <code>DRAIN → RAT → ACTIVE</code> state machine, <code>t_rat_copy</code>)</em></p>
+<div class="admonition note">
+<p class="admonition-title">Why skipping RAT checkpoints is fine</p>
+<p><strong>For a 2-wide machine with a fast restart like r9999, the expected gain from checkpoints is under 2%.</strong> The C++ performance model (<code>sim_ooo</code>, <code>configs/r9999.cfg</code>) puts realistic per-branch checkpoints (4 checkpoints, 1-cycle restore) at +1.6% on average, with the ROB grown to 32 entries; a 2-cycle restore drops that to +0.7%, and doubling to 8 checkpoints only reaches +1.8%. The drain is short because the ROB is shallow and only non-memory ops are waited for. Checkpoints start to pay on a much deeper machine: the same model shows +8–12% for a 4-wide, 256-entry-ROB configuration, where a drain waits behind far more in-flight work.</p>
+<p>Per-branch <strong>RAT checkpointing</strong> (snapshot the logical→physical map at each branch, restore it in one cycle, and reclaim the physical registers allocated since) is one way a PRF machine can recover; the R10000 is the classic example. It is not the only one. The <strong>Pentium 4</strong> (NetBurst) had r9999's arrangement: a 128-entry physical register file, a status-only ROB, and two maps, a <strong>Frontend RAT</strong> and a <strong>Retirement RAT</strong> (<a href="https://www.ece.uvic.ca/~amiralib/courses/p4.pdf">Hinton et al., <em>The Microarchitecture of the Pentium 4 Processor</em>, Intel Technology Journal Q1 2001</a>, Figure 5; "upon retirement, no result data values are actually moved from one physical structure to another"). A retirement RAT is what lets a PRF machine recover from committed state instead of from per-branch snapshots, and that is what r9999 does: drain to commit, then copy retirement RAT → allocation RAT, on the judgment that the modest drain latency is fine. The P6 family recovered from committed state as well, but it is a data-in-ROB design with no PRF, so P4 is the direct precedent.</p>
+<p>The known cost of waiting for retirement is a mispredicted branch stuck behind an older long-latency operation. Intel removed exactly this restriction in Nehalem: "in the prior generation microarchitecture, the new stream of instructions that is fetched on the correct path after a mispredicted branch was not allowed to allocate into the ROB, until the mispredicted branch in question was retired. In this generation of microarchitecture, we remove that restriction" (<a href="https://www.intel.com/content/dam/www/public/us/en/documents/research/2010-vol14-iss-3-intel-technology-journal.pdf"><em>The Next-Generation Intel Core Microarchitecture</em>, Intel Technology Journal Vol. 14 Issue 3, 2010</a>, p. 16; their example is a branch behind a load that misses to memory). r9999 still has the pre-Nehalem behavior, and on MIPS the delay slot makes it worse: a delay-slot load that misses must retire before the drain can finish, and an early-restart attempt to avoid that was reverted.</p>
+<p><strong>The delay slot was part of the reason too.</strong> The core was a MIPS design from the start, and on MIPS a per-branch checkpoint sits in the wrong place: after a mispredict the delay slot must still execute, so the snapshot has to be the map <em>after</em> the slot, not at the branch. The slot can itself fault, and under branch-likely it may be nullified, and each case needs its own snapshot-or-not rule. Restoring from the retirement RAT avoids all of it: the branch and its delay slot retire together, so the committed map is right by construction.</p>
+<p><strong>Henry Wong's thesis</strong> gives the matching quantitative corroboration — <em>A Superscalar Out-of-Order x86 Soft Processor for FPGA</em>, U. Toronto 2017 (Ch. 7, Register Renaming). Two advantages over checkpoints: <strong>one mechanism covers both branch mispredictions and exceptions</strong>, and there's <strong>no cap on outstanding branches</strong> (checkpoints are finite — the R10000 stalls when it runs out). The drawback — recovery isn't instantaneous; the bad branch must commit first — he measures at only <strong>~2.3 % of cycles (≈ 4 clocks per pipeline flush)</strong>, and that's an <em>upper bound</em> (the core is usually still retiring useful older work). It stays small because branches <strong>resolve in program order</strong> (mispredicts detected near commit) and a <strong>long front end</strong> delays corrected-path instructions until after the drain.</p>
+</div>
+<p><strong>Register files (clustered).</strong> The integer PRF is a <strong>clustered (banked) register file</strong> (<code>rf4r2w</code>, 4 read / 2 write): it's split into <strong>two single-write-port banks</strong> selected by the high bit of the physical-register number — a <strong>non-memory bank</strong> written by ALU/move results (write port 0) and a <strong>memory bank</strong> written by load results (write port 1). That's the whole reason the physical-register count is large: <strong>2 banks × 64 = 128</strong>, not a deep rename window. It's the FPGA-friendly way to get two write ports per cycle out of plain single-write-port RAMs (a Henry-Wong-style clustered RF) instead of paying for a true multi-write-port file. The <strong>FP PRF</strong> (<code>fp_regfile.sv</code>) is banked the same way (bank 0 = FP-arithmetic and move results, bank 1 = FP loads, selected by the physical-reg MSB, with a registered read stage), the <strong>FCR</strong> (FP condition codes) has its own 4-entry rename domain, and a small <strong>4 × 128-bit HILO PRF</strong> holds multiply/divide results. The effective rename window is still bounded by the <strong>16-entry ROB</strong>. <em>(<code>rf4r2w.sv</code> — "Clustered (banked) register file"; <code>fp_regfile.sv</code>; <code>exec.sv</code>)</em></p>
+<p><strong>Execution units.</strong> One <strong>integer ALU</strong> (1-cycle), a <strong>3-cycle pipelined multiplier</strong> (<code>MUL_LAT=3</code>), a <strong>unified iterative divider</strong> (<code>uni_divider.sv</code>, instance <code>d0</code>) and a <strong>load/store unit</strong> with address generation folded in (no separate AGU stage) feeding the L1 D-cache. The unified divider runs integer <code>div/divu/ddiv/ddivu</code> (writing the HILO PRF; a coarse leading-zero skip of 8/16/32 steps keeps small divides short, worst case reserved as <code>DIV32_LAT = 66</code> cycles) <strong>and IEEE single/double <code>DIV</code> and <code>SQRT</code></strong> on one shared restoring recurrence, one op in flight. The FP iteration count is sized by precision (<code>.s</code>: 27 for divide, 26 for sqrt; <code>.d</code>: 56/55), so an in-loop <code>div.s</code> takes 36 cycles instead of 65; FP div/sqrt pop from the FP queue only when the unit is free and drain into the FP writeback port. The <strong>COP1 FPU</strong> proper is a unified single/double <strong><code>fpu_add</code></strong> (add+sub) and <strong><code>fpu_mul</code></strong> (mul) — the format bit selects S/D, <strong>fixed 4-cycle latency</strong> (<code>FPU_LAT=4</code>), FCSR.RM rounding — plus a unified <strong><code>fpu_compare</code></strong> (all 16 <code>C.cond</code> predicates, writes the FCR condition-code bit), single-cycle <strong>abs/neg/mov</strong>, and a single-cycle <strong>convert path</strong> (<code>fpu_f2f</code>/<code>fpu_f2i</code>/<code>fpu_i2f</code>: <code>CVT.S.D</code>/<code>CVT.D.S</code>, <code>CVT.{W,L}.{S,D}</code> with ROUND/TRUNC/CEIL/FLOOR, and <code>CVT.{S,D}.{W,L}</code>). The datapaths are <strong>normalized-only</strong>: a denormal operand or an underflowing result raises the <strong>Unimplemented-Op (E)</strong> bit, which traps as an <strong>FP Exception</strong> (<code>ExcCode 15</code>, <code>FCSR.Cause.E</code>) so the OS soft-float emulator finishes the op; a catch-all <code>FP_UNIMPL</code> uop does the same for any COP1 op not decoded in hardware (trap-and-emulate rather than <code>SIGILL</code>). The core reports an R4000-family FPU id (<code>FIR = 0x500</code>). <em>(<code>exec.sv</code>, <code>fpu.sv</code>, <code>fpu_add.sv</code>, <code>fpu_mul.sv</code>, <code>fpu_compare.sv</code>, <code>fpu_f2f.sv</code>, <code>fpu_f2i.sv</code>, <code>fpu_i2f.sv</code>, <code>mul.sv</code>, <code>uni_divider.sv</code>)</em></p>
+<p><strong>FP exceptions and control.</strong> <code>Status.CU1</code> (R/W, resets 0) gates the FPU for <strong>lazy context switch</strong> — a COP1 op with <code>CU1=0</code> raises <strong>Coprocessor-Unusable</strong> (<code>Cause.CE=1</code>). <code>Status.FR</code> (R/W, resets 1) selects the register mode: <strong>FR=1</strong> (<code>n32</code>/<code>n64</code>, 32×64-bit) is the full path; <strong>FR=0</strong> (<code>o32</code>) is handled by decode-force — odd-register compute and doubleword ops become <strong>Reserved Instruction</strong>, while single-word <code>lwc1</code>/<code>swc1</code>/<code>mtc1</code>/<code>mfc1</code> do a half merge/extract through the even register. The IEEE flags <code>{V,Z,O,U,I}</code> (and the denorm-operand/result → E flag, which <strong>always</strong> traps) are carried ROB-side-band with each result: on a trap they set <code>FCSR.Cause</code>, otherwise they OR into the sticky <code>FCSR.Flags</code> at retire. FP moves (<code>mtc1</code>/<code>mfc1</code>, <code>dmtc1</code>/<code>dmfc1</code>, <code>cfc1</code>/<code>ctc1</code> with <code>FCR0=FIR</code>, <code>FCR31=FCSR</code>) and FP load/store (<code>lwc1</code>/<code>swc1</code>, <code>ldc1</code>/<code>sdc1</code>) round out the path; FP branches <code>BC1T</code>/<code>BC1F</code>/<code>BC1TL</code>/<code>BC1FL</code> read the FCR condition-code bit and resolve in the integer pipe. <em>(<code>decode_mips.sv</code>, <code>exec.sv</code>, <code>fpu.sv</code>, <code>uop.vh</code>)</em></p>
+<p><strong>Memory &amp; translation.</strong> The L1 D-cache is 16 KB direct-mapped (16 B lines) and <strong>VA-indexed</strong>: a line lives at its virtual set, whose index bits above the 4 KB page offset are its <strong>colour</strong> (2 bits at 16 KB). L1I and L1D arbitrate for a shared <strong>on-die 128 KB direct-mapped L2</strong>, which fronts the <strong>system interface</strong> out to the Henry SoC / memory controller (AXI on the FPGA), with <strong>36-bit physical addresses</strong> (<code>PA_WIDTH=36</code>).</p>
+<p>The L2 is <strong>inclusive of the L1D</strong>, which is what makes VA indexing safe (the R10000's PIdx scheme). Each L2 line records whether the L1D may hold it (<code>pd</code>) and at which colour (<code>pidx</code>). The L2 <strong>probes the L1D at <code>pidx</code> before evicting a <code>pd</code> line</strong>, whichever cache's miss caused the eviction; a dirty copy becomes the victim writeback. An L1D request that hits a <code>pd</code> line filed under a <em>different</em> colour (a synonym) probes the old colour first. The external snoop port has a <strong>write-back-and-invalidate</strong> mode that probes the L1D the same way, which is how device DMA sees coherent data. The protocol is specified in <code>INCLUSIVE_L2_PROTOCOL.md</code> and was exhaustively model-checked in Murphi before the RTL was written; see <a href="../coherence-cache-tlb/#inclusive-l2-and-alias-tracking-proven-in-murphi-first">Inclusive L2 and alias tracking</a>. The TLBs store only <code>TLB_PA_WIDTH</code> (30) PA bits per page, zero-filled to 36 on every read: everything IP22 maps lies below <code>0x40000000</code> (30 bits, so the PROM's memory-bank probe at <code>0x20000000</code> still translates), and the narrower PFN saved ~1.2K LUTs. Translation presents the R4x00 <strong>48-entry fully-associative TLB</strong> (dual-page even/odd, <strong>variable page size 4 KB–16 MB via <code>PageMask</code></strong>, 8-bit ASID, global bit) — but it is <strong>not</strong> a single shared joint TLB. r9999 <strong>duplicates the CAM per L1 cache</strong> — an <strong>I-TLB</strong> in <code>l1i</code> and a <strong>D-TLB</strong> (<code>dtlb</code>) in <code>l1d</code> — so instruction fetch and load/store translate <strong>in parallel</strong> without contending for one structure, and keeps them coherent by <strong>broadcasting every <code>tlbwi</code>/<code>tlbwr</code> to both CAMs</strong> (<code>core_l1d_l1i.sv</code>). Because a content-addressed CAM can't be read by index, a separate <strong>48-entry RAM shadow</strong> (<code>r_shadow_tlb</code> in <code>exec.sv</code>) holds the entries so the index-addressed instructions — <code>tlbr</code> in particular — can read them back. The I-side additionally puts a small <strong>2-entry micro-ITLB</strong> (<code>itlb.sv</code>, <code>N_UITLB_ENTRIES=2</code>) in front of its CAM for a fast translation hit; it caches each entry's <code>PageMask</code> and reuses the CAM's masked compare, so large instruction pages translate correctly. The D-side is the bare 48-way CAM, driven from the request as it is presented to the L1D so the port-2 accept decision stays off the CAM path. <em>(<code>l1i.sv</code>, <code>l1d.sv</code>, <code>itlb.sv</code>, <code>tlb.sv</code>, <code>exec.sv</code>, <code>core_l1d_l1i.sv</code>)</em></p>
+<h2 id="r9999-vs-the-r10000-its-named-after">r9999 vs. the R10000 it's named after<a class="headerlink" href="#r9999-vs-the-r10000-its-named-after" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th></th>
+<th><strong>R10000</strong> (1996)</th>
+<th><strong>r9999</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>ISA</td>
+<td>MIPS IV (R10000)</td>
+<td>MIPS III, <strong>presents as R4400</strong> (<code>PRId 0x0440</code>)</td>
+</tr>
+<tr>
+<td>Fetch / decode / issue / retire</td>
+<td>4-wide</td>
+<td>fetch, decode, rename, retire <strong>2-wide</strong> (8-entry fetch queue)</td>
+</tr>
+<tr>
+<td>Branch prediction</td>
+<td>512-entry 2-bit BHT</td>
+<td><strong>mini-TAGE</strong>: 16K × 4 × 2b bimodal + two 1K tagged tables (16b / 48b history); 128 BTB + 256-entry mini-ITTAGE; 4 RAS</td>
+</tr>
+<tr>
+<td>Physical registers</td>
+<td>64 int + 64 FP (true multiport RF)</td>
+<td><strong>128 int + 128 FP</strong> (clustered: 2 banks × 64) + 4 HILO + 4 FCR</td>
+</tr>
+<tr>
+<td>In-flight window</td>
+<td>32 (active list)</td>
+<td><strong>16 (ROB)</strong></td>
+</tr>
+<tr>
+<td>Mispredict / exception recovery</td>
+<td>per-branch <strong>RAT checkpoints</strong> (finite → caps outstanding branches)</td>
+<td><strong>copy committed RAT after drain</strong> — no checkpoints; one path for mispredict + exception</td>
+</tr>
+<tr>
+<td>Issue queues</td>
+<td>3 × 16 (address / integer / FP)</td>
+<td>8-entry integer scheduler + 8-entry LSU pool + 8-entry FP queue</td>
+</tr>
+<tr>
+<td>Load/store</td>
+<td>address queue, non-blocking</td>
+<td><strong>LSU</strong> with store buffer + store→load forwarding, hit-under-miss L1D, stores written after retire</td>
+</tr>
+<tr>
+<td>Functional units</td>
+<td>2 ALU + addr-calc + FP add + FP mul</td>
+<td><strong>1 ALU + mul + unified int/FP divider + load/store + COP1 FPU</strong> (unified S/D add + mul + compare + convert; abs/neg/mov)</td>
+</tr>
+<tr>
+<td>L1 I / D</td>
+<td>32 KB 2-way each</td>
+<td><strong>L1I 32 KB 2-way</strong>; <strong>L1D 16 KB direct-mapped, VA-indexed</strong></td>
+</tr>
+<tr>
+<td>L2</td>
+<td>off-chip, 512 KB–16 MB, dedicated controller</td>
+<td><strong>on-die 128 KB direct-mapped, inclusive of the L1D</strong> (512 KB on the perf bitstreams)</td>
+</tr>
+<tr>
+<td>TLB</td>
+<td>64-entry, single shared</td>
+<td><strong>48-entry FA CAM, duplicated per L1</strong> (I-TLB + D-TLB) + RAM shadow + 2-entry micro-ITLB; R4x00-style software model</td>
+</tr>
+<tr>
+<td>Register width / FPU</td>
+<td>64-bit · full pipelined FPU</td>
+<td>64-bit · <strong>COP1 FPU</strong>: unified S/D add + mul + compare + full convert set (4-cycle arith) + moves/ld-st/branches; <strong>div/sqrt on the shared iterative divider</strong>; denormals trap to soft-float via an Unimplemented-Op (E) trap</td>
+</tr>
+</tbody>
+</table>
+<h2 id="why-it-diverges-from-the-r10000">Why it diverges from the R10000<a class="headerlink" href="#why-it-diverges-from-the-r10000" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>It's an R4x00 <em>ISA</em> target, not an R10000.</strong> IRIX's <code>/unix</code> branches on <code>PRId.IMP</code> in <code>start</code>. r9999 presents an <strong>R4400</strong> (imp <code>0x04</code>, rev <code>0x40</code>): an earlier R4600 setting (imp <code>0x20</code>) was used to dodge what turned out to be a since-fixed TLB bug, and the R4400 is preferred because IRIX honors its <code>Config.DB</code> bit and manages <strong>16-byte L1 lines</strong> to match r9999's (<code>LG_L1D_CL_LEN=4</code>), whereas the R4600 path hardcodes 32-byte lines (see the comment above <code>PRID_VALUE</code> in <code>machine.vh</code>). The <strong>48-entry TLB</strong> mirrors the R4x00 (not the R10000's 64), which is also what IRIX's <code>wirepda</code>/refill code expects.</li>
+<li><strong>It's built for an FPGA.</strong> 2-wide fetch/decode/retire instead of 4, a direct-mapped L1D and L2, and a modest on-die L2 keep LUT/BRAM/timing in budget on the Ultra96-v2 (Zynq UltraScale+). Conversely the <strong>branch predictor is much larger</strong> than the R10000's BHT: block RAM is cheap on FPGA, so the bimodal and both TAGE tables live in BRAM and prediction accuracy is bought with RAM rather than logic.</li>
+<li><strong>The big physical-register counts are a clustered RF, not a deep window.</strong> 128 INT / 128 FP physical registers = <strong>2 banks × 64</strong>. Each register file is split into two single-write-port banks (non-memory results vs memory/load results), selected by the preg-number MSB, so the core gets two write ports per cycle from cheap single-write-port FPGA RAMs instead of a true multi-write-port file. The architectural rename window is still gated by the <strong>16-entry ROB</strong> — the count is an implementation artifact of the banking, not extra in-flight capacity.</li>
+<li><strong>No RAT checkpoints — even though it's a PRF machine.</strong> The R10000-style per-branch checkpoint scheme was available, but r9999 drains to the ROB head and restores the map from the retirement RAT; the Pentium 4 had the same frontend + retirement RAT pair over a PRF. Delay slots make per-branch checkpoints awkward on MIPS, and Wong (Ch. 7) measures the drain cost as small. See the rename-recovery note above.</li>
+<li><strong>The FPU shares one iterative divider with the integer side.</strong> Unified single/double <code>fpu_add</code>/<code>fpu_mul</code> (4-cycle), a unified <code>fpu_compare</code>, single-cycle abs/neg/mov, and the full single-cycle convert path are pipelined datapath; <strong>div and sqrt run on <code>uni_divider</code></strong>, the same restoring recurrence that does integer division (one op in flight), instead of a dedicated pipelined FP divide/sqrt like the R10000's. Before that unit existed every FP div/sqrt trapped to the OS emulator; now only <strong>denormal</strong> operands/results (and any COP1 op not decoded in HW) raise the <strong>Unimplemented-Op (E)</strong> bit and trap to soft-float. <code>Status.CU1</code> gives lazy-FPU context switching and <code>Status.FR</code> selects n32/n64 (FR=1) vs o32 (FR=0, decode-forced); the core reports an R4000-family FPU id so software probes succeed. Validation at FPU bring-up: <code>tests/fpu/*</code> co-sim clean, the FPU-enabled IP22 Linux kernel boots to <code>/init</code> under lazy-FPU, and an <code>awk</code> double-precision self-test runs correctly on Henry <strong>silicon</strong>. Current area/timing is on the <a href="../fpga_stats/">FPGA stats</a> page.</li>
+</ul>
+<h2 id="configuration-knobs">Configuration knobs<a class="headerlink" href="#configuration-knobs" title="Permanent link">&para;</a></h2>
+<p><code>machine.vh</code> sizes are defaults. The cache sizes (<code>LG_L1D_NUM_SETS</code>, <code>LG_L1I_NUM_SETS</code>, <code>LG_L2_NUM_SETS</code>), <code>TLB_PA_WIDTH</code> and the usable LSU and ALU-scheduler counts (<code>MEM_SCHED_ENTRIES</code>, <code>INT_SCHED_ENTRIES</code>, which may be non-power-of-2) are wrapped in <code>`ifndef</code>, so a build can set them from the command line. The ROB size (<code>LG_ROB_ENTRIES</code>) and the log2 pool sizes (<code>LG_MEM_SCHED_ENTRIES</code>, <code>LG_INT_SCHED_ENTRIES</code>) are not; changing them means editing <code>machine.vh</code>. The configurations actually built for henry silicon:</p>
+<table>
+<thead>
+<tr>
+<th>config</th>
+<th>ROB</th>
+<th>ALU sched</th>
+<th>LSU</th>
+<th>L1D / L1I</th>
+<th>L2</th>
+<th>use</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>default</td>
+<td>16</td>
+<td>8</td>
+<td>8</td>
+<td>16 KB / 32 KB</td>
+<td>128 KB</td>
+<td>the numbers on this page</td>
+</tr>
+<tr>
+<td>perf</td>
+<td>32</td>
+<td>8</td>
+<td>12</td>
+<td>16 KB / 32 KB</td>
+<td>512 KB</td>
+<td>IRIX Quake, Doom</td>
+</tr>
+<tr>
+<td><code>TINY_CORE</code></td>
+<td>16</td>
+<td>4</td>
+<td>4</td>
+<td>4 KB / 8 KB</td>
+<td>16 KB</td>
+<td>fast SoC/device bring-up builds</td>
+</tr>
+</tbody>
+</table>
+<p>At 100 MHz on the ZU3EG the perf configuration only just fits. It closed timing once the TLBs stopped storing unused PA bits (<code>TLB_PA_WIDTH</code>). Per-bitstream area and timing are on the <a href="../fpga_stats/">FPGA stats</a> page.</p>
+<div class="admonition note">
+<p class="admonition-title">FPGA timing bottleneck</p>
+<p>In most of the mid-2026 Ultra96-v2 builds the critical path was the <strong>fully-associative 48-entry TLB CAM</strong> behind instruction fetch (icache → 48-way ITLB match → <code>pa</code>), route-dominated. The 48-entry size is fixed by the architecture, so the fix was the <strong>2-entry micro-ITLB</strong> in front of the I-side CAM. Since the memory-system rework (non-blocking L1D + LSU) the worst path has usually been inside the <strong>L1D port-2 pipeline</strong>. At r9999 <code>5c89b70</code> (<strong>WNS +0.120 ns @ 100 MHz</strong>) it was <code>dcache/r_req2</code> → store-buffer/data-array select → D-TLB-dependent response/block decision → tag-RAM address → <code>r_hit_busy_addr</code> (35 logic levels, ~67 % route). At <code>c24d139</code> the default (ROB 16) build closes at <strong>WNS +0.083 ns</strong> and the ROB 32 perf build at <strong>+0.134 ns</strong>. See <a href="../fpga_stats/">FPGA stats</a>.</p>
+</div>
+<hr />
+<h2 id="branch-delay-slots-and-the-control-fsm">Branch delay slots and the control FSM<a class="headerlink" href="#branch-delay-slots-and-the-control-fsm" title="Permanent link">&para;</a></h2>
+<p>The single biggest ISA difference between r9999 (MIPS) and its sibling RISC-V soft core <code>rv64core</code> isn't register width or opcodes — it's one architectural rule: <strong>in MIPS the instruction after a branch (the <em>delay slot</em>) always enters the pipeline, and on a taken branch it executes <em>before</em> control reaches the target.</strong> RISC-V has no such rule. That one rule is why r9999's primary control FSM (<code>core.sv</code>) carries a cluster of states <code>rv64core</code> simply doesn't have:</p>
+<table>
+<thead>
+<tr>
+<th>Concern</th>
+<th>r9999 states</th>
+<th>rv64core</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>The delay slot itself</td>
+<td>handled inside <strong><code>DRAIN</code></strong> (<code>r_ds_done</code>); a <code>DELAY_SLOT</code> enum value is declared but never entered</td>
+<td>—</td>
+</tr>
+<tr>
+<td>Precise exceptions with EPC + BD bit</td>
+<td><strong><code>ARCH_FAULT</code> → <code>WRITE_EPC</code> → <code>EXCEPTION_DRAIN</code></strong></td>
+<td>folded inline into <code>ACTIVE</code> → <code>DRAIN</code></td>
+</tr>
+<tr>
+<td>A redirecting branch whose serializing delay slot is not yet allocated</td>
+<td><strong><code>SERIALIZE_IN_FAULTED_DELAY_SLOT</code>, <code>WAIT_FOR_SERIALIZE_IN_FAULTED_DELAY_SLOT</code></strong></td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<p><code>rv64core</code> spends its "extra" states on RISC-V concerns instead — <code>WAIT_FOR_CSR_WRITE</code>, <code>WAIT_FOR_MMU</code>, and a legacy syscall-emulation monitor path — none of which touch control flow. Every corner case below is a place where r9999's FSM must do something the RISC-V machine never thinks about.</p>
+<p><strong>1. The branch and its delay slot are one atomic unit.</strong> When a branch reaches the ROB head needing a redirect, r9999 doesn't just restart — it captures the branch's metadata (<code>n_has_delay_slot</code>, <code>n_take_br</code>, <code>n_restart_pc</code>) and enters <code>DRAIN</code>, and <code>head_of_rob_ptr_valid</code> is held true in <code>DRAIN</code> <em>only while <code>!r_ds_done</code></em> so the delay slot can still retire. The pair commit together (<code>retire</code>/<code>retire_two</code>); you can never retire the branch and squash its slot. <code>rv64core</code>'s branch path is one line — <code>n_restart_pc = t_rob_head.target_pc</code> — retire, redirect, done.</p>
+<p><strong>2. Misprediction recovery must preserve the slot.</strong> r9999 recovers <code>ACTIVE → DRAIN → RAT → ACTIVE</code> (the no-checkpoint recovery described above): it drains younger work <em>but lets the delay slot through</em>, then copies the retirement RAT back. The squash boundary is "after the delay slot," not "after the branch." In <code>rv64core</code> the boundary is simply "after the branch" — there's nothing in between.</p>
+<p><strong>3. Branch-likely nullification.</strong> MIPS <code>beql</code>/<code>bnel</code>/… <em>nullify</em> their delay slot when the branch is <strong>not</strong> taken. r9999 marks these <code>has_nullifying_delay_slot</code>, and <code>DRAIN</code> encodes the rule directly: if <code>r_take_br</code> the slot retires (<code>t_retire</code>) once it completes; if not, <code>t_retire</code> stays 0, the slot is dropped <strong>without waiting for it to complete</strong>, and <code>head_of_rob_ptr_valid</code> is withheld from it so an oldest-first op there (<code>tlbwr</code>, an uncached access, …) can never execute its side effect — <code>n_ds_done</code> is set either way. RISC-V has no branch-likely, so <code>rv64core</code> has no nullify concept at all.</p>
+<p><strong>4. A fault in the delay slot blames the branch.</strong> The famous one. In <code>ARCH_FAULT</code> → <code>WRITE_EPC</code>, r9999 computes <code>n_epc = in_delay_slot ? (pc − 4) : pc</code> and sets <code>n_exc_in_delay = in_delay_slot</code> — <strong>EPC points at the branch, and <code>Cause.BD</code> is set.</strong> On <code>eret</code> the kernel re-executes the branch, which re-executes the slot. <code>rv64core</code> writes <code>n_epc = t_mrob_head.pc</code> — always the faulting instruction's own PC, no BD bit, no <code>−4</code>. (This BD/EPC handling, and gating EPC on <code>Status.EXL</code> for nested refills, is exactly the bug class from <code>MAME_QUESTIONS</code> Q5 / round-7.)</p>
+<p><strong>5. A branch <em>in</em> a delay slot — architecturally UNPREDICTABLE — is given a defined answer.</strong> When the head instruction is itself in a delay slot, r9999 restarts to <code>r_last_branch_target</code> rather than its own <code>target_pc</code>: <code>n_restart_pc = in_delay_slot ? r_last_branch_target : t_rob_head.target_pc</code>. The <em>outer</em> branch wins; the inner branch's target is discarded. Tellingly, this exact ternary appears in <strong>four</strong> states — <code>ACTIVE</code>, <code>DRAIN</code> (a faulting delay slot), <code>WAIT_FOR_SERIALIZE_AND_RESTART</code>, and <code>CACHE_FLUSH</code> — every place a redirect is produced. <code>grep</code> for <code>in_delay_slot</code>/<code>last_branch_target</code> in <code>rv64core/core.sv</code> returns nothing.</p>
+<p><strong>6. The exception boundary can't fall between the pair.</strong> You may not take an interrupt or fault <em>between</em> a branch and its delay slot. r9999 enforces this at allocation: with a fault pending, the alloc condition is gated by <code>r_pending_fault ? r_in_delay_slot : 1'b1</code> — only the delay slot may still be allocated, nothing past it — so the machine resolves the pair before redirecting to a vector. <code>n_in_delay_slot</code> is threaded through rename from the just-allocated branch's <code>has_delay_slot</code>. <code>rv64core</code>'s alloc has no such guard.</p>
+<p><strong>7. When the branch must redirect but its slot hasn't been allocated yet.</strong> A serializing op (<code>mtc0</code>/<code>dmtc0</code> to a register the machine consumes implicitly, <code>ctc1</code>, or an index-type <code>CACHE</code> op) is held in the decode queue until the ROB is empty. If the branch ahead of it reaches the ROB head needing a redirect (<code>faulted</code> — e.g. a mispredict) while that serializing delay slot is still in the decode queue, the pair can't commit together. r9999 routes this through <code>SERIALIZE_IN_FAULTED_DELAY_SLOT</code> / <code>WAIT_FOR_SERIALIZE_IN_FAULTED_DELAY_SLOT</code>: allocate the slot alone, wait for it (<code>rob_next_head</code>) to complete, then resume the normal redirect. Two whole states exist solely for this ordering puzzle; <code>rv64core</code>, with no pair to order, has zero. (The "slot itself faulted" sub-case in the WAIT state is believed unreachable — the only serializing ops can't fault at execute — and carries a <code>//todo</code> in <code>core.sv</code>.)</p>
+<p><strong>The tax.</strong> r9999 needs a 3-state exception sequence (<code>ARCH_FAULT</code> → <code>WRITE_EPC</code> → <code>EXCEPTION_DRAIN</code>) where <code>rv64core</code> writes <code>epc</code>/<code>cause</code> inline and falls straight into <code>DRAIN</code>, plus two extra faulted-delay-slot states and delay-slot bookkeeping threaded through <code>DRAIN</code>, allocation and every redirect — all to honor one ISA rule. This is, literally, the control-complexity tax of branch delay slots that RISC-V was designed to avoid: a win for a scalar 5-stage R2000 pipeline, but on an out-of-order machine the delay slot turns every redirect, every exception, and every squash into a "…and the delay slot" special case.</p>
+<h2 id="the-tlb-translation-datapath">The TLB — translation datapath<a class="headerlink" href="#the-tlb-translation-datapath" title="Permanent link">&para;</a></h2>
+<p>r9999's MMU is a software-managed MIPS TLB: a <strong>48-entry fully-associative JTLB</strong>, instantiated <strong>twice</strong> — one copy in <code>l1i.sv</code> (the ITLB, fetch translation) and one in <code>l1d.sv</code> (the DTLB, load/store translation). Both are kept identical: every <code>TLBWR</code>/<code>TLBWI</code> broadcasts the written entry on <code>tlb_entry_out</code>/<code>tlb_entry_out_valid</code> (assembled in <code>exec.sv</code> from the CP0 staging regs) to <strong>both</strong> caches' <code>tlb_entry_in</code> ports, so one software write lands in both CAMs. The I-side puts a small <strong>2-entry micro-ITLB</strong> (<code>itlb.sv</code>, <code>N_UITLB_ENTRIES=2</code>) in front of its CAM — a fast path with LFSR-random replacement that caches each entry's <code>PageMask</code>, flushed on <code>TLBWI</code>/<code>TLBWR</code> and on an ASID change; the D-side is the bare 48-way CAM. Each CAM is the fully-associative match → priority encode → PFN mux; it was the design's worst timing path until the micro-ITLB took it off the fetch path (see the timing note above).</p>
+<p><strong>Dual-page entries.</strong> Each entry is a MIPS even/odd <em>pair</em>: one <code>VPN2</code> (page number, low bit dropped) plus two physical halves — <code>pfn0/v0/d0/c0/g0</code> (even) and <code>pfn1/v1/d1/c1/g1</code> (odd). <strong>Variable page sizes (4 KB … 16 MB) are supported:</strong> each slot stores <code>PageMask[24:13]</code>, the match ignores the masked VPN2 bits, and a size index selects which VA bit picks the even/odd half (<code>va[12]</code> for 4 KB) and how many VA bits pass through to the PA. <code>PageMask</code> reads back what was written (it is <strong>not</strong> RAZ/WI). The same masked compare and size mux are reused by the micro-ITLB.</p>
+<h3 id="two-stage-lookup-and-why-conflating-the-stages-bites">Two-stage lookup (and why conflating the stages bites)<a class="headerlink" href="#two-stage-lookup-and-why-conflating-the-stages-bites" title="Permanent link">&para;</a></h3>
+<p>A MIPS TLB lookup is <strong>two independent stages</strong>:</p>
+<ol>
+<li><strong>Match</strong> — does any slot's <code>(VPN2, R, ASID/Global)</code> equal the VA's? In <code>tlb.sv</code>:
+   <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>w_hit8k[i]         = (((r_tlb[i].vpn[26:0] ^ va[39:13]) &amp; {15'h7fff, ~r_tlb[i].pagemask[11:0]}) == 27'd0)
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>                     &amp; (r_tlb[i].r == va[63:62]);
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>w_addr_space_match = (r_tlb[i].asid == asid) | (r_tlb[i].g0 &amp; r_tlb[i].g1);
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>w_hits[i]          = w_addr_space_match[i] &amp; w_hit8k[i] &amp; r_tlb_written[i];
+</code></pre></div>
+   The compare is the <strong>full</strong> <code>VPN2 = va[39:13]</code> (27 bits, minus the <code>PageMask</code>-masked low bits) <strong>plus region <code>R = va[63:62]</code></strong>, matching the Sail spec (<code>mips_tlb.sail tlbEntryMatch</code>) — not a 19-bit <code>va[31:13]</code> shortcut. <strong>No match ⇒ TLB Refill.</strong></li>
+<li><strong>Validity</strong> — only <em>after</em> a match: the selected half's <code>V</code> (<code>va[12] ? v1 : v0</code> for 4 KB pages; a higher VA bit for larger pages). <code>V=0 ⇒ TLB-Invalid</code>; a store with <code>D=0 ⇒ TLB-Modified</code>; else <code>PA = {pfn, page offset}</code>.</li>
+</ol>
+<p>The point that bites: <strong>Refill ("no slot for this page") and Invalid ("slot exists but page not present") are different exceptions with different handlers.</strong> Refill = "go look it up"; Invalid = "I have a slot marked not-present, go fault it in."</p>
+<h3 id="the-r_tlb_written-slot-bit-sail-entryvalid">The <code>r_tlb_written</code> slot bit (= Sail <code>entry.valid</code>)<a class="headerlink" href="#the-r_tlb_written-slot-bit-sail-entryvalid" title="Permanent link">&para;</a></h3>
+<p>A slot is matchable <strong>once software has written it</strong> (<code>TLBWR</code>/<code>TLBWI</code>), tracked by a per-slot <code>r_tlb_written</code> bit (set on write, cleared at reset) — <strong>not</strong> by <code>(v0|v1)</code>. This is load-bearing because <strong>demand paging installs both-pages-invalid entries</strong>: the refill handler, finding a not-yet-present PTE, does <code>tlbwr</code> with <code>v0=v1=0</code> (real VPN, zero PFN). That entry <strong>must still match</strong> so the retry takes <strong>TLB-Invalid → <code>do_page_fault</code></strong>, which allocates the page; the next refill then installs <code>V=1</code>. The canonical first-touch of a user page:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>fetch 0x120000230 → no slot     → Refill → tlbwr v0=v1=0 (PTE absent)
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>retry             → slot matches → V=0    → TLB-Invalid → do_page_fault (allocate)
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>retry             → Refill       → tlbwr V=1 (real PFN) → fetch hits → process runs
+</code></pre></div>
+<p>An earlier match used <code>&amp; (v0|v1)</code> instead of <code>&amp; r_tlb_written</code> — a cheap "is this slot real?" guard against power-on garbage VPNs. It worked for valid entries but <strong>excluded the demand-paging <code>v0=v1=0</code> entry</strong>, so the Invalid stage never fired: the retry re-refilled forever, <code>do_page_fault</code> was never reached, and the first user page was never allocated — an <strong>infinite-refill livelock</strong> that blocked Linux/IRIX from running <code>/init</code>. (Found by tracing <code>interp_mips</code> — which <em>does</em> map the page — and an RTL <code>[tlbinstall]</code> probe that showed <code>v0=0 v1=0</code> installs at the right <code>vpn=0x90000</code> that never matched.)</p>
+<p>The fix splits the two meanings exactly as Sail does: <code>entry.valid</code> (<code>mips_tlb.sail:71</code>, set on every TLB write at <code>mips_insts.sail:1749</code>) gates the <strong>match</strong>, while per-page <code>v0/v1</code> drive the <strong>Invalid</strong> exception. <code>r_tlb_written</code> <em>is</em> <code>entry.valid</code>. It is a model/implementation bit, <strong>not</strong> an architectural register field — the R4400 manual has only <code>V0/V1</code>. Real hardware avoids needing it by requiring software to <code>tlb_init</code> all 48 slots to non-matching values at boot; r9999 carries the bit instead, so correctness can't be defeated by a forgotten init in firmware or a bare-metal test. <strong>Timing-free:</strong> a single flop bit replaces the <code>(v0|v1)</code> OR, so the critical CAM term stays a plain 3-input AND.</p>
+<h3 id="cp0-state-the-refill-handler-reads-all-must-be-full-width">CP0 state the refill handler reads (all must be full-width)<a class="headerlink" href="#cp0-state-the-refill-handler-reads-all-must-be-full-width" title="Permanent link">&para;</a></h3>
+<p>The IP22 kernel's runtime-generated XTLB refill handler is a <strong>3-level page-table walk</strong> reading three CP0 sources — a 32-bit truncation in any of them silently corrupts the walk:</p>
+<table>
+<thead>
+<tr>
+<th>CP0 reg</th>
+<th>r9999 contents</th>
+<th>the handler uses it for</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>BadVAddr</code> (8)</td>
+<td>full 64-bit faulting VA (<code>dmfc0</code> returns <code>r_badvaddr</code>, not sign-extended)</td>
+<td>PGD index (<code>BadVAddr&gt;&gt;27</code>) + PMD index (<code>BadVAddr&gt;&gt;18</code>)</td>
+</tr>
+<tr>
+<td><code>Context</code> (4)</td>
+<td><code>{PTEBase[31:23], BadVPN2=va[31:13], 0000}</code> (19-bit VPN2)</td>
+<td>32-bit-addressing PTE pointer</td>
+</tr>
+<tr>
+<td><code>XContext</code> (20)</td>
+<td><code>{XPTEBase[30:0], R[1:0], BadVPN2=va[39:13], 0000}</code> (27-bit VPN2)</td>
+<td>64-bit-addressing PTE index</td>
+</tr>
+</tbody>
+</table>
+<p>On any TLB fault, <code>save_to_tlb_regs</code> (asserted for <strong>both</strong> i-side fetch and d-side load/store misses, <code>core.sv</code>) auto-loads <code>EntryHi.VPN2 = core_badvaddr[39:13]</code>, <code>EntryHi.R = core_badvaddr[63:62]</code>, and <code>BadVPN2</code> — all full. The handler does <strong>not</strong> rewrite <code>EntryHi</code>; it relies on this auto-load, then only <code>dmtc0</code>s <code>EntryLo0/1</code> (the walked PTEs) before <code>tlbwr</code>. So the installed VPN comes entirely from the hardware auto-load.</p>
+<h3 id="vector-selection">Vector selection<a class="headerlink" href="#vector-selection" title="Permanent link">&para;</a></h3>
+<p><code>core.sv</code> picks the refill vector by the <strong>addressing mode of the faulting access</strong>: the <strong>XTLB</strong> vector (<code>base+0x080</code>) when 64-bit addressing is active for that mode (<code>w_in_64b_kernel_mode | w_in_64b_supervisor_mode | w_in_64b_user_mode</code>), else the 32-bit <strong>TLB</strong> vector (<code>base+0x000</code>); both only when <code>EXL=0</code>. A nested miss (<code>EXL=1</code>) and TLB-Invalid/Modified fall to the general vector (<code>base+0x180</code>). <code>base</code> is <code>0x80000000</code>, or <code>0xbfc00200</code> while <code>Status.BEV</code> is set (<code>WRITE_EPC</code> state). n64 user processes run <code>UX=1</code>, so a user miss vectors to XTLB refill — which is why the handler reads <code>XContext</code>.</p>
+<h3 id="segment-decode-mipssegsv">Segment decode (<code>mipsseg.sv</code>)<a class="headerlink" href="#segment-decode-mipssegsv" title="Permanent link">&para;</a></h3>
+<p>Ahead of the CAM, <code>mipsseg</code> classifies the VA: <strong>xkphys</strong> (<code>va[63:62]=10</code>, needs <code>w_in_64b_mode</code>) → unmapped <code>PA=va[58:0]</code>; <strong>xkuseg/xsseg/xkseg</strong> (64-bit mode) → TLB-mapped; <strong>32-bit compat</strong> (sign-extended <code>va[63:32]=ffffffff</code>, or <code>!w_in_64b_mode</code>) → <code>kuseg/kseg0/kseg1/kseg2</code> by <code>va[31:29]</code>. In 32-bit addressing the effective address is first re-sign-extended from bit 31 (<code>w_va</code>), and with <code>Status.ERL</code> set <code>kuseg</code> is unmapped and uncached (PA = VA), which the IP24 PROM relies on when it sizes memory. <code>w_in_64b_mode = in_64b_kernel_mode | in_64b_supervisor_mode | in_64b_user_mode</code>, i.e. <code>(kernel &amp; KX) | (supervisor &amp; SX) | (user &amp; UX)</code> (<code>exec.sv</code>). A mapped non-compat VA outside <code>SEGBITS</code> raises AdEL/AdES.</p>
+<blockquote>
+<p><strong>Doc note:</strong> the older "match only the low-19-bit <code>VPN2</code> / ignore region" workaround (commit <code>e451d50</code>, described in <a href="../coherence-cache-tlb/">Cache, coherence &amp; TLB</a>) was <strong>superseded</strong> by the full Sail-conformant <code>va[39:13]+R</code> compare now in <code>tlb.sv</code>; the high-VA <code>wirepda</code> case it patched is handled correctly because <code>EntryHi</code> stores the full <code>VPN2</code>/<code>R</code> from the GPR (per Sail <code>MTC0</code>).</p>
+</blockquote>
+<p><strong>TLB cacheability:</strong> on the D-side the matched entry's <code>C</code> attribute decides cacheability of a mapped access (<code>C==3</code> cached, anything else uncached), and uncached-by-TLB loads are held until non-speculative (see the LSU paragraph above).</p>
+<p><strong>Open TLB gaps:</strong> the I-side ignores the TLB <code>C</code> attribute (instruction fetch is always cached; <code>l1i.sv</code> leaves <code>cache_attr()</code>/<code>out_of_range()</code> unconnected). Neither side raises an out-of-range-PFN Address Error: the D-side wires <code>out_of_range</code> up, but <code>tlb.sv</code> ties it to 0, and a PFN with bits above <code>TLB_PA_WIDTH</code> aliases low.</p>
+<hr />
+<p><em>All structural facts above are from the r9999 RTL (<code>*.sv</code>) and <code>machine.vh</code>, canonical (non-<code>FORMAL</code>) configuration. The <a href="../irix-boot-flow/">IRIX boot flow</a> page covers what this core <em>runs</em>; this page covers what it <em>is</em>.</em></p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "navigation.top", "navigation.indexes", "navigation.tracking", "toc.follow", "content.code.copy"], "search": "../assets/javascripts/workers/search.a7633da7.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.c21346df.min.js"></script>
+      
+    
+  </body>
+</html>

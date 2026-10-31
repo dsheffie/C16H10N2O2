@@ -1,0 +1,2709 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A from-scratch SoC that impersonates the SGI Indy (IP22) well enough to boot IRIX, built around the r9999 MIPS core.">
+      
+      
+      
+      
+        <link rel="prev" href="../boot-and-console/">
+      
+      
+        <link rel="next" href="../arm-device-protocol/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.0">
+    
+    
+      
+        <title>Cache, coherence & TLB - Henry — the wannabe IP22 SoC</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.57a0d79d.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.fb2fffe2.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="amber">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#cache-coherence-tlb" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Henry — the wannabe IP22 SoC" class="md-header__button md-logo" aria-label="Henry — the wannabe IP22 SoC" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M6 4h12v1h3v2h-3v2h3v2h-3v2h3v2h-3v2h3v2h-3v1H6v-1H3v-2h3v-2H3v-2h3v-2H3V9h3V7H3V5h3zm5 11v3h1v-3zm2 0v3h1v-3zm2 0v3h1v-3z"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Henry — the wannabe IP22 SoC
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Cache, coherence & TLB
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="amber"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="amber"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Henry — the wannabe IP22 SoC" class="md-nav__button md-logo" aria-label="Henry — the wannabe IP22 SoC" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M6 4h12v1h3v2h-3v2h3v2h-3v2h3v2h-3v2h3v2h-3v1H6v-1H3v-2h3v-2H3v-2h3v-2H3V9h3V7H3V5h3zm5 11v3h1v-3zm2 0v3h1v-3zm2 0v3h1v-3z"/></svg>
+
+    </a>
+    Henry — the wannabe IP22 SoC
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../minimum-mmio-to-banner/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Minimum MMIO to boot banner
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (functional-sim validated, MAME-corroborated; Henry-RTL notes re-checked 2026-10-27 against henry eea6ecb)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cpu-integration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CPU integration (r9999)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../r9999-microarchitecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    r9999 microarchitecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../r9999-lineage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    r9999 lineage (MIPS -> RISC-V -> MIPS)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../firmware-arcs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Firmware (ARCS shim)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated; Henry FSBL section checked 2026-10-27 against r9999/arcs/henry_arcs.S + henry_fw.c @ 788c412)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../boot-and-console/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Boot & console
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated; Henry FSBL/console re-checked 2026-10-27 against henry eea6ecb / r9999 788c412)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cache, coherence & TLB
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated; silicon-refined 2026-07; RTL state re-checked 2026-10-27 against henry eea6ecb / r9999 788c412)"></span>
+  
+
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cache, coherence & TLB
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated; silicon-refined 2026-07; RTL state re-checked 2026-10-27 against henry eea6ecb / r9999 788c412)"></span>
+  
+
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#the-r9999-memory-hierarchy-today-r9999-788c412" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The r9999 memory hierarchy today (r9999 788c412)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-coherence-contract" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The coherence contract
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-cache-instruction-decode-routing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The cache instruction — decode &amp; routing
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#r9999s-hidden-l2-and-the-dma-coherence-gap-silicon-2026-07" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        r9999's hidden L2 and the DMA-coherence gap (silicon, 2026-07)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="r9999&#39;s hidden L2 and the DMA-coherence gap (silicon, 2026-07)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-bug-it-causes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The bug it causes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#why-irix-never-invalidates-the-l2-confirmed-in-irixs-own-binary-ghidra" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why IRIX never invalidates the L2 — confirmed in IRIX's own binary (Ghidra)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-secondary-cache-probe-what-sc0-must-satisfy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The secondary-cache probe (what SC=0 must satisfy)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#prid-mismatch-rtl-vs-iss" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ⚠️ PRId mismatch (RTL vs ISS)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fix-options-silicon-results-2026-07-session-status-updated-2026-10" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fix options + silicon results (2026-07 session; status updated 2026-10)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#artifacts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Artifacts
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dma-coherence-on-silicon-arm-requested-flushes-xpg" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DMA coherence on silicon: ARM-requested flushes (XPG)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#inclusive-l2-and-alias-tracking-proven-in-murphi-first" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Inclusive L2 and alias tracking — proven in Murphi first
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tlb" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        TLB
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-wirepda-wired-entry-finding" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The wirepda / wired-entry finding
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cp0-timekeeping-misc" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CP0 timekeeping &amp; misc
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#physical-address-width" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Physical address width
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#detailed-working-notes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Detailed working notes
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../arm-device-protocol/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ARM ↔ device protocol (staging rings)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../bus-errors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Bus errors
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../fpu-cop1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FPU (COP1)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--implemented (MAME-validated workload)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_13" >
+        
+          
+          <label class="md-nav__link" for="__nav_13" id="__nav_13_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Peripherals
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_13_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_13">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Peripherals
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../peripherals/mc/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MC (memory controller)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated; henry RTL status audited 2026-10-27 against main eea6ecb)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../peripherals/ioc2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    IOC2 (serial console)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated; henry RTL status audited 2026-10-27 against main @eea6ecb)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../peripherals/scc/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SCC (Z85C30 console)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (silicon-validated; audited 2026-10-27 against henry main @eea6ecb)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../peripherals/hpc3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    HPC3 (SCSI/enet/DMA, RTC)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME + live-IRIX-trace validated; henry RTL status audited 2026-10-27 against main eea6ecb)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../peripherals/scsi_disk_theory_of_operation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SCSI disk theory of operation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../peripherals/gio64/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GIO64 (bus)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated; henry RTL status audited 2026-10-27 against henry main eea6ecb)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../peripherals/vdma/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VDMA (virtual DMA)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--implemented for memory -> GIO (dma_engine CH_V), 2026-10-18"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../peripherals/dmux1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DMUX (data mux)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (henry status audited 2026-10-27 against main @eea6ecb)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_14" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../graphics/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Graphics
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--implemented (ARM-served model), 2026-10-18"></span>
+  
+
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_14" id="__nav_14_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_14_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_14">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Graphics
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../newport-on-henry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Newport on henry (working, screenshots)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../graphics/rex3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    REX3 (raster engine)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--reference; implemented as an ARM-served software model (2026-10-18)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../graphics/vc2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VC2 (video timing/cursor)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--reference; implemented as part of the ARM-side Newport model (2026-10-18)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../graphics/xmap9/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    XMAP9 (colormap)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--reference; implemented in the ARM-side Newport model (2026-10-18)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../graphics/rb2-ro1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RB2 & RO1 (framebuffer/output)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--reference; RB2 semantics implemented in the ARM-side Newport model (2026-10-18)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../graphics/express-xz/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Express / XZ (hardware geometry)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--reference only (not implemented)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../graphics/irix-software/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How IRIX drives Newport (Xsgi, ng1, GL)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--reference (static reverse engineering of IRIX 6.5.22) + what henry observed on silicon (section 7)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../irix-boot-flow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    IRIX boot flow (annotated)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../methodology/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Methodology (MAME oracle)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--stable"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../fpga_stats/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FPGA build stats
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#the-r9999-memory-hierarchy-today-r9999-788c412" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The r9999 memory hierarchy today (r9999 788c412)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-coherence-contract" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The coherence contract
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-cache-instruction-decode-routing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The cache instruction — decode &amp; routing
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#r9999s-hidden-l2-and-the-dma-coherence-gap-silicon-2026-07" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        r9999's hidden L2 and the DMA-coherence gap (silicon, 2026-07)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="r9999&#39;s hidden L2 and the DMA-coherence gap (silicon, 2026-07)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-bug-it-causes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The bug it causes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#why-irix-never-invalidates-the-l2-confirmed-in-irixs-own-binary-ghidra" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why IRIX never invalidates the L2 — confirmed in IRIX's own binary (Ghidra)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-secondary-cache-probe-what-sc0-must-satisfy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The secondary-cache probe (what SC=0 must satisfy)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#prid-mismatch-rtl-vs-iss" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ⚠️ PRId mismatch (RTL vs ISS)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fix-options-silicon-results-2026-07-session-status-updated-2026-10" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fix options + silicon results (2026-07 session; status updated 2026-10)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#artifacts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Artifacts
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dma-coherence-on-silicon-arm-requested-flushes-xpg" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DMA coherence on silicon: ARM-requested flushes (XPG)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#inclusive-l2-and-alias-tracking-proven-in-murphi-first" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Inclusive L2 and alias tracking — proven in Murphi first
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tlb" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        TLB
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-wirepda-wired-entry-finding" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The wirepda / wired-entry finding
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cp0-timekeeping-misc" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CP0 timekeeping &amp; misc
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#physical-address-width" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Physical address width
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#detailed-working-notes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Detailed working notes
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="cache-coherence-tlb">Cache, coherence &amp; TLB<a class="headerlink" href="#cache-coherence-tlb" title="Permanent link">&para;</a></h1>
+<blockquote>
+<p>Henry's caches are incoherent: r9999's L1i is <strong>not</strong> kept in sync with D-side stores, and the L2,
+while transparent, is hidden from software (<code>Config.SC=1</code> → kernel sees "R4000PC").
+DMA masters — HPC3 (SCSI/Ethernet) and the MC's VDMA graphics engine — are <strong>NON-coherent in
+hardware</strong> on a uniprocessor R4000 (HW snoop is R4000MP-only). So the <code>cache</code> instruction is
+load-bearing: software coherence is mandatory, and r9999 must <strong>honor specific cache ops, not NOP
+them</strong>. The IRIX-behavior facts below (op histograms, routing obligations) were measured by booting
+real IRIX 6.5.22 in MAME (<code>indy_4610</code>, <code>-nodrc</code> interpreter). On henry <strong>silicon</strong>, the guest's own
+cache ops are not enough because of the hidden L2. That was first closed by <strong>ARM-requested page
+flushes</strong> (XPG, 2026-07 to 10-14 — see <a href="#dma-coherence-on-silicon-arm-requested-flushes-xpg">DMA coherence on silicon</a>).
+Today all device DMA goes through henry's <code>dma_engine</code>, whose guest-memory accesses <strong>snoop the
+inclusive L2</strong> through <code>dma_snoop_shim</code> (see <a href="#inclusive-l2-and-alias-tracking-proven-in-murphi-first">Inclusive L2</a>
+and <a href="../arm-device-protocol/">ARM device protocol</a>).</p>
+</blockquote>
+<h2 id="the-r9999-memory-hierarchy-today-r9999-788c412">The r9999 memory hierarchy today (r9999 <code>788c412</code>)<a class="headerlink" href="#the-r9999-memory-hierarchy-today-r9999-788c412" title="Permanent link">&para;</a></h2>
+<p>What the core in the <code>r9999</code> submodule actually builds (defaults in <code>machine.vh</code>; henry's
+<code>gen_mipscore.sh</code> adds only <code>ENABLE_DEBUG_WATCHPOINT</code>):</p>
+<table>
+<thead>
+<tr>
+<th>Structure</th>
+<th>Current RTL</th>
+<th>Where</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>L1I</td>
+<td>32 KB, 2-way (2 × 1024 sets, 1-bit LRU), 16 B lines (<code>LG_L1I_NUM_SETS=10</code>); I-side CACHE ops invalidate one set</td>
+<td><code>l1i.sv</code>, <code>machine.vh</code></td>
+</tr>
+<tr>
+<td>L1D</td>
+<td>16 KB direct-mapped, 16 B lines (<code>LG_L1D_NUM_SETS=10</code>, <code>LG_L1D_CL_LEN=4</code>), <strong>VA-indexed</strong> (2 colour bits); <strong>non-blocking</strong> misses through an 8-entry memory/retry queue (<code>LG_MRQ_ENTRIES=3</code>); holds the payload half of the LSU store buffer</td>
+<td><code>l1d.sv</code></td>
+</tr>
+<tr>
+<td>LSU</td>
+<td>age-ordered memory scheduler (<code>LG_MEM_SCHED_ENTRIES=3</code>): simple loads held until answered, stores held until retired and written; store→load forwarding from the store buffer</td>
+<td><code>exec.sv</code>, <code>l1d.sv</code> (<code>lsu_sb</code>)</td>
+</tr>
+<tr>
+<td>L2</td>
+<td><strong>128 KB</strong> write-back, 16 B lines, direct-mapped (<code>LG_L2_NUM_SETS=13</code>); <strong>inclusive</strong> of the L1D: per-line presence (<code>pd</code>) and colour (<code>pidx</code>), a back-invalidate probe of the L1D before evicting a <code>pd</code> line, synonym probes, and a write-back-and-invalidate snoop for DMA (<code>INCLUSIVE_L2_PROTOCOL.md</code>); <code>l2_nocache</code> (AXI control reg bit 20, set before <code>go</code>) turns it into a pass-through</td>
+<td><code>l2.sv</code></td>
+</tr>
+<tr>
+<td>JTLB</td>
+<td>48 dual entries (<code>N_TLB_ENTRIES=48</code>, architecturally fixed for IRIX), full Sail <code>R</code>+<code>va[39:13]</code> match with <strong>variable PageMask</strong>; stores only <code>TLB_PA_WIDTH=30</code> PA bits, zero-filled to <code>PA_WIDTH=36</code> (r9999 <code>c24d139</code>, <code>50d753c</code>); one copy as the D-side <code>dtlb</code>, one inside <code>itlb.sv</code></td>
+<td><code>tlb.sv:158-181</code>, <code>itlb.sv</code></td>
+</tr>
+<tr>
+<td>micro-ITLB</td>
+<td>2 entries (<code>N_UITLB_ENTRIES=2</code>) in front of the I-side JTLB; honors PageMask; flushed on TLBWR/TLBWI and ASID change</td>
+<td><code>itlb.sv</code></td>
+</tr>
+<tr>
+<td>Config / PRId</td>
+<td><code>Config = 0x0002e483</code> (SC=1, IB=0, DB=0 → 16 B I and D lines), <code>PRId = 0x00000440</code> (R4400)</td>
+<td><code>exec.sv</code> CP0 r16, <code>machine.vh</code> <code>PRID_VALUE</code></td>
+</tr>
+</tbody>
+</table>
+<p>Uncached-by-TLB user loads (a kuseg page whose EntryLo C bit says uncached) only issue at the ROB
+head (r9999 <code>f8dabd4</code>), and CP0 writes commit at retire with all CP0 ops totally ordered (r9999
+<code>94e5e97</code>) — both matter for the TLB-refill and device paths below.</p>
+<h2 id="the-coherence-contract">The coherence contract<a class="headerlink" href="#the-coherence-contract" title="Permanent link">&para;</a></h2>
+<p>Two independent coherence axes, both software-managed:</p>
+<ol>
+<li><strong>I-cache vs D-side stores (code writes).</strong> The kernel writes instructions through L1d/L2 and the
+   L1i then holds a stale copy. Sources of code writes on the boot path:</li>
+<li><strong>Runtime CPU patching</strong> at boot — <code>R4000_jump_war</code>, <code>mtext_fixup_inst</code>, the UTLB-vector patches
+     (<code>need_utlbmiss_patch</code>/<code>utlbmiss_patched</code>).</li>
+<li><strong>Loadable kernel modules</strong> — <code>doelfrelocs</code> relocating module text after load.</li>
+<li>
+<p>Re-patch of already-executed code (the case early boot can't get lucky on).
+   r9999's L1D is write-back, so the patched line first has to leave the L1D (the D-side writeback op
+   in the kernel's I-sync sequence). After that, a <em>cold</em> L1i fetch pulls the patched line from L2 or
+   DRAM correctly; the failure mode is a line that was already resident in L1i before the patch.
+   <strong>⇒ I-cache <code>cache</code> ops MUST flush L1i.</strong></p>
+</li>
+<li>
+<p><strong>D-cache vs DMA.</strong> HPC3 and VDMA master directly to/from physical DRAM with no snoop. The driver
+   issues the coherence ops by hand:</p>
+</li>
+<li><strong>DMA-in</strong> (device → memory): <code>cache Hit-Invalidate-D</code> <em>after</em> the transfer — invalidate the stale
+     cached copy <strong>without</strong> writeback.</li>
+<li><strong>DMA-out</strong> (memory → device): <code>cache Hit-Writeback-Invalidate-D</code> <em>before</em> the transfer — push
+     dirty lines to DRAM so the device reads current data.
+   This split is <strong>architecturally mandated</strong> (vdma.pdf p.1–2,7; hpc3.pdf has zero coherence language),
+   not an IRIX quirk. r9999 still executes these ops as specified (see routing table). On henry the
+   device data is written by <code>dma_engine</code>, and each of its guest-memory accesses is also bracketed by
+   a write-back-and-invalidate snoop of the core's L2 and L1D (<code>rtl/dma_snoop_shim.sv</code>), so henry's
+   DMA is coherent in hardware as well. Before the snooped engine (to 2026-10-14) the ARM deposited
+   the data behind the caches and the invalidate-vs-writeback distinction was correctness-critical.</li>
+</ol>
+<div class="admonition note">
+<p class="admonition-title">External corroboration (independent R4000SC implementation)</p>
+<p><strong>haterMIPS</strong> — Project CYAN's clean-room R4000SC core for the SGI Indigo <strong>IP20</strong> (see
+<a href="../methodology/#related-work">methodology → related work</a>) — reaches the <strong>same</strong> conclusion from the
+CPU side: self-modifying code only works when software issues the full <code>CACHE</code> sequence —
+<strong>D-cache Hit-Writeback-Invalidate + I-cache Hit-Invalidate</strong> — exactly axes 1 and 2 above. Its <code>Config</code>
+reports <code>SC=0/SB=11</code> (a 1 MB / 128 B-line secondary cache) and it implements I$/D$ coherency <em>only</em> via
+those <code>CACHE</code> ops, no snoop. Two independent implementations agreeing the <code>cache</code> op is <strong>load-bearing,
+not NOP-able</strong> is strong evidence the model is right.</p>
+</div>
+<div class="admonition question">
+<p class="admonition-title">FAQ: Do we need snoops (hardware cache coherence) in r9999? — <strong>Not for IRIX</strong> (henry added a DMA snoop anyway; see below)</p>
+<p>Snooping is a <strong>multiprocessor / coherent-DMA</strong> feature: it exists to keep one cache coherent with another
+bus agent (a second CPU or a snooping DMA engine). The real IP22 is a <strong>uniprocessor</strong> with
+<strong>non-coherent DMA</strong>, so there is no other agent to snoop and nothing to build. The whole platform does
+<strong>software</strong> cache coherence instead — which is exactly the contract above.</p>
+<p>The evidence is unanimous:</p>
+<ul>
+<li><strong>HPC3</strong> (the real SCSI/Ethernet DMA path) has <strong>zero snoop hardware</strong> — it just masters the bus to/from
+  physical DRAM; coherence is the driver's job (hpc3.pdf has no coherence language).</li>
+<li><strong>VDMA</strong>'s snoop is <strong>R4000MP-only</strong> — a per-transfer <code>GIO_MODE[5]</code> bit that exists only on the
+  multiprocessor part; on a uniprocessor R4000PC/SC (what r9999 presents as) it is never used, and the
+  kernel software-flushes instead (vdma.pdf p.1–2). The MC's <code>CPUCTRL0.SNOOP_EN</code> bit is for that same
+  MP graphics-DMA path → Henry treats it as a no-op storage bit.</li>
+<li><strong>IRIX confirms it dynamically:</strong> the ~5.2M <code>cache</code> ops/boot we measured <em>are</em> the software coherence —
+  the kernel would not issue them if hardware snooped.</li>
+</ul>
+<p><strong>What r9999 needs <em>instead</em> of snoops</strong> is just to <strong>execute the software cache-management ops correctly
+(not NOP them)</strong> — drive the L1i flush on I-cache invalidate (code coherence), and invalidate-<em>without</em>-
+writeback on <code>Hit-Invalidate-D</code> (DMA-in). See the routing table below. Not building snoop logic is a
+genuine <strong>simplification</strong>, not a shortcut.</p>
+<blockquote>
+<p>⚠️ <strong>Refined by silicon: there IS a second obligation.</strong> Because
+r9999 has a <strong>hidden L2</strong> (unlike the real Indy), executing the guest's <em>primary</em> cache ops isn't
+enough — a speculatively filled stale line can survive for a buffer IRIX never issued a CACHE op
+for. The 2026-07 plan was <code>Config.SC=0</code> so IRIX would issue its secondary invalidates; that was
+<strong>never built</strong> (Config still reports SC=1). The first fix kept the "no snoops" model and
+moved the extra obligation to the <strong>ARM host</strong>, which owned the disk/network deposits: before and
+after each transfer it asked the core to write back / drop the affected pages (XPG). See
+<a href="#dma-coherence-on-silicon-arm-requested-flushes-xpg">DMA coherence on silicon</a>. Since
+2026-10-14 henry does have a <strong>DMA snoop</strong>: the L2 became inclusive of the L1D, and every device
+access is write-back-and-invalidate snooped through it (<code>dma_snoop_shim</code>), so the ARM flushes
+are gone.</p>
+</blockquote>
+<p>Snoops would only ever be needed if Henry went <strong>multiprocessor</strong> (multiple r9999 cores sharing memory) or
+chose to model <strong>coherent DMA hardware</strong>. Henry took the second route in 2026-10 to cover the hidden
+L2 (above). It diverges from the real IP22, but IRIX cannot tell: its own cache ops still run as
+specified.</p>
+</div>
+<h2 id="the-cache-instruction-decode-routing">The <code>cache</code> instruction — decode &amp; routing<a class="headerlink" href="#the-cache-instruction-decode-routing" title="Permanent link">&para;</a></h2>
+<p>r9999 must <strong>fully decode <code>cache</code></strong> (opcode <code>0x2f</code>) and route by the op field — a blanket NOP is a
+latent bug. Field decode of the op register field <code>op = instr[20:16]</code>:
+<code>cache_sel = op[1:0]</code> (0=I-primary, 1=D-primary, 2=SD secondary-data, 3=SI secondary-instr);
+<code>operation = op[4:2]</code>. <strong>Implemented</strong> in <code>decode_mips.sv</code> (opcode <code>6'd47</code>), in two paths:</p>
+<ul>
+<li><strong>Primary-D Hit ops</strong> (<code>0x11</code> Hit-Invalidate, <code>0x15</code> Hit-WB-Invalidate, <code>0x19</code> Hit-WB) are
+  <strong>memory uops</strong> <code>CHINV</code> / <code>CHWBINV</code> / <code>CHWB</code>: AGU → LSU → <code>l1d</code>, where the <strong>dtlb translates the
+  EA</strong> (IRIX invalidates <em>mapped</em> K2SEG buffer-cache lines; the older funnel masked <code>VA &amp; 0x1fffffff</code>,
+  wrong for mapped EAs). The L1D admits one only when it is non-speculative (ROB head).</li>
+<li><code>CHINV</code>: drop the L1D line <strong>without</strong> writeback, then send <code>MEM_INVL</code> to the L2.</li>
+<li><code>CHWBINV</code> / <code>CHWB</code> (CHWB is treated as WB-invalidate): a dirty L1D hit goes to DRAM via
+    <code>MEM_WB</code> (the L2 copy is dropped); otherwise drop any L1D copy and send <code>MEM_INVL</code>.</li>
+<li>In <code>l2.sv</code>, <code>MEM_INVL</code> <strong>writes a dirty L2 line back to DRAM, then drops it</strong> (an L1D eviction
+    may have left the only valid copy there). <code>machine.vh</code>'s enum comment still says "no writeback";
+    the handler is authoritative.</li>
+<li><strong>Every other kernel-mode CACHE op</strong> is a serializing <code>CACHE_OP</code> executed at the ROB head
+  (<code>core.sv</code> <code>WAIT_FOR_SERIALIZE_AND_RESTART</code> → <code>CACHE_FLUSH</code>): any <strong>I-side</strong> op invalidates the one
+  L1I set its EA indexes, both ways (r9999 <code>93b1514</code>; it was a whole-L1I flush); any <strong>D-side</strong> op
+  (incl. the Index ops and, because <code>insn[16]=1</code>, the SD/SI ops) does a per-line <code>flush_cl</code> at
+  <code>EA &amp; 0x1fffffff</code>. Every D op acts on exactly the one 16 B line containing its EA (r9999
+  <code>76a77a2</code> removed the old 32 B "double beat").</li>
+<li><strong>User mode:</strong> CACHE decodes to Coprocessor Unusable.</li>
+</ul>
+<p><strong>Boot histogram</strong> — C++ instrumentation on MAME's mips3 <code>case 0x2f</code>, <strong>5,208,585 cache ops over a
+120 s boot</strong>:</p>
+<table>
+<thead>
+<tr>
+<th>op</th>
+<th>cache / operation</th>
+<th>boot count</th>
+<th>%</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0x01</td>
+<td>D Index-Writeback-Invalidate</td>
+<td>1,483,598</td>
+<td>28.5%</td>
+</tr>
+<tr>
+<td>0x00</td>
+<td>I Index-Invalidate</td>
+<td>1,481,976</td>
+<td>28.5%</td>
+</tr>
+<tr>
+<td>0x15</td>
+<td>D Hit-Writeback-Invalidate</td>
+<td>1,400,427</td>
+<td>26.9%</td>
+</tr>
+<tr>
+<td>0x10</td>
+<td>I Hit-Invalidate</td>
+<td>839,506</td>
+<td>16.1%</td>
+</tr>
+<tr>
+<td>0x08 / 0x09</td>
+<td>I/D Index-Store-Tag (cache init)</td>
+<td>1,025 / 1,025</td>
+<td>—</td>
+</tr>
+<tr>
+<td>0x14</td>
+<td>I Fill</td>
+<td>512</td>
+<td>—</td>
+</tr>
+<tr>
+<td>0x11</td>
+<td><strong>D Hit-Invalidate (NO writeback)</strong></td>
+<td>489</td>
+<td>—</td>
+</tr>
+<tr>
+<td>0x19</td>
+<td>D Hit-Writeback</td>
+<td>21</td>
+<td>—</td>
+</tr>
+<tr>
+<td>0x0b</td>
+<td>secondary Index-Store-Tag (L2 probe)</td>
+<td>6</td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Four primary-cache ops = 99.94%.</strong> Secondary/L2 ops are ~0 (just a 6-hit probe). This Indy has no
+L2 visible to software (<code>Config.SC=1</code>), so the ~30 static <code>cache_sel=2/3</code> code sites never execute —
+<strong>no L2 modeling needed</strong> <em>on the real Indy</em>.</p>
+<blockquote>
+<p>⚠️ <strong>True for the real Indy, NOT for r9999.</strong> r9999 <em>has</em> a hidden L2 but still reports <code>Config.SC=1</code>,
+so IRIX skips those secondary (<code>cache_sel=2/3</code>) ops. r9999 compensates by carrying every primary
+D-side op through to the L2 (above), and henry snoops the L2 on every device DMA access (earlier,
+the ARM-requested XPG page flushes did this job). See
+<a href="#r9999s-hidden-l2-and-the-dma-coherence-gap-silicon-2026-07">r9999's hidden L2 and the DMA-coherence gap</a>.</p>
+</blockquote>
+<p><strong>Routing table — MAME-derived obligation vs what r9999 does today:</strong></p>
+<table>
+<thead>
+<tr>
+<th>op</th>
+<th>name</th>
+<th>cache_sel</th>
+<th>obligation (from MAME)</th>
+<th>r9999 today</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0x10</td>
+<td>I Hit-Invalidate</td>
+<td>I</td>
+<td><strong>MUST flush L1i</strong> (code coherence)</td>
+<td>invalidate the indexed L1I set (both ways)</td>
+</tr>
+<tr>
+<td>0x00</td>
+<td>I Index-Invalidate</td>
+<td>I</td>
+<td><strong>MUST flush L1i</strong></td>
+<td>invalidate the indexed L1I set (both ways)</td>
+</tr>
+<tr>
+<td>any I-side op</td>
+<td>—</td>
+<td>I</td>
+<td>L1i is never dirty → invalidating the indexed set correctly over-approximates every I-cache op</td>
+<td>indexed-set invalidate (<code>0x08</code> Index-Store-Tag and <code>0x14</code> Fill included)</td>
+</tr>
+<tr>
+<td>0x11</td>
+<td><strong>D Hit-Invalidate (NO writeback)</strong></td>
+<td>D</td>
+<td>invalidate WITHOUT writeback (DMA-in). <strong>Do NOT promote to writeback</strong> or a stale line overwrites fresh DMA data</td>
+<td><code>CHINV</code>: L1D drop, no WB; L2 <code>MEM_INVL</code></td>
+</tr>
+<tr>
+<td>0x15</td>
+<td>D Hit-Writeback-Invalidate</td>
+<td>D</td>
+<td>writeback + invalidate (DMA-out)</td>
+<td><code>CHWBINV</code></td>
+</tr>
+<tr>
+<td>0x19</td>
+<td>D Hit-Writeback</td>
+<td>D</td>
+<td>writeback</td>
+<td><code>CHWB</code> (as WB-invalidate)</td>
+</tr>
+<tr>
+<td>0x01</td>
+<td>D Index-Writeback-Invalidate</td>
+<td>D</td>
+<td>writeback + invalidate</td>
+<td>serializing per-line <code>flush_cl</code></td>
+</tr>
+<tr>
+<td>0x09</td>
+<td>D Index-Store-Tag</td>
+<td>D</td>
+<td>no-op is enough: caches reset clean, size comes from <code>Config</code></td>
+<td>per-line <code>flush_cl</code> (writeback; harmless)</td>
+</tr>
+<tr>
+<td>0x0b</td>
+<td>SI Index-Store-Tag</td>
+<td>SI (L2)</td>
+<td>no-op is enough: no software-visible L2</td>
+<td>decoded as a D-side <code>flush_cl</code> (<code>insn[16]=1</code>; harmless)</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>⚠️ The MAME-era conclusion that the D-side ops were "NOP-safe while I/O stays backdoored" is
+<strong>obsolete</strong>: it held only for the real Indy (no L2) with no DMA behind the caches. On henry the
+L2 is real and the SCSI/ENET deposits land behind it, so every D op above is load-bearing.</p>
+</blockquote>
+<h2 id="r9999s-hidden-l2-and-the-dma-coherence-gap-silicon-2026-07">r9999's hidden L2 and the DMA-coherence gap (silicon, 2026-07)<a class="headerlink" href="#r9999s-hidden-l2-and-the-dma-coherence-gap-silicon-2026-07" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p><strong>⚠️ UPDATE (2026-10-27): the gap is closed by CACHE-op forwarding plus a DMA snoop of the
+inclusive L2; <code>SC=0</code> was never built.</strong></p>
+<ol>
+<li><strong>CACHE-op forwarding (2026-07).</strong> <code>l1d.sv</code> forwards a D-side Hit-Invalidate to the <strong>L2 even on
+   an L1D miss</strong> (<code>MEM_INVL</code>, the "scrub the L2 copy" arm near <code>l1d.sv:3098</code>) and pushes a dirty
+   line through to DRAM with <code>MEM_WB</code>. So the primary-only <code>dma_cache_inv</code> that IRIX issues under
+   <code>Config.SC=1</code> <em>does</em> reach the hidden L2.</li>
+<li><strong>DMA snoop (2026-10).</strong> Forwarding only helps for buffers IRIX issues a CACHE op for; the kernel
+   cannot drop a stale L2 line for an address it never touched (<code>henry_soc.sv:314-319</code>). The L2 is
+   now inclusive of the L1D (r9999 <code>1079cf5</code>..<code>ff34709</code>), and every guest-memory access of henry's
+   <code>dma_engine</code> (SCSI, ENET TX/RX, MC VDMA) goes through <code>dma_snoop_shim</code>: a write-back-and-invalidate
+   snoop before the access and, for writes, again after it (<code>rtl/dma_snoop_shim.sv</code>,
+   <code>henry_soc.sv:1141-1175</code>). The one unsnooped writer is the MC's FILL engine, used only for the
+   PROM's uncached power-on memory clear (<code>mc.sv:64-69</code>). See <a href="#inclusive-l2-and-alias-tracking-proven-in-murphi-first">Inclusive L2</a>.</li>
+<li><strong>ARM-requested page flushes (XPG)</strong> did this job from 2026-07 until the staging rings
+   (henry <code>a0d5e1e</code>, 2026-10-14). The RTL is still there, but the ARM no longer touches guest memory
+   and no longer flushes — see <a href="#dma-coherence-on-silicon-arm-requested-flushes-xpg">DMA coherence on silicon</a>.</li>
+</ol>
+<p>The <code>SC=0</code> / snoop-FIFO / head-of-ROB-fence / NOCACHE forensics below are kept as history. The old
+DMA→L2 snoop FIFO (<code>snoop_fifo.sv</code>) is no longer instantiated in <code>henry_soc.sv</code>. The NOCACHE bypass
+is now a run-time bit (<code>l2_nocache</code>, AXI control bit 20), not a <code>define</code>.</p>
+<p><strong>The single most important divergence from the real IP22.</strong> r9999 has a <strong>transparent write-back
+L2</strong> (128 KB, <strong>16-byte lines</strong>, <code>LG_L2_NUM_SETS=13</code>) between L1 and DRAM. The real Indy has <strong>no L2</strong>
+and says so (<code>Config.SC=1</code>). r9999 <strong>also</strong> reports <code>Config.SC=1</code> (<code>exec.sv</code> returns <code>Config=0x0002e483</code>),
+so IRIX believes there is no secondary cache — but the L2 is physically there, caching lines the
+kernel doesn't know it must invalidate. On silicon with the real SCSI DMA path, this is a genuine
+<strong>non-coherent-DMA bug</strong> the MAME/real-Indy analysis above could never see (real Indy: no L2 → nothing
+to go stale).</p>
+</blockquote>
+<h3 id="the-bug-it-causes">The bug it causes<a class="headerlink" href="#the-bug-it-causes" title="Permanent link">&para;</a></h3>
+<p>IRIX 6.5 boots on henry silicon to the kernel banner, "coming up", and reconfigure — then <strong>every
+<code>/etc/rc2</code> o32 process dies with <code>Memory fault(coredump)</code></strong> (and <code>cc</code>'s backend bus-errors during the
+kernel reconfigure). Root cause: <strong>R10000-class speculative non-coherent DMA</strong>. The OOO core
+speculatively pulls a DMA read-buffer line into cache; the SCSI DMA overwrites DRAM behind it; IRIX
+never invalidates the <strong>hidden L2</strong> copy (see below); a later read gets the stale line → bad pointer →
+fault. <strong>Proven in <code>interp_mips</code>:</strong> a spec-fill cache model reproduces it (16 stale reads → boot dies);
+adding a coherent-DMA invalidate → 0 stale reads, clean. The on-disk image is <strong>not</strong> corrupted
+(rsync <code>--checksum</code> identical to pristine) — the corruption is purely <em>live</em> in-memory stale reads.</p>
+<h3 id="why-irix-never-invalidates-the-l2-confirmed-in-irixs-own-binary-ghidra">Why IRIX never invalidates the L2 — confirmed in IRIX's own binary (Ghidra)<a class="headerlink" href="#why-irix-never-invalidates-the-l2-confirmed-in-irixs-own-binary-ghidra" title="Permanent link">&para;</a></h3>
+<p>Decompiling the extracted IRIX kernel objects (<code>~/code/iris/IP22boot/*.o</code>, unstripped N32/DWARF) settled
+this definitively. <code>kernel.o :: __dcache_inval</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="n">scache_size</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="o">*</span><span class="p">(</span><span class="n">uint</span><span class="w"> </span><span class="o">*</span><span class="p">)(</span><span class="n">zero</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mh">-0x5d50</span><span class="p">);</span><span class="w">        </span><span class="c1">// the detected secondary-cache size</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">scache_size</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="n">flag</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">            </span><span class="c1">// ONLY if a secondary cache exists:</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">    </span><span class="n">cacheOp</span><span class="p">(</span><span class="mh">0x03</span><span class="p">,</span><span class="w"> </span><span class="n">addr</span><span class="p">);</span><span class="w">   </span><span class="c1">// Index_WB_Invalidate_SD   (cache_sel=11 = Secondary Data)</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">    </span><span class="n">cacheOp</span><span class="p">(</span><span class="mh">0x17</span><span class="p">,</span><span class="w"> </span><span class="n">addr</span><span class="p">);</span><span class="w">   </span><span class="c1">// Hit_WB_Invalidate_SD</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">    </span><span class="n">cacheOp</span><span class="p">(</span><span class="mh">0x13</span><span class="p">,</span><span class="w"> </span><span class="n">addr</span><span class="p">);</span><span class="w">   </span><span class="c1">// Hit_Invalidate_SD    &lt;-- THE L2 INVALIDATE</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">    </span><span class="c1">// stride 0x80 (128-byte secondary line)</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="p">}</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="c1">// else -&gt; primary-cache ops only  (r9999's case, because scache_size == 0)</span>
+</code></pre></div>
+<p>So <strong>IRIX has a complete, correct secondary-cache invalidate path</strong> — it just gates it on
+<code>scache_size != 0</code>. Because r9999 reports <code>Config.SC=1</code>, <code>config_cache</code>/<code>size_2nd_cache</code> set
+<code>scache_size = 0</code>, so <code>__dcache_inval</code> runs <strong>primary-only</strong> and the L2 is <strong>never</strong> invalidated.</p>
+<p><strong>And IRIX genuinely tries to sync its DMA buffers</strong> — <code>dksc.o</code> (the SCSI disk driver) does the
+textbook, even R10000-<em>speculation-safe</em> pattern:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">read</span><span class="p">)</span><span class="w">  </span><span class="n">dki_dcache_inval</span><span class="p">(</span><span class="n">buf</span><span class="p">,</span><span class="w"> </span><span class="n">len</span><span class="p">);</span><span class="w">   </span><span class="c1">// PRE-DMA invalidate</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="k">else</span><span class="w">       </span><span class="n">dki_dcache_wb</span><span class="p">(</span><span class="n">buf</span><span class="p">,</span><span class="w"> </span><span class="n">len</span><span class="p">);</span><span class="w">      </span><span class="c1">// PRE-DMA writeback (DMA-out)</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="n">dk_sendcmd</span><span class="p">(...);</span><span class="w">  </span><span class="n">dk_chkcond</span><span class="p">(...);</span><span class="w">        </span><span class="c1">// issue DMA + wait for completion</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">read</span><span class="p">)</span><span class="w">  </span><span class="n">dki_dcache_inval</span><span class="p">(</span><span class="n">buf</span><span class="p">,</span><span class="w"> </span><span class="n">len</span><span class="p">);</span><span class="w">   </span><span class="c1">// POST-DMA invalidate (the speculation-safe flush!)</span>
+</code></pre></div>
+<p>Every one of those calls flows into <code>__dcache_inval</code> → primary-only → <strong>misses the L2</strong>. IRIX is doing
+the <em>right</em> software; r9999 just hid the cache it needs to reach.</p>
+<h3 id="the-secondary-cache-probe-what-sc0-must-satisfy">The secondary-cache probe (what <code>SC=0</code> must satisfy)<a class="headerlink" href="#the-secondary-cache-probe-what-sc0-must-satisfy" title="Permanent link">&para;</a></h3>
+<p><code>config_cache</code> → <code>size_2nd_cache</code> is <strong>PRId-dispatched</strong> and reads <code>Config</code>/<code>PRId</code>:
+- <strong>R4600</strong> (<code>imp 0x2000</code>): reads an IP22 system register <code>0xbfa00034</code> for the secondary size.
+- <strong>R4600 <code>0x2300</code> variant</strong>: <code>Config</code>-based (SC bit + size field) <strong>plus</strong> a cache-aliasing probe
+  (<code>cache 0x08/0x09/0x0b</code> = <code>Index_Store/Load_Tag_SD</code> + tag reads).
+- <strong>R4000/R4400</strong>: <code>Config</code>-based secondary detect (simpler — no IP22-register / aliasing probe).</p>
+<p>Then <code>_r4600sc_enable_scache</code> writes <code>Config</code>/<code>TagLo</code> (<code>mtc0</code>) to turn it on. <strong>Line size is hard-coded
+128 B</strong> (<code>config_cache</code> does <code>li 127 -&gt; scache_linemask</code>; the op loops use immediate <code>128</code>/<code>0x7f</code>
+strides) — <strong>not</strong> detected, so it can't be reconfigured to r9999's 16 B; the RTL must bridge it.</p>
+<h3 id="prid-mismatch-rtl-vs-iss">⚠️ PRId mismatch (RTL vs ISS)<a class="headerlink" href="#prid-mismatch-rtl-vs-iss" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>RTL / silicon: <code>PRID_R4400</code> = 0x00000440</strong> (<code>machine.vh:354</code>, selected by <code>PRID_VALUE</code> at <code>:364</code>).</li>
+<li><strong>Standalone <code>interp_mips</code>: now also R4400</strong> by default (<code>interp_mips/interpret.hh:411</code>), with a
+  <code>PRID=&lt;val&gt;</code> env override (<code>interpret.cc:299</code>) and <code>--cpu r5000</code>.</li>
+<li><strong>The ISS embedded in the r9999 submodule</strong> (the one <code>henry_tb --checker</code> and <code>ooo_core -c</code> co-sim
+  against) <strong>now also says R4400</strong> (<code>r9999/interpret.hh:391</code>, r9999 <code>5ac82f0</code>; it was <code>PRID_R4600</code>
+  = 0x2020).</li>
+</ul>
+<p><strong>Silicon presents R4400</strong>, so it takes the <strong>simpler <code>Config</code>-based</strong> secondary-detect path (not the
+R4600 <code>0xbfa00034</code>/aliasing probe). The mismatch is resolved: all three agree on R4400.</p>
+<h3 id="fix-options-silicon-results-2026-07-session-status-updated-2026-10">Fix options + silicon results (2026-07 session; status updated 2026-10)<a class="headerlink" href="#fix-options-silicon-results-2026-07-session-status-updated-2026-10" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>approach</th>
+<th>idea</th>
+<th>silicon result / status today</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong><code>SC=0</code></strong></td>
+<td>Advertise the L2 as an R4x00 secondary cache (flip <code>Config.SC=0</code>, satisfy the R4400 probe) + an <strong>8-beat SD-op handler</strong> (128 B / 16 B → drop/WB 8 lines). Lets IRIX's <em>own</em> invalidates reach the L2.</td>
+<td><strong>Never built.</strong> Config still reports SC=1.</td>
+</tr>
+<tr>
+<td>DMA→L2 snoop</td>
+<td>Arbiter emits a snoop on each DMA store → L2 invalidates the line.</td>
+<td><strong>Corrupted</strong> silicon in 2026-07 (over-invalidated live/dirty lines). That FIFO (<code>snoop_fifo.sv</code>) is no longer instantiated. Its successor ships: a write-back-and-invalidate snoop of the now-inclusive L2, issued by <code>dma_snoop_shim</code> around every DMA access.</td>
+</tr>
+<tr>
+<td>Head-of-ROB fence</td>
+<td>Serialize every cached load/store to ROB head (no speculative fill). <code>l1d.sv ENABLE_MEM_HEAD_SERIALIZE</code>.</td>
+<td><strong>Partial</strong> at the time; the <code>define</code> still exists, off.</td>
+</tr>
+<tr>
+<td>Tiny L2 (<code>LG_L2_NUM_SETS=2</code>)</td>
+<td>4-line L2, ~no retention.</td>
+<td><code>cc</code> bus-error at reconfigure — confounded; not it. (<code>ENABLE_L2_TINY</code> still exists, off.)</td>
+</tr>
+<tr>
+<td>NOCACHE bypass</td>
+<td>Route data ops (opcode &lt; 24) straight to DRAM so the L2 holds <strong>nothing</strong>; CACHE-management ops (≥ 24) keep their handlers.</td>
+<td>Now the run-time <code>l2_nocache</code> input (AXI control bit 20, <code>l2.sv:80-86</code>), off by default.</td>
+</tr>
+<tr>
+<td><strong>ARM-requested flush (XPG)</strong></td>
+<td>The ARM host, which performs every disk/network deposit, asks the core to write back + invalidate (before) or drop (after) the buffer pages.</td>
+<td>Shipped 2026-07 to 2026-10-14 and was required for IRIX on silicon then. The RTL remains; the rings-only driver no longer uses it. See the next section.</td>
+</tr>
+</tbody>
+</table>
+<p>The 2026-07 conclusion was that the first five <em>substitute</em> for a coherence mechanism IRIX already
+has (its SD ops). XPG took a different route: it put the obligation on the agent that knew exactly
+which pages a device wrote. The inclusive-L2 snoop that replaced it puts the obligation on the DMA
+engine, which knows each line it touches.</p>
+<h3 id="artifacts">Artifacts<a class="headerlink" href="#artifacts" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Ghidra decompiles</strong> (Java <code>DecompDump</code> script — Ghidra 12.1 needs Java, not PyGhidra):
+  <code>~/code/iris/{kernel,dksc,wd93,scsi,scsiha,hpc3plp}_decomp.c</code>.</li>
+<li>IRIX kernel objects: <code>~/code/iris/IP22boot/*.o</code> (unstripped, DWARF). Disassemble with
+  <code>mips-linux-gnu-objdump -d -EB</code>.</li>
+</ul>
+<h2 id="dma-coherence-on-silicon-arm-requested-flushes-xpg">DMA coherence on silicon: ARM-requested flushes (XPG)<a class="headerlink" href="#dma-coherence-on-silicon-arm-requested-flushes-xpg" title="Permanent link">&para;</a></h2>
+<div class="admonition note">
+<p class="admonition-title">History (2026-07 to 2026-10-14)</p>
+<p>This was henry's DMA-coherence mechanism until the staging rings (henry <code>a0d5e1e</code>, rings-only
+<code>4bc57b4</code>). Since then the ARM never touches guest memory after boot, device DMA is snooped through
+the inclusive L2, and the driver no longer issues these flushes
+(<a href="../arm-device-protocol/">ARM device protocol</a>). The RTL below is still in <code>henry_soc.sv</code> and the
+core.</p>
+</div>
+<p>On the FPGA, the Zynq ARM served the SCSI disk and the Ethernet tap. It wrote guest DRAM behind the
+caches, so it was the agent that knew exactly which pages a transfer touched. It asked the core to
+clean those pages around each transfer. <strong>IRIX boots on silicon had to run the board driver in this
+mode</strong> (the <code>axilite-mips-xpg</code> driver with <code>EXTFLUSH=1 XFPAGES=1</code>; that driver lives on the board,
+not in this repo).</p>
+<p><strong>SoC/AXI interface</strong> (<code>rtl/henry_soc.sv:214-224, 327-480</code>, <code>ip_hdl/axi_is_the_worst_v1_0_S00_AXI.v</code>):</p>
+<table>
+<thead>
+<tr>
+<th>what</th>
+<th>AXI</th>
+<th>henry_soc port</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>whole-cache flush (a 0→1 edge starts one)</td>
+<td>control reg (<code>slv_reg4</code>) bit 2</td>
+<td><code>ext_flush_ctl</code></td>
+</tr>
+<tr>
+<td>append a physical page number to the list</td>
+<td>write reg <code>0x3C</code></td>
+<td><code>ext_pg_push</code> / <code>ext_pg_ppn</code></td>
+</tr>
+<tr>
+<td>walk the list; bit 0 of reg <code>0x3D</code> = drop</td>
+<td>write reg <code>0x3D</code></td>
+<td><code>ext_pg_go</code> / <code>ext_pg_drop</code></td>
+</tr>
+<tr>
+<td>status: flushes completed, page-drop dirty lines, busy</td>
+<td>read <code>0x25</code></td>
+<td><code>ext_flush_stat</code></td>
+</tr>
+<tr>
+<td>cycles the last flush / list took</td>
+<td>read <code>0x24</code></td>
+<td><code>ext_flush_cycles</code></td>
+</tr>
+</tbody>
+</table>
+<p>The list holds 16 pages (<code>N_XF_PAGES</code>). A longer list sets overflow, and <code>go</code> then does the whole
+flush instead, which is always correct. <code>go</code> issues one <code>ext_flush_req</code> per page and reports a single
+completion at the end.</p>
+<p><strong>How the core runs it</strong> (<code>core.sv</code> <code>ext_flush_*</code> / <code>r_xflush_*</code>, <code>uop.vh</code> <code>XFLUSH</code>/<code>XPG_*</code>):</p>
+<ol>
+<li><code>ext_flush_req</code> latches the page, the whole-cache flag and the drop flag (<code>r_xflush_ppn/_whole/_drop</code>).</li>
+<li>Like an IRQ, decode replaces the next <strong>non-delay-slot</strong> instruction with a serializing injected
+   uop: <code>XFLUSH</code> (whole), <code>XPG_WBINV</code> (page, before a transfer) or <code>XPG_INV</code> (page, after a deposit).
+   These are not architectural instructions and never count as retired.</li>
+<li>At the ROB head (<code>WAIT_FOR_SERIALIZE_AND_RESTART</code>, core drained):</li>
+<li><code>XFLUSH</code>: whole-L1D flush; the sequencer then chains the L2 flush.</li>
+<li><code>XPG_*</code>: <code>flush_pg_req</code> makes the L1D walk the page's 256 lines (<code>FLUSH_PG</code> / <code>FLUSH_PG_WAIT</code>):<ul>
+<li><strong>WBINV:</strong> a dirty L1D hit → <code>MEM_WB</code> (to DRAM, L2 copy dropped); otherwise invalidate any
+   L1D hit and send <code>MEM_INVL</code> (the L2 writes back if dirty, then drops).</li>
+<li><strong>INV:</strong> invalidate any L1D hit and send <code>MEM_PGDROP</code> (the L2 drops the line <em>without</em>
+   writeback). A dirty line found here is counted in <code>pg_drop_dirty_cnt</code> (AXI <code>0x25</code>); a correctly
+   pre-cleaned page has none, so a nonzero count means a coherence bug.</li>
+</ul>
+</li>
+<li>The flush completes, the core restarts at the injected uop's own PC, and <code>ext_flush_done</code> pulses.</li>
+</ol>
+<div class="admonition warning">
+<p class="admonition-title">Every L1D flush starts only from a fully drained L1D (r9999 <code>5c89b70</code>, 2026-10-04)</p>
+<p><code>l1d.sv</code> defines <code>w_l1d_drained</code> = memory queue empty, nothing owed (<code>r_n_inflight == 0</code>),
+both pipe stages empty, and <strong>no retired store still waiting to be written</strong>. All four flush
+arms (CACHE flush, CACHE line op, XPG page op, DMA invalidate) wait for it (<code>l1d.sv:2490,
+3382-3415</code>). Before this fix, an XPG page flush that armed in the same cycle as a port-1 miss or a
+port-2 direct fill overwrote <code>n_state</code>. The fill's response was consumed as a flush beat, so the
+load was never answered and its <code>{color,rob}</code> inflight bit leaked. The next <code>(EXCEPTION_)DRAIN</code>
+then waited on that color forever: this was the IRIX <code>EXCEPTION_DRAIN</code> hang on silicon. The XPG
+and DMA-invalidate arms also skipped the retired-store drain, so a retired store to the page could
+land after the page flush.</p>
+</div>
+<p><strong>In simulation</strong>, <code>sim/henry_tb.cpp</code> injects the same traffic: <code>--extflush N</code> raises the whole-cache
+flush every N cycles, and <code>--xfpages base,n,drop</code> turns each period into an <code>n</code>-page list walk with
+<code>go</code> (drop=1 → <code>XPG_INV</code>, 0 → <code>XPG_WBINV</code>).</p>
+<p>(<code>l1d.sv</code> also has a separate per-line <code>dma_inval_req</code> port into the same invalidate machinery.
+<code>henry_soc.sv</code> does not connect it. Device DMA coherence today comes from the L2 snoop port,
+described next.)</p>
+<h2 id="inclusive-l2-and-alias-tracking-proven-in-murphi-first">Inclusive L2 and alias tracking — proven in Murphi first<a class="headerlink" href="#inclusive-l2-and-alias-tracking-proven-in-murphi-first" title="Permanent link">&para;</a></h2>
+<p>Since r9999 <code>1079cf5</code>..<code>d2baf87</code> the L2 is <strong>inclusive of the L1D</strong>, and the L1D is <strong>VA-indexed</strong>. Together they close the two gaps described above: a device snoop only needs to ask the L2, and the L2 always knows where in the L1D a line can be.</p>
+<p><strong>What the RTL does</strong> (spec: <code>r9999/INCLUSIVE_L2_PROTOCOL.md</code>):
+- <strong>Presence and colour per L2 line.</strong> <code>pd</code> = "the L1D may hold this line"; <code>pidx</code> = the L1D colour it was filled at (the index bits above the 4 KB page offset, 2 bits for the 16 KB L1D). Every L1D→L2 request carries its colour.
+- <strong>Back-invalidate before eviction.</strong> Before the L2 evicts a <code>pd</code> line, whichever cache caused the miss, it probes the L1D at <code>pidx</code>. The L1D invalidates its copy and returns it if dirty, and that data becomes the victim writeback.
+- <strong>Synonyms are pushed out, not pulled.</strong> An L1D request that hits a <code>pd</code> line held under a different colour probes the old colour first, so the L1D never holds two copies of one physical line. This is the R10000's PIdx scheme (user's manual §5.5).
+- <strong>Probes have their own reply channel.</strong> The probe ack never depends on the L1D's own pending request. A request that would make it wait, the "blocked handshake", deadlocked the August 2026 design.
+- <strong>DMA snoop.</strong> The external snoop port's write-back-and-invalidate mode probes the L1D the same way, then writes back whichever copy is dirty. A same-line writeback already latched in the arbiter is absorbed rather than lost.</p>
+<p><strong>Proven before it was built.</strong> Each step was modelled and exhaustively checked in Murphi (CMurphi 5.4.9, cross-checked with Rumur) before the RTL changed. The models are in <code>r9999/formal/murphi/</code>:</p>
+<table>
+<thead>
+<tr>
+<th>model</th>
+<th>covers</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>r9999_main.m</code></td>
+<td>the pre-inclusion hierarchy (main <code>3b78e9b</code>), extracted from the RTL; shows inclusion breaks only <em>across</em> caches (L1I misses evicting L1D lines)</td>
+</tr>
+<tr>
+<td><code>r9999_incl.m</code></td>
+<td>inclusive L2 with back-invalidate probes, presence bits and DMA snoop. Generated from <code>r9999_main.m</code> by <code>gen/make_incl.py</code> and its passes (<code>presence.py</code>, <code>dmasnoop.py</code>, …)</td>
+</tr>
+<tr>
+<td><code>r9999_va.m</code></td>
+<td>VA-indexed L1D with one line per colour; every access picks a colour nondeterministically, synonyms included; push (<code>ALIAS_PULL=0</code>, the RTL) and pull variants</td>
+</tr>
+<tr>
+<td><code>r9999_nb.m</code>, <code>r9999_dma.m</code>, <code>r9999_pagewalk.m</code></td>
+<td>the probe protocol with a non-blocking L2; DMA coherence options; the ARM-injected page-flush (XPG) ordering</td>
+</tr>
+</tbody>
+</table>
+<p>Results, all with no error found:
+- <strong>Pairs of agents at 2 values per location:</strong>
+  - data side: 14.2M states
+  - data + DMA: 569M states
+  - data + L1I: 447M states
+- <strong>Full model at 1 value:</strong> L1I + DMA + speculative fill, 549M states.
+- <strong>With presence bits:</strong> L1I + DMA, 3.77B states, and L1I alone, 4.38B states (bit-state hashing, 32 GB).
+- <strong>DMA snoop with presence bits:</strong> 938M states.
+- <strong>VA alias tracking:</strong> push 436M states, pull 980M states.</p>
+<p>The 2-value runs are needed because the 1-value full model can't see two-write bugs.</p>
+<p><strong>Negative controls make the checks trustworthy.</strong> Every model carries <code>BUG_*</code> knobs that re-introduce a real or historical bug, and each must <strong>fail</strong>; a passing negative control means the check is blind. Among them:
+- the August blocking probe handshake (<code>BUG_PROBE_BLOCKED</code>, deadlocks);
+- the fill-vs-probe race;
+- dropping a dirty victim;
+- skipping the alias check (two copies);
+- dropping a dirty alias (stale load);
+- not updating <code>pidx</code>;
+- a snoop that doesn't absorb a latched writeback (stale DMA-out). That race, D3, was <strong>found by the model</strong> and fixed in the RTL (<code>ff34709</code>).</p>
+<p><strong>Then the RTL, in stages, each checked in simulation:</strong></p>
+<table>
+<thead>
+<tr>
+<th>stage</th>
+<th>commit</th>
+<th>what</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>A</td>
+<td><code>1079cf5</code></td>
+<td><code>pd</code> + <code>pidx</code> tracking only</td>
+</tr>
+<tr>
+<td>B</td>
+<td><code>a8d5757</code></td>
+<td>back-invalidate probe</td>
+</tr>
+<tr>
+<td>C1/C2a</td>
+<td><code>2ebb342</code>, <code>f767051</code></td>
+<td>line PA from the full tag; the request carries its set</td>
+</tr>
+<tr>
+<td>C2b</td>
+<td><code>3913756</code></td>
+<td>VA-indexed L1D, push alias probes</td>
+</tr>
+<tr>
+<td>snoop</td>
+<td><code>d2baf87</code></td>
+<td>write-back-and-invalidate snoop</td>
+</tr>
+<tr>
+<td>D3</td>
+<td><code>ff34709</code></td>
+<td>in-transit writeback capture</td>
+</tr>
+</tbody>
+</table>
+<p>Simulation checks after each stage:
+- A periodic sim-only walk counts L1D lines missing from the L2, and lines with the wrong <code>pd</code>/<code>pidx</code>. Over Linux 100M instructions both counts were 0, against 1.5M missing lines before stage B.
+- A <code>--snoop-delay</code> injector snoops every DRAM-read line N cycles later. CoreMark and mmap-alias checkpoints ran clean under the co-sim checker with up to 3.5M snoops.</p>
+<p>On silicon, the VA-indexed inclusive design (C2b) passed a 24-round IRIX network + disk soak on 2026-10-11, at that point still with ARM-requested page flushes covering DMA. The first build with the snoop alone covering DMA (no flushes) was the staging-ring bitstream <code>0e7de40d</code>, which passed its own 24-round IRIX soak on 2026-10-14.</p>
+<h2 id="tlb">TLB<a class="headerlink" href="#tlb" title="Permanent link">&para;</a></h2>
+<div class="admonition info">
+<p class="admonition-title">Full TLB datapath write-up</p>
+<p>The detailed r9999 translation datapath — two-stage match/validity, the <code>r_tlb_written</code>
+(= Sail <code>entry.valid</code>) slot bit and the demand-paging refill→invalid→page-fault flow it
+enables, the <code>BadVAddr</code>/<code>Context</code>/<code>XContext</code> the refill handler reads, vector selection, and
+<code>mipsseg</code> segment decode — now lives in
+<a href="../r9999-microarchitecture/#the-tlb-translation-datapath">r9999 microarchitecture → The TLB</a>.
+<strong>Two things below are superseded by it:</strong> (1) the match is the full Sail-conformant
+<code>va[39:13]+R</code> compare, <em>not</em> the 19-bit <code>va[31:13]</code> workaround in "suspect #2"; (2) a slot is
+matched on the per-slot <em>written</em> bit, not <code>(v0|v1)</code> — the old <code>(v0|v1)</code> guard caused an
+infinite-refill livelock on the first userspace page (it excluded the demand-paging <code>v0=v1=0</code>
+entry, so the retry re-refilled instead of taking TLB-Invalid → <code>do_page_fault</code>).</p>
+</div>
+<ul>
+<li><strong>Size:</strong> 48 dual-entry JTLB — identical on R4000/R4400/R4600/R4700/R5000/RM (only R10000/R12000 go
+  to 64). r9999's 48-entry CAM matches (<code>N_TLB_ENTRIES=48</code>; IRIX accepts no other value). <code>start</code> sets
+  <strong><code>Wired=8</code></strong> (slots 0–7 reserved). The CAM is duplicated (D-side <code>dtlb</code> in <code>l1d.sv</code>, I-side copy
+  inside <code>itlb.sv</code>), and a 2-entry <strong>micro-ITLB</strong> sits in front of the I-side copy to close timing.</li>
+<li><strong>Boot is 4 KB-only</strong> (MAME): 3000 explicit TLB writes during boot → <strong>100% <code>PageMask=0</code> (4 KB), zero
+  large pages.</strong> Large-page machinery (<code>large_pages_enable</code>, <code>lpage_*</code>) is on-demand/under-load, never
+  triggered by a vanilla boot. r9999 now implements <strong>variable-page-size matching anyway</strong>: the JTLB
+  masks VPN2 bits by <code>PageMask</code> (<code>tlb.sv:174</code>), and the micro-ITLB honors PageMask too (r9999
+  <code>3b4a50e</code>; it was hardwired to 4 KB pages). <strong><code>PageMask</code> is NOT RAZ/WI</strong> — the kernel writes
+  <code>PageMask=0</code> before each <code>tlbw</code> and reads it back; it must hold its value.</li>
+<li><strong>R4000 vs R5000 refill (Henry = R4000 path):</strong> R4000/R4600 fast refill is a <strong>blind <code>tlbwr</code></strong> (load
+  2 PTEs → <code>mtc0 entrylo0/1</code> → <code>tlbwr</code> → <code>eret</code>). R5000 does <strong><code>tlbp</code> first, <code>tlbwr</code> only if absent</strong> (a
+  guard against a duplicate TLB entry the R5000 mishandles). Henry presents <strong>PRId imp <code>0x04</code>
+  (R4400, <code>0x440</code>)</strong>, so it gets the blind-<code>tlbwr</code> refill. The CAM must <strong>tolerate a duplicate write</strong>
+  rather than raise a machine check; r9999 models no TLB-shutdown machine check.</li>
+</ul>
+<h2 id="the-wirepda-wired-entry-finding">The wirepda / wired-entry finding<a class="headerlink" href="#the-wirepda-wired-entry-finding" title="Permanent link">&para;</a></h2>
+<p><strong>MAME-confirmed (Q1, 2026-06-13): real HW takes NO miss at <code>wirepda</code>'s <code>jr $ra</code>; r9999 faulted
+spuriously.</strong> This was the VM-init bug that stranded r9999 ~805K cycles into boot.</p>
+<div class="admonition success">
+<p class="admonition-title">Resolved in RTL (r9999 <code>tlb.sv</code>, commit <code>e451d50</code>)</p>
+<p>The root cause was <strong>suspect #2</strong> (high-VA match), now fixed; <strong>suspect #1</strong> (Random clamp) was
+refuted by RTL inspection. IRIX has since booted well past this point on henry silicon. Unit
+coverage exists (<code>tests/cheri/tlb/test_tlb_xkseg.s</code>, <code>test_tlb_wired.s</code>).</p>
+</div>
+<p><code>wirepda</code> (@<code>0x881689b0</code>) <code>jal</code>s <code>tlbwired</code> (@<code>0x88004ba0</code>) to wire the per-CPU PDA. The golden wired
+entry captured at the <code>tlbwi</code> inside <code>tlbwired</code> (0x88004c28):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>EntryHi  = 0x00000000_FFFFA000   ; VPN2 for VA 0xFFFFFFFF_FFFFA000, ASID=0x00
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>EntryLo0 = 0x00000000_0020E39F   ; PFN=0x838E -&gt; PA 0x0838E000; C=3 (cached), D=1, V=1, G=1 (GLOBAL)
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>EntryLo1 = 0x00000000_00000001   ; V=0 -&gt; odd page INVALID; G=1
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>PageMask = 0                     ; 4 KB
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>Index    = 0     Wired = 8
+</code></pre></div>
+<p>So the <strong>PDA is wired in slot 0</strong>: VA <code>0xFFFFFFFF_FFFFA000</code> → PA <code>0x0838E000</code>, valid, dirty, cached,
+<strong>GLOBAL</strong> (matches any ASID).</p>
+<p>At the <code>jr $ra</code> (0x88168aec), single-stepped on real HW:
+- The delay slot (<code>sw at,0xFFFFA240(zero)</code>) stores to <strong>PDA+0x240</strong> — hits the global wired entry,
+  <strong>no store miss</strong>.
+- Returns to <strong><code>0x8814a184</code></strong> (= <code>mlsetup+0xb4</code>, <strong>kseg0 / UNMAPPED</strong>) — clean, <strong>no exception vector,
+  Cause=0, no BadVAddr</strong>.</p>
+<p><strong>⇒ r9999 <em>was</em> faulting spuriously</strong> — the fix was in r9999's TLB high-VA matching, NOT a missing
+mapping (see the resolution box above). Generic xkseg/wired unit tests now exist
+(<code>tests/cheri/tlb/test_tlb_xkseg.s</code>, <code>test_tlb_wired.s</code>), but a <strong>directed regression test for the exact
+wirepda scenario</strong> — a <em>global wired high-kseg3</em> entry resolving an access <em>across ASID changes and <code>tlbwr</code>
+churn</em> — is still worth adding, since the imported CHERI tests don't combine all three.</p>
+<p><strong>Root cause &amp; fix (the two original suspects, resolved):</strong></p>
+<ol>
+<li><strong>Suspect #1 — <code>tlbwr</code> not clamping Random to <code>[Wired..47]</code>: REFUTED.</strong> exec.sv resets
+   <code>Random → N_TLB_ENTRIES-1</code> (47) on a <code>Wired</code> write, decrements it per retirement with wrap at <code>Wired</code>
+   (<code>r_random==r_wired ? N_TLB_ENTRIES-1 : r_random-1</code>, exec.sv:4743-4756), and <code>TLBWR</code> writes index
+   <code>r_random</code>. So <code>Random ∈ [Wired..47]</code> always and <code>tlbwr</code> can never overwrite the wired slots 0–7.
+   <em>(CYAN's independent haterMIPS implements the same clamp.)</em></li>
+<li><strong>Suspect #2 — high kseg3 VA <code>0xFFFFFFFF_FFFFA000</code> never matched: ROOT CAUSE, FIXED.</strong> The
+   real asymmetry: <code>mtc0 EntryHi</code> stored <code>VPN2</code> <strong>zero-extended</strong>, while kseg VAs <strong>sign-extend</strong>
+   (<code>va[63:62]=11</code>, <code>va[39:32]=ff</code>), so the wired high-VA entry never hit → spurious refill, EXL=1 spin.
+   The first fix (<code>e451d50</code>) was a compare-side workaround that matched only the low 19-bit VPN2. It was
+   <strong>later replaced</strong>: exec.sv now writes <code>EntryHi.R</code>/<code>VPN2</code> from the full GPR (per Sail MTC0), and
+   <code>tlb.sv</code> does the full Sail <code>R</code> + <code>va[39:13]</code> match (<code>tlb.sv:158-181</code>). The low-19 arm had aliased
+   the kptbl walk (which runs at KX=0) and caused an intermittent tlbmiss panic.</li>
+</ol>
+<p><strong>Suggested directed test (golden values above):</strong> set <code>Wired=8</code>; write the PDA entry
+(EntryHi=0xFFFFA000, EntryLo0=0x20E39F, EntryLo1=0x00000001, PageMask=0) at Index 0; churn the TLB with
+many <code>tlbwr</code> and change ASID; then <strong>store to <code>0xFFFFFFFF_FFFFA240</code> and load it back</strong> — must hit
+PA <code>0x0838E240</code> with no miss. With the full Sail match in place this should <strong>pass</strong>; it guards against a
+regression in the high-VA match (and would catch a re-introduction of the zero-extend asymmetry).</p>
+<h2 id="cp0-timekeeping-misc">CP0 timekeeping &amp; misc<a class="headerlink" href="#cp0-timekeeping-misc" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>Steady-state timekeeping = on-chip <code>Count</code>/<code>Compare</code></strong> (not ARCS). The handler re-arms
+  <code>Compare = Count + ~0x25000</code> per tick — confirmed live in MAME.</li>
+<li><strong>Status.FR (bit 26) IS used.</strong> FR=0 for kernel/idle, <strong>FR=1 once N32/N64 userland runs</strong> (first seen
+  mid-boot, ~19% of samples by multiuser). r9999's FP regfile must implement FR=1 (32 independent 64-bit
+  registers), not just FR=0 even/odd 32-bit pairs; the FR bit must switch regfile aliasing. (Still no FP
+  <em>arithmetic</em> in the kernel — this is the regfile mode for context save/restore + userland.) r9999
+  implements <code>Status.FR</code> (<code>exec.sv</code> <code>r_sr_fr</code>, <strong>reset value 1</strong>); see <a href="../fpu-cop1/">FPU (COP1)</a>.</li>
+<li><strong>Watch registers (WatchLo/WatchHi, r18/r19): unused.</strong> The only references are two <code>mtc0 zero</code> clears
+  in <code>start</code>; nothing ever programs a watch address, so ExcCode 23 never fires. IRIX's watchpoint facility
+  is pure software. r9999 keeps them as plain storage registers (<code>exec.sv</code> CP0 r18/r19, "functional
+  register only; no watch hardware"); no Watch-match HW.</li>
+</ul>
+<h2 id="physical-address-width">Physical address width<a class="headerlink" href="#physical-address-width" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>29 bits observed; 30 bits architectural.</strong> The test Indy measured a max PA of <code>0x1fffffff</code> (29 bits)
+  only because it had ~16 MB RAM. The MC map (mc.pdf p.22) has a <strong>second 256 MB "High System Memory"
+  window at <code>0x20000000–0x2fffffff</code></strong> (kseg-mapped) → a maxed Indy needs <strong>30-bit PA</strong>.</li>
+<li>Low RAM window <code>0x08000000–0x17ffffff</code> (256 MB max); kernel/device region up to <code>0x1fffffff</code>.
+  TLB-mapped PFNs observed only <code>0x0800_0000</code>–~<code>0x0900_0000</code> (max <code>0x0881a000</code>); EntryLo PFN is
+  arch-24-bit but only ~17 significant bits are ever used on this platform.</li>
+<li><strong>The bottom 512 KB <code>0x0–0x7ffff</code> ALIASES RAM</strong> (for exception vectors at <code>0x0</code>/<code>0x80</code>). Henry
+  implements it in <code>henry_soc.sv:568-630</code> (<code>w_sysmem_alias</code> sets PA bit 27 on the CPU's external memory
+  request). The remap applies to <strong>CPU accesses only</strong> (DMA masters are not remapped), and it happens
+<strong>below the caches</strong>, on the DRAM-bound request.</li>
+<li>⇒ cache/TLB <strong>physical tags need 30 bits</strong> to be safe (29 observed). r9999 carries <strong>36-bit</strong> physical
+  addresses (<code>PA_WIDTH=36</code>, the R4000 width, <code>machine.vh</code>) in the caches, L2 and SoC; the TLBs store
+  only <strong><code>TLB_PA_WIDTH=30</code></strong> PA bits, zero-filled to 36 (r9999 <code>c24d139</code>; raised from 29 to 30 in
+  <code>50d753c</code> so the PROM's memory-bank probe at PA <code>0x20000000</code> works), so this is covered.</li>
+<li><strong>The PROM's bank probe</strong> makes one bank valid at base <code>0x20000000</code> and probes it uncached. Henry
+  routes banks 0/1 in that window to their DRAM (offset mod 128 MB) and treats banks 2/3 as empty
+  memory: loads read 0, stores vanish, no bus error (<code>henry_soc.sv:268-279</code>, henry <code>ae2b7ab</code>). The
+  PROM then reports 256 MB.</li>
+</ul>
+<h2 id="detailed-working-notes">Detailed working notes<a class="headerlink" href="#detailed-working-notes" title="Permanent link">&para;</a></h2>
+<ul>
+<li><code>/home/dsheffie/code/r9999/IRIX_KERNEL_GAPS.md</code> — the <code>cache</code>-instruction decode requirement + boot
+  histogram; the TLB/CP0/physical-address section; Watch-register and Status.FR findings.</li>
+<li><code>/home/dsheffie/code/r9999/MAME_QUESTIONS.md</code> — the Q1 <code>wirepda</code> answer (golden wired PDA entry,
+  single-step trace, the two suspects, the directed test).</li>
+<li><code>/home/dsheffie/code/r9999/IP22_CHIP_REGISTERS.md</code> — HPC3/VDMA non-coherence (the cache-op split is
+  architecturally mandated), MC/IOC2 register maps, physical-address-width correction.</li>
+</ul>
+
+
+
+
+
+
+
+  
+  
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "navigation.top", "navigation.indexes", "navigation.tracking", "toc.follow", "content.code.copy"], "search": "../assets/javascripts/workers/search.a7633da7.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.c21346df.min.js"></script>
+      
+    
+  </body>
+</html>

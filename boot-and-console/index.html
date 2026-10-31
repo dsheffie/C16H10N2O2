@@ -1,0 +1,1884 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A from-scratch SoC that impersonates the SGI Indy (IP22) well enough to boot IRIX, built around the r9999 MIPS core.">
+      
+      
+      
+      
+        <link rel="prev" href="../firmware-arcs/">
+      
+      
+        <link rel="next" href="../coherence-cache-tlb/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.0">
+    
+    
+      
+        <title>Boot sequence & console - Henry — the wannabe IP22 SoC</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.57a0d79d.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.fb2fffe2.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="amber">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#boot-sequence-console" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Henry — the wannabe IP22 SoC" class="md-header__button md-logo" aria-label="Henry — the wannabe IP22 SoC" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M6 4h12v1h3v2h-3v2h3v2h-3v2h3v2h-3v2h3v2h-3v1H6v-1H3v-2h3v-2H3v-2h3v-2H3V9h3V7H3V5h3zm5 11v3h1v-3zm2 0v3h1v-3zm2 0v3h1v-3z"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Henry — the wannabe IP22 SoC
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Boot sequence & console
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="amber"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="amber"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Henry — the wannabe IP22 SoC" class="md-nav__button md-logo" aria-label="Henry — the wannabe IP22 SoC" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M6 4h12v1h3v2h-3v2h3v2h-3v2h3v2h-3v2h3v2h-3v1H6v-1H3v-2h3v-2H3v-2h3v-2H3V9h3V7H3V5h3zm5 11v3h1v-3zm2 0v3h1v-3zm2 0v3h1v-3z"/></svg>
+
+    </a>
+    Henry — the wannabe IP22 SoC
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../minimum-mmio-to-banner/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Minimum MMIO to boot banner
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (functional-sim validated, MAME-corroborated; Henry-RTL notes re-checked 2026-10-27 against henry eea6ecb)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cpu-integration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CPU integration (r9999)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../r9999-microarchitecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    r9999 microarchitecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../r9999-lineage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    r9999 lineage (MIPS -> RISC-V -> MIPS)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../firmware-arcs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Firmware (ARCS shim)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated; Henry FSBL section checked 2026-10-27 against r9999/arcs/henry_arcs.S + henry_fw.c @ 788c412)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Boot & console
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated; Henry FSBL/console re-checked 2026-10-27 against henry eea6ecb / r9999 788c412)"></span>
+  
+
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Boot & console
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated; Henry FSBL/console re-checked 2026-10-27 against henry eea6ecb / r9999 788c412)"></span>
+  
+
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#the-boot-chain" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The boot chain
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#kernel-entry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Kernel entry
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-eaddr-requirement-1-boot-gotcha" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The eaddr requirement — #1 boot gotcha
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#console-not-via-arcs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Console — NOT via ARCS
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Console — NOT via ARCS">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#for-a-headless-henry-set-consoled-and-emulate-the-minimal-scc" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        For a HEADLESS Henry: set console=d and emulate the minimal SCC
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-booted-looks-like-serial-transcript-consoled" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What "booted" looks like (serial transcript, console=d)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#minimum-for-henry-to-print-irix-is-alive" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Minimum for Henry to print "IRIX is alive"
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#detailed-working-notes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Detailed working notes
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../coherence-cache-tlb/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cache, coherence & TLB
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated; silicon-refined 2026-07; RTL state re-checked 2026-10-27 against henry eea6ecb / r9999 788c412)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../arm-device-protocol/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ARM ↔ device protocol (staging rings)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../bus-errors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Bus errors
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../fpu-cop1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FPU (COP1)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--implemented (MAME-validated workload)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_13" >
+        
+          
+          <label class="md-nav__link" for="__nav_13" id="__nav_13_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Peripherals
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_13_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_13">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Peripherals
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../peripherals/mc/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MC (memory controller)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated; henry RTL status audited 2026-10-27 against main eea6ecb)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../peripherals/ioc2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    IOC2 (serial console)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated; henry RTL status audited 2026-10-27 against main @eea6ecb)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../peripherals/scc/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SCC (Z85C30 console)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (silicon-validated; audited 2026-10-27 against henry main @eea6ecb)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../peripherals/hpc3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    HPC3 (SCSI/enet/DMA, RTC)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME + live-IRIX-trace validated; henry RTL status audited 2026-10-27 against main eea6ecb)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../peripherals/scsi_disk_theory_of_operation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SCSI disk theory of operation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../peripherals/gio64/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GIO64 (bus)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated; henry RTL status audited 2026-10-27 against henry main eea6ecb)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../peripherals/vdma/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VDMA (virtual DMA)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--implemented for memory -> GIO (dma_engine CH_V), 2026-10-18"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../peripherals/dmux1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DMUX (data mux)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (henry status audited 2026-10-27 against main @eea6ecb)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_14" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../graphics/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Graphics
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--implemented (ARM-served model), 2026-10-18"></span>
+  
+
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_14" id="__nav_14_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_14_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_14">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Graphics
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../newport-on-henry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Newport on henry (working, screenshots)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../graphics/rex3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    REX3 (raster engine)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--reference; implemented as an ARM-served software model (2026-10-18)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../graphics/vc2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VC2 (video timing/cursor)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--reference; implemented as part of the ARM-side Newport model (2026-10-18)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../graphics/xmap9/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    XMAP9 (colormap)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--reference; implemented in the ARM-side Newport model (2026-10-18)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../graphics/rb2-ro1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RB2 & RO1 (framebuffer/output)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--reference; RB2 semantics implemented in the ARM-side Newport model (2026-10-18)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../graphics/express-xz/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Express / XZ (hardware geometry)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--reference only (not implemented)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../graphics/irix-software/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How IRIX drives Newport (Xsgi, ng1, GL)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--reference (static reverse engineering of IRIX 6.5.22) + what henry observed on silicon (section 7)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../irix-boot-flow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    IRIX boot flow (annotated)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../methodology/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Methodology (MAME oracle)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--stable"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../fpga_stats/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FPGA build stats
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#the-boot-chain" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The boot chain
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#kernel-entry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Kernel entry
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-eaddr-requirement-1-boot-gotcha" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The eaddr requirement — #1 boot gotcha
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#console-not-via-arcs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Console — NOT via ARCS
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Console — NOT via ARCS">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#for-a-headless-henry-set-consoled-and-emulate-the-minimal-scc" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        For a HEADLESS Henry: set console=d and emulate the minimal SCC
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-booted-looks-like-serial-transcript-consoled" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What "booted" looks like (serial transcript, console=d)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#minimum-for-henry-to-print-irix-is-alive" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Minimum for Henry to print "IRIX is alive"
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#detailed-working-notes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Detailed working notes
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="boot-sequence-console">Boot sequence &amp; console<a class="headerlink" href="#boot-sequence-console" title="Permanent link">&para;</a></h1>
+<blockquote>
+<p>Intro: the real chain is PROM → sash → /unix; Henry collapses this by loading <code>/unix</code> directly
+and entering it with the sash→kernel handoff already done (SPB planted, entry registers set).
+Console: the IRIX kernel writes to its <strong>own</strong> console driver — a graphics framebuffer driver for
+<code>console=g</code>, or the Z8530 SCC serial driver for <code>console=d</code> — it does <strong>NOT</strong> route console
+output through ARCS. Measured over a full boot in MAME: <code>arcs_write</code> = 0 calls.</p>
+</blockquote>
+<p>All numbers below were captured by booting real <strong>IRIX 6.5.22</strong> (Indy <code>indy_4610</code> / <code>r4600be</code>) in
+headless MAME with a debugger-driven Lua autoboot script. MAME is the ground-truth oracle.
+Cross-refs: <code>r9999/IRIX_KERNEL_GAPS.md</code> (console + entry sections), <code>r9999/IRIX_CPU_REQUIREMENTS.md</code>
+(ARCS/SPB/romvec), <code>docs/peripherals/ioc2.md</code> (the SCC console device).</p>
+<h2 id="the-boot-chain">The boot chain<a class="headerlink" href="#the-boot-chain" title="Permanent link">&para;</a></h2>
+<p><strong>Real Indy:</strong> PROM POST (power-on diagnostics) → <strong>sash</strong> (the OSLoader: enumerates RAM via ARCS
+<code>GetMemoryDescriptor</code> ×14, builds the component/config tree, seeds the wall clock, loads the <code>/unix</code>
+ELF) → jumps into <code>/unix</code> <code>start</code>.</p>
+<p><strong>Henry (sash-less, with a tiny PROM):</strong> the host loads the <code>/unix</code> ELF into DRAM (the ARM driver on the
+FPGA; <code>sim/henry_tb --kernel</code> in simulation) and the <strong><code>henry_arcs</code> FSBL</strong> at the reset vector
+<code>0xBFC00000</code> synthesizes the small amount of state sash normally leaves behind, then jumps to <code>start</code>.
+The same FSBL boots IP22 Linux and IRIX; the host patches the kernel entry into the word at
+<code>0xBFC00008</code> (see <a href="../firmware-arcs/#henrys-fsbl-henry_arcs">Firmware</a>). The running kernel barely touches
+firmware — over a 100 s emulated boot to multiuser the kernel calls the ARCS romvec <strong>exactly once</strong>
+(<code>GetEnvironmentVariable</code>). So the shim's job is to leave correct <em>in-memory</em> state, not to implement
+a live firmware. The collapsed handoff is: <strong>shim → /unix <code>start</code> with <code>a0=argc, a1=argv, a2=envp</code></strong>
+(argc=8; argv/envp are kseg0 pointers to arrays the shim plants in RAM — see <a href="#kernel-entry">Kernel entry</a>).</p>
+<h2 id="kernel-entry">Kernel entry<a class="headerlink" href="#kernel-entry" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>ELF entry = <code>0x88005960</code>, symbol <code>start</code>.</strong> kseg0-cached vaddr → <strong>PA <code>0x08005960</code></strong>; the image
+  loads at VA base <code>0x88000000</code> / <strong>PA <code>0x08000000</code></strong> (DRAM <code>0x08000000</code>–<code>0x0fffffff</code>).</li>
+<li><strong>Entry registers — <code>a0 = argc, a1 = argv, a2 = envp</code></strong> (the ARCS §4.4 "Loaded Program Conventions"
+  handoff sash gives <code>/unix</code>). ⚠️ <strong>Correction:</strong> an earlier note here read these as "<code>a1=0, a2=0</code>,
+  NOT argc/argv/envp." That was wrong — it held only because a 1:1 va2pa shortcut masked the null
+  pointers. With a <strong>real translating TLB</strong>, the kernel <em>does</em> consume argv/envp (via
+  <code>getargs</code>/<code>_envirn</code>, see prologue), and <code>a1=a2=0</code> makes <code>getargs</code> <strong>derail</strong> long before the banner
+  (interp_mips / <code>r9999/MAME_QUESTIONS.md</code> Q5 follow-up).<ul>
+<li><code>a0 = argc = 8</code>.</li>
+<li><code>a1 = argv</code> — kseg0 pointer (MAME: <code>0x88fff300</code>) to a NULL-terminated <code>char*[]</code> of 8 strings,
+  e.g. <code>"scsi(0)disk(1)rdisk(0)partition(0)/unix"</code>, <code>"OSLoadOptions=auto"</code>, <code>"ConsoleIn=serial(0)"</code>,
+  <code>"ConsoleOut=serial(0)"</code>, <code>"OSLoader=sash"</code>, … .</li>
+<li><code>a2 = envp</code> — kseg0 pointer (MAME: <code>0x88fff908</code>) to a NULL-terminated <code>char*[]</code> of <code>"KEY=value"</code>
+  env strings (<code>eaddr=…</code>, <code>console=d</code>, <code>cpufreq=100</code>, <code>OSLoadPartition=…</code>, <code>TimeZone=…</code>, …).</li>
+<li>Arrays + strings live just under the top of RAM (kseg0 pointers). The shim plants them; the full
+  string list is in <code>r9999/MAME_QUESTIONS.md</code> (Q5 follow-up) / interp_mips <code>pseudo_bios.cc</code>.</li>
+</ul>
+</li>
+<li>Registers also carry sash leftovers (<code>t0=0x11 t1=7 …</code>) but the shim can enter with a clean GPR
+    file. MAME's entry Status is <strong><code>SR = 0x30004801</code></strong> (reset Status <code>0x70400004</code>: KX=0, ERL=1, 32-bit
+    kernel). <strong>Henry's FSBL does not write Status</strong>: the kernel starts with r9999's reset values
+    (<code>ERL=1</code>, <code>BEV=1</code>, <code>CU0=1</code>, <code>FR=1</code>, KX=0; <code>exec.sv</code> reset block) and sets its own. The FSBL's body is
+    C, so it enters with <code>a3</code> = the entry address, <code>sp</code> = its scratch stack, and the other GPRs holding
+    whatever the C code left; the kernel's prologue sets its own <code>gp</code>/<code>sp</code>.</li>
+<li><strong><code>start</code> prologue (verified disassembly):</strong> sets <code>gp = 0x88332bf0</code>, loads <code>sp = *(0x8832bfa0)</code>,
+  immediately <code>sw</code>s the three boot args to gp-relative globals — <code>a0→_argc</code>, <code>a1→_argv</code>,
+  <strong><code>a2→_envirn</code></strong> (<code>0x8832d7c0</code>) — then <code>jal</code>s its first C routine
+  <code>0x880255e8(a0,a1,a2,a3=0x880059b0)</code>. <code>mlsetup</code>/<code>getargs</code> later consume <code>_envirn</code>/<code>_argv</code>; a zero
+  <code>_envirn</code> is exactly where the old <code>a2=0</code> handoff diverged. Early calls <code>_check_dbg</code>(<code>0x880255e8</code>)
+  and <code>debug</code>(<code>0x880152c8</code>) are debug hooks that return.</li>
+<li>The kernel pulls its config from the <strong>ARCS SPB at phys <code>0x1000</code></strong> (signature "ARCS", kseg1
+  <code>0xA0001000</code>) + a 35-entry FirmwareVector — NOT from the entry registers. RAM size/layout it reads
+  <strong>directly from the SGI MC</strong> (<code>MEMCFG0/1</code> at phys <code>0x1fa000c4/0xcc</code>, via <code>szmem</code>@<code>0x8800790c</code>),
+  not from ARCS. From there it proceeds through early init to multiuser.</li>
+</ul>
+<h2 id="the-eaddr-requirement-1-boot-gotcha">The eaddr requirement — #1 boot gotcha<a class="headerlink" href="#the-eaddr-requirement-1-boot-gotcha" title="Permanent link">&para;</a></h2>
+<p>IRIX's early kernel <strong>PANICs</strong> (UTLB miss around <code>0x88007488</code>) if the PROM Ethernet address (<code>eaddr</code>)
+is unset. In MAME this required a one-time <code>setenv -f eaddr &lt;mac&gt;</code> at the PROM prompt or the boot
+died before reaching multiuser. <strong>Henry's shim / NVRAM must supply an <code>eaddr</code></strong> (any valid-looking
+MAC) or the kernel dies in early init. With a placeholder MAC the kernel boots but later complains
+<code>ec0: machine has bad ethernet address: 08:01:02:03:04:05</code> and falls back to standalone networking —
+harmless for bring-up. Set this first; it is the single most common reason a fresh boot wedges.</p>
+<p><strong>Henry today:</strong> the FSBL plants <code>eaddr=08:01:02:03:04:05</code> in <code>envp</code>, but its <code>GetEnvironmentVariable</code>
+stub returns <strong><code>08:00:69:12:34:56</code></strong> (a real SGI OUI) for every name except <code>monitor</code>, and the FSBL also
+writes that MAC into the ds1386 bbRAM (<code>0xbfbe04e8…</code>, which on Henry is plain DRAM). The HPC3 NMC93CS56 EEPROM model returns it from words 125–127
+(<code>hpc3.sv</code>), so the kernel's Ethernet driver sees a valid station address and networking can come up.</p>
+<h2 id="console-not-via-arcs">Console — NOT via ARCS<a class="headerlink" href="#console-not-via-arcs" title="Permanent link">&para;</a></h2>
+<p>Measured over a whole boot (both <code>console=g</code> and <code>console=d</code> runs): <strong><code>arcs_write</code> = 0</strong>,
+<code>romvec[Write]</code> = 0, <code>call_prom_cached</code> = 2 (a non-console early PROM query). There is <strong>no early
+ARCS console window</strong> — IRIX's own console driver comes up early enough that the firmware console is
+never exercised. The console device is selected by the ARCS <code>console</code> env var (<code>arg_console</code>):</p>
+<ul>
+<li><strong><code>console=g</code> / <code>G</code> (graphics):</strong> kernel's own <strong>graphics framebuffer driver</strong> (over GIO64). This
+  is what MAME runs by default; the boot banner is drawn by the kernel, not the firmware.</li>
+<li><strong><code>console=d</code> (serial duart):</strong> kernel's <code>cn*</code> console subsystem dispatches to the serial driver
+  <code>du_*</code> (<code>du_putchar</code> / <code>ducons_write</code>), which drives the <strong>Z8530 / SCC85230</strong> in the <strong>IOC2/INT2</strong>
+  ASIC directly. <code>du_putchar</code> works through a per-port struct at kdata <code>0x8832d670 + port*0x84</code>; the
+  mapped SCC base is stored there at driver init.</li>
+</ul>
+<p><strong>Important:</strong> the "free output via the ARCS <code>Write</code> hook (<code>arcs_fw</code>)" trick does <strong>not</strong> work for
+the IRIX kernel console. Both the PROM phase ("Running power-on diagnostics…") and the kernel phase
+("IRIX Release 6.5 IP22…") write the Z8530 <strong>directly</strong>. A <code>du_putchar</code>/<code>ducons_write</code> entry
+breakpoint <em>undercounts</em> TX (output is buffered / interrupt-driven); the SCC-write hook (<code>scc_dc_w</code>
+in MAME <code>src/mame/sgi/ioc2.cpp</code>) is ground truth — it caught 972 console bytes.</p>
+<h3 id="for-a-headless-henry-set-consoled-and-emulate-the-minimal-scc">For a HEADLESS Henry: set <code>console=d</code> and emulate the minimal SCC<a class="headerlink" href="#for-a-headless-henry-set-consoled-and-emulate-the-minimal-scc" title="Permanent link">&para;</a></h3>
+<p>The Indy console is the <strong>first Z85230 channel</strong> at <code>0x1FBD9830</code> (Zilog <strong>channel B</strong>; an earlier
+version of this page said "channel A", which was wrong; see <a href="../peripherals/ioc2/">IOC2</a> and
+<a href="../peripherals/scc/">SCC</a>). For polled output the whole console is two registers:</p>
+<ul>
+<li><strong>Write <code>0x1FBD9834</code></strong> (Port1 chan A data) → take <code>data[7:0]</code>, append to the console sink (stdout).
+  That byte is the printed character — this is <code>du_putchar</code>'s store.</li>
+<li><strong>Read <code>0x1FBD9830</code></strong> (Port1 chan A command / RR0) → always return <strong><code>0x04</code></strong> (RR0 bit2 = Tx Buffer
+  Empty), so the driver's "wait for Tx empty" poll (<code>while(!(RR0 &amp; 4));</code>) never stalls.</li>
+<li><strong>Write <code>0x1FBD9830</code></strong> → swallow (WR-pointer selects / WR-register loads: baud, mode, IE).</li>
+</ul>
+<p>That stateless polled-TX drain is enough to print the banner — IRIX's <code>du</code> driver polls RR0.</p>
+<p><strong>What Henry's <code>ioc.sv</code> actually implements (more than the minimum):</strong> RR0 = <code>0x44</code> (Tx-empty | all-sent)
+with <strong>Tx-empty cleared while the SoC console FIFO is full</strong> (backpressure, so bytes aren't dropped) and
+bit 0 = Rx char available; an 8-deep <strong>Rx FIFO</strong> fed by the host (<code>scc_rx_push</code>); the WR0/WR1 register
+pointer machine, Tx/Rx interrupt-pending bits and <strong>RR3</strong>; and the Tx/Rx interrupt on INT3 mappable
+source bit 5 (<code>henry_soc.sv</code> <code>map_src</code>). Interactive use (getty, Linux <code>ip22zilog</code>) needs those. The SCC
+TX stream and the core's CP0 reg-7 putchar stream are merged into one 8-deep SoC console FIFO
+(<code>henry_soc.sv</code> <code>putchar_fifo_*</code>), which the AXI wrapper / <code>henry_tb</code> drain. Details:
+<a href="../peripherals/scc/">SCC implementation</a>.</p>
+<h2 id="what-booted-looks-like-serial-transcript-consoled">What "booted" looks like (serial transcript, <code>console=d</code>)<a class="headerlink" href="#what-booted-looks-like-serial-transcript-consoled" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>                         Running power-on diagnostics...
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>                           Starting up the system...
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>               To perform system maintenance instead, press &lt;Esc&gt;
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>IRIX Release 6.5 IP22 Version 10070055 System V
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>Copyright 1987-2003 Silicon Graphics, Inc.
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>All Rights Reserved.
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>ec0: machine has bad ethernet address: 08:01:02:03:04:05
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>The system is coming up.
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>...
+</code></pre></div>
+<p>The PROM-phase lines ("Running power-on diagnostics…", "press &lt;Esc&gt;") are <strong>PROM</strong> code writing
+the Z8530; the "IRIX Release 6.5 IP22…" banner onward is the <strong>kernel's</strong> serial driver writing the
+Z8530. (With the <code>henry_arcs</code> FSBL the PROM-phase lines won't appear: it prints one heartbeat line,
+<code>r9999 PROM: CPU alive, handing off to the kernel</code>, and the kernel banner follows. Booting the real SGI
+PROM with <code>henry_tb --prom</code> prints the PROM's own output.) Full MAME capture:
+<code>~/code/mame/irix_serial_console.txt</code>.</p>
+<h2 id="minimum-for-henry-to-print-irix-is-alive">Minimum for Henry to print "IRIX is alive"<a class="headerlink" href="#minimum-for-henry-to-print-irix-is-alive" title="Permanent link">&para;</a></h2>
+<ol>
+<li>Load the <code>/unix</code> ELF (VA <code>0x88xxxxxx</code> → PA <code>0x08xxxxxx</code>, base PA <code>0x08000000</code>).</li>
+<li>Plant the <strong>ARCS shim</strong>: SPB at phys <code>0x1000</code> (sig "ARCS" + field layout) → 35-entry romvec with
+   a working <strong>GetEnvironmentVariable</strong> (the one call the kernel makes); return sane <strong>MEMCFG0/1</strong>
+   from the MC model (e.g. <code>MEMCFG0=0x23200000</code> → bank @ <code>0x08000000</code>). Also plant the <strong>argv/envp
+   arrays + strings</strong> in RAM (kseg0 pointers) — these are the <code>a1</code>/<code>a2</code> handoff (step 5).</li>
+<li>Provide an <strong><code>eaddr</code></strong> in the ARCS env / NVRAM (see the eaddr gotcha above) — or early init panics.</li>
+<li>Set <strong><code>console=d</code></strong> in the ARCS env (and in the planted <code>envp</code>).</li>
+<li>Enter <code>start</code> (<code>0x88005960</code>) with <strong><code>a0=argc=8, a1=argv, a2=envp</code></strong> (kseg0 pointers to the step-2
+   arrays — <strong>not</strong> <code>a1=a2=0</code>, which derails <code>getargs</code>), clean GPRs, <code>SR=0x30004801</code>.</li>
+<li>Emulate the <strong>minimal Z8530 SCC</strong> at IOC2 (write <code>0x1FBD9834</code> = TX byte → stdout; read
+   <code>0x1FBD9830</code> → <code>0x04</code>; swallow writes to <code>0x1FBD9830</code>).</li>
+</ol>
+<p>With those six, the kernel runs through early init and its <code>du</code> driver prints the IRIX banner to
+Henry's serial sink. On Henry, steps 2–5 are done by the <code>henry_arcs</code> FSBL (it also programs
+<code>MEMCFG0=0x3f203f40</code>, 2 × 128 MB), and step 6 is <code>ioc.sv</code>.</p>
+<h2 id="detailed-working-notes">Detailed working notes<a class="headerlink" href="#detailed-working-notes" title="Permanent link">&para;</a></h2>
+<ul>
+<li><code>r9999/IRIX_KERNEL_GAPS.md</code> — "Serial console output — how IRIX prints" and "Kernel entry &amp; boot
+  handoff" sections (the <code>arcs_write=0</code> measurement, <code>du_*</code> dispatch, SCC address, entry regs).</li>
+<li><code>r9999/IRIX_CPU_REQUIREMENTS.md</code> — P0-A (<code>start</code> handoff, entry registers, SPB layout, romvec),
+  P0-B (who calls the romvec and when), P0-C (RAM sizing via the MC), and the eaddr note.</li>
+<li><code>docs/peripherals/ioc2.md</code> — the Z8530 SCC console device map and minimal-TX recipe.</li>
+</ul>
+
+
+
+
+
+
+
+  
+  
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "navigation.top", "navigation.indexes", "navigation.tracking", "toc.follow", "content.code.copy"], "search": "../assets/javascripts/workers/search.a7633da7.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.c21346df.min.js"></script>
+      
+    
+  </body>
+</html>

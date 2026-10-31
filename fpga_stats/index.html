@@ -1,0 +1,2402 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A from-scratch SoC that impersonates the SGI Indy (IP22) well enough to boot IRIX, built around the r9999 MIPS core.">
+      
+      
+      
+      
+        <link rel="prev" href="../methodology/">
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.0">
+    
+    
+      
+        <title>FPGA build stats - Henry — the wannabe IP22 SoC</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.57a0d79d.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.fb2fffe2.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="amber">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#fpga-design-stats-vivado-synthimpl" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Henry — the wannabe IP22 SoC" class="md-header__button md-logo" aria-label="Henry — the wannabe IP22 SoC" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M6 4h12v1h3v2h-3v2h3v2h-3v2h3v2h-3v2h3v2h-3v1H6v-1H3v-2h3v-2H3v-2h3v-2H3V9h3V7H3V5h3zm5 11v3h1v-3zm2 0v3h1v-3zm2 0v3h1v-3z"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Henry — the wannabe IP22 SoC
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              FPGA build stats
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="amber"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="amber"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Henry — the wannabe IP22 SoC" class="md-nav__button md-logo" aria-label="Henry — the wannabe IP22 SoC" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M6 4h12v1h3v2h-3v2h3v2h-3v2h3v2h-3v2h3v2h-3v1H6v-1H3v-2h3v-2H3v-2h3v-2H3V9h3V7H3V5h3zm5 11v3h1v-3zm2 0v3h1v-3zm2 0v3h1v-3z"/></svg>
+
+    </a>
+    Henry — the wannabe IP22 SoC
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../minimum-mmio-to-banner/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Minimum MMIO to boot banner
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (functional-sim validated, MAME-corroborated; Henry-RTL notes re-checked 2026-10-27 against henry eea6ecb)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cpu-integration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CPU integration (r9999)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../r9999-microarchitecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    r9999 microarchitecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../r9999-lineage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    r9999 lineage (MIPS -> RISC-V -> MIPS)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../firmware-arcs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Firmware (ARCS shim)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated; Henry FSBL section checked 2026-10-27 against r9999/arcs/henry_arcs.S + henry_fw.c @ 788c412)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../boot-and-console/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Boot & console
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated; Henry FSBL/console re-checked 2026-10-27 against henry eea6ecb / r9999 788c412)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../coherence-cache-tlb/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cache, coherence & TLB
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated; silicon-refined 2026-07; RTL state re-checked 2026-10-27 against henry eea6ecb / r9999 788c412)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../arm-device-protocol/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ARM ↔ device protocol (staging rings)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../bus-errors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Bus errors
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../fpu-cop1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FPU (COP1)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--implemented (MAME-validated workload)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_13" >
+        
+          
+          <label class="md-nav__link" for="__nav_13" id="__nav_13_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Peripherals
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_13_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_13">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Peripherals
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../peripherals/mc/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MC (memory controller)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated; henry RTL status audited 2026-10-27 against main eea6ecb)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../peripherals/ioc2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    IOC2 (serial console)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated; henry RTL status audited 2026-10-27 against main @eea6ecb)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../peripherals/scc/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SCC (Z85C30 console)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (silicon-validated; audited 2026-10-27 against henry main @eea6ecb)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../peripherals/hpc3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    HPC3 (SCSI/enet/DMA, RTC)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME + live-IRIX-trace validated; henry RTL status audited 2026-10-27 against main eea6ecb)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../peripherals/scsi_disk_theory_of_operation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SCSI disk theory of operation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../peripherals/gio64/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GIO64 (bus)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated; henry RTL status audited 2026-10-27 against henry main eea6ecb)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../peripherals/vdma/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VDMA (virtual DMA)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--implemented for memory -> GIO (dma_engine CH_V), 2026-10-18"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../peripherals/dmux1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DMUX (data mux)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (henry status audited 2026-10-27 against main @eea6ecb)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_14" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../graphics/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Graphics
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--implemented (ARM-served model), 2026-10-18"></span>
+  
+
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_14" id="__nav_14_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_14_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_14">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Graphics
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../newport-on-henry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Newport on henry (working, screenshots)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../graphics/rex3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    REX3 (raster engine)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--reference; implemented as an ARM-served software model (2026-10-18)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../graphics/vc2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VC2 (video timing/cursor)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--reference; implemented as part of the ARM-side Newport model (2026-10-18)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../graphics/xmap9/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    XMAP9 (colormap)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--reference; implemented in the ARM-side Newport model (2026-10-18)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../graphics/rb2-ro1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RB2 & RO1 (framebuffer/output)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--reference; RB2 semantics implemented in the ARM-side Newport model (2026-10-18)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../graphics/express-xz/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Express / XZ (hardware geometry)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--reference only (not implemented)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../graphics/irix-software/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How IRIX drives Newport (Xsgi, ng1, GL)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--reference (static reverse engineering of IRIX 6.5.22) + what henry observed on silicon (section 7)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../irix-boot-flow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    IRIX boot flow (annotated)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../methodology/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Methodology (MAME oracle)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--stable"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FPGA build stats
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FPGA build stats
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#2026-10-14-10-18-device-rings-newport-vdma-big-core" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2026-10-14 .. 10-18 -- device rings, Newport, VDMA, big core
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2026-10-04-r9999-5c89b70-l1d-flushes-start-only-from-a-drained-l1d" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2026-10-04 -- r9999 5c89b70 (L1D flushes start only from a drained L1D)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2026-10-03-r9999-94e5e97-cp0-writes-commit-at-retire-cp0-ops-totally-ordered" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2026-10-03 -- r9999 94e5e97 (CP0 writes commit at retire; CP0 ops totally ordered)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2026-07-19-r9999-2edef07-submodule-on-main-16-kb-l1il1d-128-kb-l2-find_lowest_set_bit-programmable-debug-watchpoint" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2026-07-19 -- r9999 2edef07 (submodule-on-main: 16 KB L1I+L1D, 128 KB L2, find_lowest_set_bit, programmable debug watchpoint)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2026-07-03-1fdc585-mem-pipe-cache-hit-ops-wns-full-lut-breakdown-by-hierarchy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2026-07-03 -- 1fdc585 (mem-pipe CACHE hit-ops) -- WNS + full LUT breakdown by hierarchy
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2026-07-03 -- 1fdc585 (mem-pipe CACHE hit-ops) -- WNS + full LUT breakdown by hierarchy">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#lut-breakdown-by-hierarchy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        LUT breakdown by hierarchy
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2026-06-24-scc-iocsv-control-write-fix-fp-complete-core-explore-pr-post-route-phys_opt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2026-06-24 -- SCC ioc.sv control-write fix (FP-complete core; Explore P&amp;R + post-route phys_opt)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2026-06-20-aadb09f-tlb-pfn-narrowed-to-pa_width-12-bev-base-fix-va-range-adel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2026-06-20 -- aadb09f (TLB PFN narrowed to PA_WIDTH-12; + BEV-base fix + VA-range AdEL)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2026-06-19-9bf1224-baseline-c-bit-cacheability-usersupkernel-adel-scc-rx-wrapper" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2026-06-19 -- 9bf1224 baseline (C-bit cacheability + user/sup/kernel AdEL + SCC Rx wrapper)
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#2026-10-14-10-18-device-rings-newport-vdma-big-core" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2026-10-14 .. 10-18 -- device rings, Newport, VDMA, big core
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2026-10-04-r9999-5c89b70-l1d-flushes-start-only-from-a-drained-l1d" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2026-10-04 -- r9999 5c89b70 (L1D flushes start only from a drained L1D)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2026-10-03-r9999-94e5e97-cp0-writes-commit-at-retire-cp0-ops-totally-ordered" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2026-10-03 -- r9999 94e5e97 (CP0 writes commit at retire; CP0 ops totally ordered)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2026-07-19-r9999-2edef07-submodule-on-main-16-kb-l1il1d-128-kb-l2-find_lowest_set_bit-programmable-debug-watchpoint" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2026-07-19 -- r9999 2edef07 (submodule-on-main: 16 KB L1I+L1D, 128 KB L2, find_lowest_set_bit, programmable debug watchpoint)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2026-07-03-1fdc585-mem-pipe-cache-hit-ops-wns-full-lut-breakdown-by-hierarchy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2026-07-03 -- 1fdc585 (mem-pipe CACHE hit-ops) -- WNS + full LUT breakdown by hierarchy
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2026-07-03 -- 1fdc585 (mem-pipe CACHE hit-ops) -- WNS + full LUT breakdown by hierarchy">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#lut-breakdown-by-hierarchy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        LUT breakdown by hierarchy
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2026-06-24-scc-iocsv-control-write-fix-fp-complete-core-explore-pr-post-route-phys_opt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2026-06-24 -- SCC ioc.sv control-write fix (FP-complete core; Explore P&amp;R + post-route phys_opt)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2026-06-20-aadb09f-tlb-pfn-narrowed-to-pa_width-12-bev-base-fix-va-range-adel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2026-06-20 -- aadb09f (TLB PFN narrowed to PA_WIDTH-12; + BEV-base fix + VA-range AdEL)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2026-06-19-9bf1224-baseline-c-bit-cacheability-usersupkernel-adel-scc-rx-wrapper" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2026-06-19 -- 9bf1224 baseline (C-bit cacheability + user/sup/kernel AdEL + SCC Rx wrapper)
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="fpga-design-stats-vivado-synthimpl">FPGA design stats (Vivado synth/impl)<a class="headerlink" href="#fpga-design-stats-vivado-synthimpl" title="Permanent link">&para;</a></h1>
+<p>Parsed from the Vivado post-route reports by <strong><code>fpga_stats.sh</code></strong>. Regenerate after
+a synth (<code>rebuild_henry.tcl</code> writes <code>~/timing_after.rpt</code> + <code>~/util_after.rpt</code>):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>./fpga_stats.sh<span class="w"> </span>&gt;&gt;<span class="w"> </span>docs/fpga_stats.md<span class="w">   </span><span class="c1"># appends a dated, commit-stamped block</span>
+</code></pre></div>
+<p><strong>Target:</strong> Ultra96-v2 (Zynq UltraScale+ ZU3EG), <code>clk_pl_0</code> @ <strong>100 MHz</strong> (10 ns).
+In most of the June–July 2026 builds logged below the WNS path was the <strong>icache -&gt; ITLB -&gt; <code>pa_reg</code></strong> chain (the
+48-entry fully-associative TLB CAM), <strong>route-dominated</strong> (~63% route). The 2-entry <strong>micro-ITLB</strong> took
+the CAM off the fetch path; in the 2026-10-03/10-04 builds after the memory-system rework (non-blocking
+L1D + LSU) the worst path sat in the <strong>L1D port-2 pipeline</strong>. Newest block first; the log is not
+updated for every bitstream (the newest entry is 2026-10-18). Reports for each deployed bitstream are
+snapshotted next to it in <code>~/fpga/ultra96v2-henry/bit_&lt;r9999 sha&gt;/</code>.</p>
+<h2 id="2026-10-14-10-18-device-rings-newport-vdma-big-core">2026-10-14 .. 10-18 -- device rings, Newport, VDMA, big core<a class="headerlink" href="#2026-10-14-10-18-device-rings-newport-vdma-big-core" title="Permanent link">&para;</a></h2>
+<p>Summary rows from the bitstream manifest (Vivado post-route WNS @ 100 MHz and CLB LUTs; full reports are
+kept next to each bitstream). All built with <code>ENABLE_DEBUG_WATCHPOINT</code>.</p>
+<table>
+<thead>
+<tr>
+<th>date</th>
+<th>bitstream (md5)</th>
+<th>config</th>
+<th>WNS</th>
+<th>CLB LUTs</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>10-14</td>
+<td><code>0e7de40d</code></td>
+<td>ROB 32, LSU 12, HILO 8, L2 512 KB, L1D 16 KB / L1I 32 KB; ENET+SCSI staging rings (no Newport). Passed a 24-round IRIX soak; Dhrystone 169.6 VAX MIPS</td>
+<td>+0.074</td>
+<td>63085</td>
+</tr>
+<tr>
+<td>10-16</td>
+<td><code>d8ad3041</code></td>
+<td>TINY_CORE; first <code>gio_window</code> + ARM-served Newport (RTL rev <code>0x20261016</code>)</td>
+<td>+0.102</td>
+<td>56663</td>
+</tr>
+<tr>
+<td>10-17</td>
+<td><code>959051bd</code></td>
+<td>TINY_CORE; DMA engine + VDMA channel (TLB_LO fix) + usage counters</td>
+<td>+0.261</td>
+<td>54949</td>
+</tr>
+<tr>
+<td>10-17</td>
+<td><code>974ea88e</code></td>
+<td>TINY_CORE; + ring BEGIN/END markers (RTL rev <code>0x20261018</code>)</td>
+<td>+0.048</td>
+<td>54906</td>
+</tr>
+<tr>
+<td>10-18</td>
+<td><code>7d953110</code></td>
+<td>big core (sched 8, LSU 8, L1D 16 KB, L1I 32 KB, L2 128 KB, ROB 16, skid on) + DMA engine + VDMA + markers. Runs the Newport desktop and Doom; Dhrystone 158.1 VAX MIPS</td>
+<td>+0.145</td>
+<td>57609</td>
+</tr>
+<tr>
+<td>10-18</td>
+<td><code>d60ca46f</code></td>
+<td>as <code>7d953110</code> with L2 256 KB (105.5 BRAM tiles)</td>
+<td>+0.051</td>
+<td>57753</td>
+</tr>
+</tbody>
+</table>
+<p>A ROB 32 + LSU 12 + 256 KB L2 variant of the Newport/DMA-engine design routed at <strong>−2.061 ns</strong> (88.7% LUTs)
+and is not usable at 100 MHz on the ZU3EG.</p>
+<h2 id="2026-10-04-r9999-5c89b70-l1d-flushes-start-only-from-a-drained-l1d">2026-10-04 -- r9999 5c89b70 (L1D flushes start only from a drained L1D)<a class="headerlink" href="#2026-10-04-r9999-5c89b70-l1d-flushes-start-only-from-a-drained-l1d" title="Permanent link">&para;</a></h2>
+<p>Henry <code>main</code> @ <code>209e6f6</code>; bitstream md5 <code>f66c6d49dfb1…</code>; <code>impl_11</code>; built with
+<code>ENABLE_DEBUG_WATCHPOINT</code> on (the <code>gen_mipscore.sh</code> default). Core config: 16 KB L1I + 16 KB L1D,
+128 KB L2, ROB 16, micro-ITLB 2, L1D skid buffer <strong>off</strong>, RDCHK checker removed, unified int/FP divider
+in. Parsed with <code>./fpga_stats.sh</code> from <code>bit_5c89b70/*.rpt</code>.</p>
+<table>
+<thead>
+<tr>
+<th>metric</th>
+<th>value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>WNS @ 100 MHz</td>
+<td><strong>+0.120 ns</strong> (all user specified timing constraints met; 0 failing endpoints)</td>
+</tr>
+<tr>
+<td>Worst path</td>
+<td><code>cpu/dcache/r_req2_reg[204]</code> -&gt; <code>cpu/dcache/r_hit_busy_addr_reg</code></td>
+</tr>
+<tr>
+<td>Data path delay</td>
+<td>9.758 ns  (logic 3.256 ns / <strong>33.4%</strong>, route 6.502 ns / <strong>66.6%</strong>)</td>
+</tr>
+<tr>
+<td>Logic levels</td>
+<td>35  (LUT2=2 LUT3=1 LUT4=4 LUT5=6 LUT6=21 MUXF7=1)</td>
+</tr>
+<tr>
+<td>CLB LUTs</td>
+<td>56222 (79.68%)</td>
+</tr>
+<tr>
+<td>LUT as Logic</td>
+<td>54039 (76.59%)</td>
+</tr>
+<tr>
+<td>LUT as Memory (LUTRAM)</td>
+<td>2183 (7.58%)</td>
+</tr>
+<tr>
+<td>CLB Registers (FF)</td>
+<td>36397 (25.79%)</td>
+</tr>
+<tr>
+<td>Register as Latch</td>
+<td>0</td>
+</tr>
+<tr>
+<td>Block RAM</td>
+<td>63 (29.17%)</td>
+</tr>
+<tr>
+<td>DSP</td>
+<td>43 (11.94%)</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><strong>Path shape:</strong> the L1D port-2 request register <code>r_req2</code> -&gt; data-array / store-buffer byte select
+(<code>dc_data</code>, <code>r_sb_mask</code>) -&gt; D-TLB-dependent response / block decision (<code>dtlb/r_core_mem_rsp</code>,
+<code>r_core_mem_blk_valid</code>) -&gt; MQ push / next state -&gt; tag-RAM address (<code>dc_tag</code>) -&gt; <code>r_hit_busy_addr</code>.
+Still route-dominated (67%). vs. <code>94e5e97</code> below: +716 CLB LUTs and -0.057 ns WNS for the
+drained-L1D gating on all four flush arms.</p>
+</blockquote>
+<h2 id="2026-10-03-r9999-94e5e97-cp0-writes-commit-at-retire-cp0-ops-totally-ordered">2026-10-03 -- r9999 94e5e97 (CP0 writes commit at retire; CP0 ops totally ordered)<a class="headerlink" href="#2026-10-03-r9999-94e5e97-cp0-writes-commit-at-retire-cp0-ops-totally-ordered" title="Permanent link">&para;</a></h2>
+<p><code>impl_11</code>, bitstream md5 <code>f29a0d083fae…</code> (reports in <code>bit_94e5e97/</code>). First bits on the reworked
+memory system (r9999 <code>3b78e9b</code>: non-blocking L1D, unified LSU with store buffer + forwarding).</p>
+<table>
+<thead>
+<tr>
+<th>metric</th>
+<th>value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>WNS @ 100 MHz</td>
+<td><strong>+0.177 ns</strong> (all user specified timing constraints met)</td>
+</tr>
+<tr>
+<td>Worst path</td>
+<td><code>cpu/icache/insn_array/r_ram_reg_bram_3</code> -&gt; <code>cpu/icache/r_ufast_pa_reg[33]</code></td>
+</tr>
+<tr>
+<td>Data path delay</td>
+<td>9.471 ns  (logic 4.250 ns / <strong>44.9%</strong>, route 5.221 ns / <strong>55.1%</strong>)</td>
+</tr>
+<tr>
+<td>Logic levels</td>
+<td>31  (LUT2=6 LUT3=3 LUT4=6 LUT5=5 LUT6=11)</td>
+</tr>
+<tr>
+<td>CLB LUTs</td>
+<td>55506 (78.66%)</td>
+</tr>
+<tr>
+<td>LUT as Logic</td>
+<td>53323 (75.57%)</td>
+</tr>
+<tr>
+<td>LUT as Memory (LUTRAM)</td>
+<td>2183 (7.58%)</td>
+</tr>
+<tr>
+<td>CLB Registers (FF)</td>
+<td>36408 (25.80%)</td>
+</tr>
+<tr>
+<td>Register as Latch</td>
+<td>0</td>
+</tr>
+<tr>
+<td>Block RAM</td>
+<td>63 (29.17%)</td>
+</tr>
+<tr>
+<td>DSP</td>
+<td>43 (11.94%)</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>Worst path here is the <strong>micro-ITLB fast path</strong> (I-cache data array -&gt; next fetch PC -&gt; uITLB
+compare -&gt; <code>r_ufast_pa</code>), no longer the 48-way CAM.</p>
+</blockquote>
+<h2 id="2026-07-19-r9999-2edef07-submodule-on-main-16-kb-l1il1d-128-kb-l2-find_lowest_set_bit-programmable-debug-watchpoint">2026-07-19 -- r9999 2edef07 (submodule-on-main: 16 KB L1I+L1D, 128 KB L2, find_lowest_set_bit, programmable debug watchpoint)<a class="headerlink" href="#2026-07-19-r9999-2edef07-submodule-on-main-16-kb-l1il1d-128-kb-l2-find_lowest_set_bit-programmable-debug-watchpoint" title="Permanent link">&para;</a></h2>
+<p>First synth after the <code>r9999</code> submodule was repointed at a <strong>clean <code>origin/main</code></strong> (2edef07):
+<strong>16 KB L1I + 16 KB L1D</strong> (was 4 KB each; VIPT tag-widened so alias-safe above the 4 KB page),
+<strong>128 KB write-back L2</strong>, the <code>find_first_set</code> -&gt; <code>find_lowest_set_bit</code> priority-encoder fix, and
+the driver-<strong>programmable</strong> debug breakpoint/store-watchpoint/fault-trap interface
+(<code>ENABLE_DEBUG_WATCHPOINT</code>, injected at build by <code>gen_mipscore.sh</code> via <code>SV2V_DEFINES</code>). Built with
+the watchpoint <strong>ON</strong>.</p>
+<table>
+<thead>
+<tr>
+<th>metric</th>
+<th>value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>WNS @ 100 MHz</td>
+<td><strong>+0.096 ns</strong> (all met, 0 failing endpoints; impl_11)</td>
+</tr>
+<tr>
+<td>Worst path</td>
+<td>icache -&gt; 48-way ITLB CAM -&gt; <code>pa</code> (route-dominated, unchanged)</td>
+</tr>
+<tr>
+<td>CLB LUTs (post-route)</td>
+<td>52094 (73.83%)</td>
+</tr>
+<tr>
+<td>LUT as Memory (LUTRAM)</td>
+<td>1813 (6.30%)</td>
+</tr>
+<tr>
+<td>CLB Registers (FF)</td>
+<td>35665 (25.27%)</td>
+</tr>
+<tr>
+<td>Block RAM</td>
+<td>60.5 (28.01%)</td>
+</tr>
+<tr>
+<td>DSP</td>
+<td>43 (11.94%)</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>The 4x L1 bump (4 KB -&gt; 16 KB each) is the big structural delta vs the 2026-07-03 build below:
+<strong>Block RAM 25 -&gt; 60.5</strong> (the larger tag/data/predecode arrays), the point of the tag-widening
+work that makes &gt;4 KB VIPT L1 alias-safe. <strong>CLB LUTs are <em>lower</em> than the last logged build</strong>
+(62320 -&gt; 52094) thanks to the area-reduction work landed since (banked ROB, the
+<code>find_lowest_set_bit</code> rewrite, clustered FP register file). <strong>WNS +0.096 ns</strong> holds on the same
+route-bound ITLB-CAM path -- the micro-TLB in front of the JTLB remains the structural fix for
+real margin. (The per-hierarchy LUT breakdown below is from the 2026-07-03 netlist; the
+<code>find_first_set</code> row there is the pre-fix encoder, now <code>find_lowest_set_bit</code>.)</p>
+</blockquote>
+<h2 id="2026-07-03-1fdc585-mem-pipe-cache-hit-ops-wns-full-lut-breakdown-by-hierarchy">2026-07-03 -- 1fdc585 (mem-pipe CACHE hit-ops) -- WNS + full LUT breakdown by hierarchy<a class="headerlink" href="#2026-07-03-1fdc585-mem-pipe-cache-hit-ops-wns-full-lut-breakdown-by-hierarchy" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>metric</th>
+<th>value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>WNS @ 100 MHz</td>
+<td><strong>+0.147 ns</strong> (all met, 0 failing endpoints; impl_12 strategy)</td>
+</tr>
+<tr>
+<td>Worst path</td>
+<td><code>cpu/cpu/e/r_int_result_reg[0]</code> -&gt; <code>cpu/dcache/dtlb/pa_reg[28]</code></td>
+</tr>
+<tr>
+<td>Data path delay</td>
+<td>9.501 ns  (logic 2.874 ns / <strong>30.3%</strong>, route 6.627 ns / <strong>69.7%</strong>)</td>
+</tr>
+<tr>
+<td>CLB LUTs (post-route)</td>
+<td>62320 (88.32%)</td>
+</tr>
+<tr>
+<td>LUT as Logic</td>
+<td>60469 (85.70%)</td>
+</tr>
+<tr>
+<td>LUT as Memory (LUTRAM)</td>
+<td>1851 (6.43%)</td>
+</tr>
+<tr>
+<td>CLB Registers (FF)</td>
+<td>35910 (25.45%)</td>
+</tr>
+<tr>
+<td>Block RAM</td>
+<td>25</td>
+</tr>
+<tr>
+<td>DSP</td>
+<td>43</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>The worst path shifted this build from the icache-&gt;ITLB chain to the <strong>dcache</strong> side
+(<code>e/r_int_result</code> -&gt; <code>dtlb/pa_reg</code> -- the AGU result reaching the D-side 48-way CAM), still
+route-dominated (<strong>70%</strong>). The mem-pipe CACHE hit-ops (D Hit-WB/Inval now translate through the
+dtlb like loads -- fixes IRIX <code>vfs_mountroot</code> EWRONGFS) added ~2.9K synth LUTs but closed at
++0.147 ns.</p>
+</blockquote>
+<h3 id="lut-breakdown-by-hierarchy">LUT breakdown by hierarchy<a class="headerlink" href="#lut-breakdown-by-hierarchy" title="Permanent link">&para;</a></h3>
+<p>From <code>report_utilization -hierarchical</code> on the <strong>synthesized</strong> netlist (<code>synth_1.dcp</code>). These are
+synth <strong>Total LUTs</strong> (pre-route, includes SRLs) = <strong>63,480</strong>; post-route packing lands them at the
+62,320 CLB LUTs above. Regenerate with:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nv">open_checkpoint</span><span class="w"> </span><span class="o">&lt;</span>run<span class="o">&gt;/</span>synth_1<span class="o">/</span>ultra96v2_oob_wrapper.dcp
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="nv">report_utilization</span><span class="w"> </span><span class="o">-</span>hierarchical<span class="w"> </span><span class="o">-</span>hierarchical_depth<span class="w"> </span><span class="mi">20</span><span class="w"> </span><span class="o">-</span>file<span class="w"> </span>util_hier.rpt
+</code></pre></div>
+<p><strong>Top level -- 63,480 LUTs = 90.0% of the 70,560-LUT device.</strong> The r9999 CPU (core + all caches)
+is <strong>93.7%</strong> of the design; the SoC/AXI/PS glue is the remaining ~6%.</p>
+<table>
+<thead>
+<tr>
+<th>block</th>
+<th>module</th>
+<th style="text-align: right;">Total LUTs</th>
+<th style="text-align: right;">Logic</th>
+<th style="text-align: right;">LUTRAM</th>
+<th style="text-align: right;">FFs</th>
+<th style="text-align: right;">% design</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>OOO core</td>
+<td><code>core</code></td>
+<td style="text-align: right;">42,647</td>
+<td style="text-align: right;">40,996</td>
+<td style="text-align: right;">1,464</td>
+<td style="text-align: right;">21,255</td>
+<td style="text-align: right;"><strong>67.2%</strong></td>
+</tr>
+<tr>
+<td>I-cache</td>
+<td><code>l1i</code></td>
+<td style="text-align: right;">10,091</td>
+<td style="text-align: right;">10,083</td>
+<td style="text-align: right;">8</td>
+<td style="text-align: right;">6,973</td>
+<td style="text-align: right;">15.9%</td>
+</tr>
+<tr>
+<td>D-cache</td>
+<td><code>l1d</code></td>
+<td style="text-align: right;">5,131</td>
+<td style="text-align: right;">5,051</td>
+<td style="text-align: right;">80</td>
+<td style="text-align: right;">1,360</td>
+<td style="text-align: right;">8.1%</td>
+</tr>
+<tr>
+<td>L2 cache</td>
+<td><code>l2</code></td>
+<td style="text-align: right;">1,596</td>
+<td style="text-align: right;">1,596</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">517</td>
+<td style="text-align: right;">2.5%</td>
+</tr>
+<tr>
+<td>AXI shim</td>
+<td><code>axi_is_the_worst</code></td>
+<td style="text-align: right;">1,430</td>
+<td style="text-align: right;">1,445</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">2,536</td>
+<td style="text-align: right;">2.3%</td>
+</tr>
+<tr>
+<td>IP22 devices</td>
+<td>hpc3·mc·ioc·scsi</td>
+<td style="text-align: right;">1,292</td>
+<td style="text-align: right;">1,208</td>
+<td style="text-align: right;">84</td>
+<td style="text-align: right;">2,051</td>
+<td style="text-align: right;">2.0%</td>
+</tr>
+<tr>
+<td>Zynq PS + interconnect</td>
+<td>Xilinx IP</td>
+<td style="text-align: right;">1,247</td>
+<td style="text-align: right;">1,166</td>
+<td style="text-align: right;">40</td>
+<td style="text-align: right;">999</td>
+<td style="text-align: right;">2.0%</td>
+</tr>
+<tr>
+<td>SoC glue</td>
+<td><code>henry_soc</code></td>
+<td style="text-align: right;">46</td>
+<td style="text-align: right;">22</td>
+<td style="text-align: right;">8</td>
+<td style="text-align: right;">152</td>
+<td style="text-align: right;">0.1%</td>
+</tr>
+</tbody>
+</table>
+<p>IP22 devices pooled: hpc3 223 · mc 274 · ioc 176 · scsi (shim 245 + beat_fifo 150 + dma 224 = 619).</p>
+<p><strong>Inside the OOO core -- 42,647 LUTs</strong> (grouped compute / storage / control):</p>
+<table>
+<thead>
+<tr>
+<th>unit</th>
+<th>module</th>
+<th style="text-align: right;">Total LUTs</th>
+<th style="text-align: right;">% core</th>
+<th>group</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>exec datapath · CP0 · int scheduler</td>
+<td><code>exec</code> (own)</td>
+<td style="text-align: right;">15,362</td>
+<td style="text-align: right;">36.0%</td>
+<td>compute</td>
+</tr>
+<tr>
+<td>core control · ROB · rename · retire</td>
+<td><code>core</code> (own)</td>
+<td style="text-align: right;">11,654</td>
+<td style="text-align: right;">27.3%</td>
+<td>control</td>
+</tr>
+<tr>
+<td>integer register file</td>
+<td><code>rf4r2w</code></td>
+<td style="text-align: right;">4,986</td>
+<td style="text-align: right;">11.7%</td>
+<td>storage</td>
+</tr>
+<tr>
+<td>select encoders (×5)</td>
+<td><code>find_first_set</code></td>
+<td style="text-align: right;">4,756</td>
+<td style="text-align: right;">11.2%</td>
+<td>control</td>
+</tr>
+<tr>
+<td>FP register file</td>
+<td><code>fp_regfile</code></td>
+<td style="text-align: right;">3,032</td>
+<td style="text-align: right;">7.1%</td>
+<td>storage</td>
+</tr>
+<tr>
+<td>FPU (add 687 · mul 511 · f2i 138 · ctl)</td>
+<td><code>fpu</code></td>
+<td style="text-align: right;">1,575</td>
+<td style="text-align: right;">3.7%</td>
+<td>compute</td>
+</tr>
+<tr>
+<td>integer divider</td>
+<td><code>divider</code></td>
+<td style="text-align: right;">732</td>
+<td style="text-align: right;">1.7%</td>
+<td>compute</td>
+</tr>
+<tr>
+<td>integer multiplier</td>
+<td><code>mul</code></td>
+<td style="text-align: right;">480</td>
+<td style="text-align: right;">1.1%</td>
+<td>compute</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Area targets (ranked):</strong>
+1. <strong>A single <code>find_first_set</code> = 4,180 LUTs</strong> (of the 4,756 in the ×5 group) -- an oversized priority
+   select (scheduler oldest-ready / ROB). The clearest <em>synth-level</em> win: a re-architected priority
+   mux or different inference could reclaim a chunk with zero uarch change.
+2. <strong>Register files = 8,018 LUTs = 12.6% of the whole design</strong> (int <code>rf4r2w</code> 4,986 + FP <code>fp_regfile</code>
+   3,032), all distributed-RAM ports. The FP RF exists only for IRIX's N32 FPU -- a lever for a
+   no-FP variant. (The clustered <code>fp_regfile</code> already landed the big FP-RF area win; the int
+   <code>rf4r2w</code> is the next candidate for the same banked/registered-read treatment.)
+3. <strong>Micro-ITLB CAM = 3,989 LUTs</strong> (<code>l1i/itlb</code>) -- why the I-side (10.1K) is fatter than the D-side
+   (5.1K). The "always-miss v1" CAM is latency-only (uses the real 48-entry JTLB for translation) and
+   never earned its area; finishing or reverting it is pure area.
+4. <code>exec</code> matrix scheduler + banked ROB -- both on the standing area-reduction plan.</p>
+<h2 id="2026-06-24-scc-iocsv-control-write-fix-fp-complete-core-explore-pr-post-route-phys_opt">2026-06-24 -- SCC ioc.sv control-write fix (FP-complete core; Explore P&amp;R + post-route phys_opt)<a class="headerlink" href="#2026-06-24-scc-iocsv-control-write-fix-fp-complete-core-explore-pr-post-route-phys_opt" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>metric</th>
+<th>value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>WNS @ 100 MHz</td>
+<td><strong>+0.235 ns</strong> (all met, 0 failing endpoints)</td>
+</tr>
+<tr>
+<td>Worst path</td>
+<td><code>cpu/icache/pd_data/r_ram_reg_bram_0</code> -&gt; <code>cpu/icache/itlb/pa_reg[35]</code></td>
+</tr>
+<tr>
+<td>Data path delay</td>
+<td>9.479 ns  (logic 3.408 ns / <strong>36.0%</strong>, route 6.071 ns / <strong>64.0%</strong>)</td>
+</tr>
+<tr>
+<td>Logic levels</td>
+<td>28  (CARRY8=2 LUT6=14 LUT5=7 LUT4=1 LUT3=1 LUT2=1 MUXF7=1 MUXF8=1)</td>
+</tr>
+<tr>
+<td>CLB LUTs</td>
+<td>59122 (83.79%)</td>
+</tr>
+<tr>
+<td>LUT as Logic</td>
+<td>57348 (81.28%)</td>
+</tr>
+<tr>
+<td>LUT as Memory (LUTRAM)</td>
+<td>1774 (6.16%)</td>
+</tr>
+<tr>
+<td>CLB Registers (FF)</td>
+<td>33789 (23.94%)</td>
+</tr>
+<tr>
+<td>Block RAM</td>
+<td>23</td>
+</tr>
+<tr>
+<td>DSP</td>
+<td>43</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Path shape</strong> (predecode BRAM -&gt; look-ahead PC -&gt; TLB CAM hit-compare -&gt; ITLB <code>pa_reg</code>):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a> RAMB18E2 DOUTADOUT (icache/pd_data)  +0.964  -&gt; r_jump_out / r_cache_pc / fetch-queue / PHT LUTs
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a> -&gt; r_cache_pc[51]_i_{3,2,1}          (next-PC select)
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a> -&gt; r_la_pc[35]_i_{7,6,3,2,1}         (look-ahead PC = mipsseg(n_cache_pc), combinational)
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a> -&gt; net dtlb/w_la_pc[19]  fo=50, route 0.841 ns   &lt;-- one VPN bit to all 48 CAM entries
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a> -&gt; dtlb hit_i_479 -&gt; CARRY8 hit chain (48-way FA match) -&gt; pa_reg PFN mux -&gt; itlb/pa_reg[35]/D
+</code></pre></div>
+<p><strong>Why this stays the worst path:</strong> the look-ahead PC feeding the CAM is the <strong>combinational</strong>
+wire <code>w_la_pc</code> (<code>l1i.sv:475/499</code>), computed <em>and</em> matched against the 48-way CAM in one cycle.
+The high-fanout net (<code>fo=50</code>) is one VPN bit reaching all 48 entries -- inherent to a fully-
+associative CAM. Vivado can't auto-fix it: register <strong>duplication</strong> only targets <em>flops</em>, and
+<code>w_la_pc</code> is a LUT cone (the flop <code>r_la_pc</code> feeds the <em>other</em>, next-cycle path); forced LUT
+replication can't help because an FA CAM's loads are irreducibly spread. The structural fixes
+are to <strong>register <code>w_la_pc</code> before the TLB</strong> (pipeline fetch-&gt;translate; makes it a replicable
+flop <em>and</em> cuts the path, at +1 fetch cycle) or the <strong>micro-TLB</strong> (small clustered cache in
+front of each JTLB CAM). See <a href="../peripherals/scc/">SCC implementation</a> for the IOC change.</p>
+<blockquote>
+<p><strong>Not apples-to-apples with the pre-FP blocks below:</strong> this is the <strong>FP-complete core</strong> (COP1
+FPU: LUT-as-logic ~50K -&gt; 57K, DSP 34 -&gt; 43 for the FP multiplier) plus the SCC <code>ioc.sv</code>
+control-write fix (timing-neutral -- a mux in the IOC, far from the TLB). The first
+default-strategy P&amp;R of this netlist came out at <strong>WNS -0.812</strong> -- the marginal CAM path
+losing the placement lottery on a tiny netlist perturbation -- and re-rolling with <strong>Explore
+place+route + post-route phys_opt</strong> recovered <strong>+0.235 ns</strong>. The design is at the timing margin.</p>
+</blockquote>
+<h2 id="2026-06-20-aadb09f-tlb-pfn-narrowed-to-pa_width-12-bev-base-fix-va-range-adel">2026-06-20 -- aadb09f (TLB PFN narrowed to PA_WIDTH-12; + BEV-base fix + VA-range AdEL)<a class="headerlink" href="#2026-06-20-aadb09f-tlb-pfn-narrowed-to-pa_width-12-bev-base-fix-va-range-adel" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>metric</th>
+<th>value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>WNS @ 100 MHz</td>
+<td><strong>+0.254 ns</strong> (all constraints met) -- <strong>+0.189 ns vs the 9bf1224 baseline</strong></td>
+</tr>
+<tr>
+<td>Worst path</td>
+<td><code>cpu/icache/tag_array/r_ram_reg</code> -&gt; <code>cpu/icache/itlb/pa_reg[35]</code></td>
+</tr>
+<tr>
+<td>Data path delay</td>
+<td>9.299 ns  (logic 3.534 ns / <strong>38.0%</strong>, route 5.765 ns / <strong>62.0%</strong>)</td>
+</tr>
+<tr>
+<td>Logic levels</td>
+<td>30  (CARRY8=3 LUT2=1 LUT4=5 LUT5=4 LUT6=15 MUXF7=1 MUXF8=1)</td>
+</tr>
+<tr>
+<td>CLB LUTs</td>
+<td>50786 (71.98%)  (+472 vs baseline -- BEV/VA-range/AdEL logic)</td>
+</tr>
+<tr>
+<td>LUT as Memory (LUTRAM)</td>
+<td>1154 (4.01%)</td>
+</tr>
+<tr>
+<td>CLB Registers (FF)</td>
+<td>36105 (25.58%)  (<strong>-402 vs baseline</strong> -- the narrowed TLB array)</td>
+</tr>
+<tr>
+<td>Block RAM</td>
+<td>23</td>
+</tr>
+<tr>
+<td>DSP</td>
+<td>34</td>
+</tr>
+</tbody>
+</table>
+<p>Still the route-dominated icache-&gt;ITLB-&gt;<code>pa_reg</code> path, but the smaller <code>r_tlb</code> array
+(PFN 28-&gt;24b, -402 FF) cut the data path 9.701-&gt;9.299 ns and bought <strong>+0.189 ns WNS</strong> --
+area-for-timing on a route-bound path, as hypothesized. Next levers: micro-TLB in
+front of the JTLB, or narrowing other per-entry fields (dead <code>pagemask</code>, redundant
+<code>entry</code>).</p>
+<h2 id="2026-06-19-9bf1224-baseline-c-bit-cacheability-usersupkernel-adel-scc-rx-wrapper">2026-06-19 -- 9bf1224 baseline (C-bit cacheability + user/sup/kernel AdEL + SCC Rx wrapper)<a class="headerlink" href="#2026-06-19-9bf1224-baseline-c-bit-cacheability-usersupkernel-adel-scc-rx-wrapper" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>metric</th>
+<th>value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>WNS @ 100 MHz</td>
+<td><strong>+0.065 ns</strong> (all constraints met)</td>
+</tr>
+<tr>
+<td>Worst path</td>
+<td><code>cpu/icache/pd_data/r_ram_reg_bram_0</code> -&gt; <code>cpu/icache/itlb/pa_reg[21]</code></td>
+</tr>
+<tr>
+<td>Data path delay</td>
+<td>9.701 ns  (logic 3.556 ns / <strong>36.7%</strong>, route 6.145 ns / <strong>63.3%</strong>)</td>
+</tr>
+<tr>
+<td>Logic levels</td>
+<td>31  (CARRY8=2 LUT2=5 LUT3=2 LUT4=4 LUT5=7 LUT6=9 MUXF7=1 MUXF8=1)</td>
+</tr>
+<tr>
+<td>CLB LUTs</td>
+<td>50314 (71.31%)</td>
+</tr>
+<tr>
+<td>LUT as Memory (LUTRAM)</td>
+<td>1162 (4.03%)</td>
+</tr>
+<tr>
+<td>CLB Registers (FF)</td>
+<td>36507 (25.87%)</td>
+</tr>
+<tr>
+<td>Block RAM</td>
+<td>23</td>
+</tr>
+<tr>
+<td>DSP</td>
+<td>34</td>
+</tr>
+</tbody>
+</table>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "navigation.top", "navigation.indexes", "navigation.tracking", "toc.follow", "content.code.copy"], "search": "../assets/javascripts/workers/search.a7633da7.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.c21346df.min.js"></script>
+      
+    
+  </body>
+</html>

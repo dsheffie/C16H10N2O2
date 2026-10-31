@@ -1,0 +1,1774 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A from-scratch SoC that impersonates the SGI Indy (IP22) well enough to boot IRIX, built around the r9999 MIPS core.">
+      
+      
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.0">
+    
+    
+      
+        <title>IP28 (Indigo2 R10000) bring-up plan - Henry — the wannabe IP22 SoC</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.57a0d79d.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.fb2fffe2.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="amber">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#ip28-indigo2-r10000-bring-up-plan" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Henry — the wannabe IP22 SoC" class="md-header__button md-logo" aria-label="Henry — the wannabe IP22 SoC" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M6 4h12v1h3v2h-3v2h3v2h-3v2h3v2h-3v2h3v2h-3v1H6v-1H3v-2h3v-2H3v-2h3v-2H3V9h3V7H3V5h3zm5 11v3h1v-3zm2 0v3h1v-3zm2 0v3h1v-3z"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Henry — the wannabe IP22 SoC
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              IP28 (Indigo2 R10000) bring-up plan
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="amber"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="amber"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Henry — the wannabe IP22 SoC" class="md-nav__button md-logo" aria-label="Henry — the wannabe IP22 SoC" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M6 4h12v1h3v2h-3v2h3v2h-3v2h3v2h-3v2h3v2h-3v1H6v-1H3v-2h3v-2H3v-2h3v-2H3V9h3V7H3V5h3zm5 11v3h1v-3zm2 0v3h1v-3zm2 0v3h1v-3z"/></svg>
+
+    </a>
+    Henry — the wannabe IP22 SoC
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../minimum-mmio-to-banner/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Minimum MMIO to boot banner
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (functional-sim validated, MAME-corroborated; Henry-RTL notes re-checked 2026-10-27 against henry eea6ecb)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cpu-integration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CPU integration (r9999)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../r9999-microarchitecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    r9999 microarchitecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../r9999-lineage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    r9999 lineage (MIPS -> RISC-V -> MIPS)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../firmware-arcs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Firmware (ARCS shim)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated; Henry FSBL section checked 2026-10-27 against r9999/arcs/henry_arcs.S + henry_fw.c @ 788c412)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../boot-and-console/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Boot & console
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated; Henry FSBL/console re-checked 2026-10-27 against henry eea6ecb / r9999 788c412)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../coherence-cache-tlb/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cache, coherence & TLB
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated; silicon-refined 2026-07; RTL state re-checked 2026-10-27 against henry eea6ecb / r9999 788c412)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../arm-device-protocol/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ARM ↔ device protocol (staging rings)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../bus-errors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Bus errors
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../fpu-cop1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FPU (COP1)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--implemented (MAME-validated workload)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_13" >
+        
+          
+          <label class="md-nav__link" for="__nav_13" id="__nav_13_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Peripherals
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_13_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_13">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Peripherals
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../peripherals/mc/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MC (memory controller)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated; henry RTL status audited 2026-10-27 against main eea6ecb)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../peripherals/ioc2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    IOC2 (serial console)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated; henry RTL status audited 2026-10-27 against main @eea6ecb)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../peripherals/scc/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SCC (Z85C30 console)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (silicon-validated; audited 2026-10-27 against henry main @eea6ecb)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../peripherals/hpc3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    HPC3 (SCSI/enet/DMA, RTC)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME + live-IRIX-trace validated; henry RTL status audited 2026-10-27 against main eea6ecb)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../peripherals/scsi_disk_theory_of_operation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SCSI disk theory of operation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../peripherals/gio64/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GIO64 (bus)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (MAME-validated; henry RTL status audited 2026-10-27 against henry main eea6ecb)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../peripherals/vdma/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VDMA (virtual DMA)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--implemented for memory -> GIO (dma_engine CH_V), 2026-10-18"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../peripherals/dmux1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DMUX (data mux)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--draft (henry status audited 2026-10-27 against main @eea6ecb)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_14" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../graphics/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Graphics
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--implemented (ARM-served model), 2026-10-18"></span>
+  
+
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_14" id="__nav_14_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_14_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_14">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Graphics
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../newport-on-henry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Newport on henry (working, screenshots)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../graphics/rex3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    REX3 (raster engine)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--reference; implemented as an ARM-served software model (2026-10-18)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../graphics/vc2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VC2 (video timing/cursor)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--reference; implemented as part of the ARM-side Newport model (2026-10-18)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../graphics/xmap9/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    XMAP9 (colormap)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--reference; implemented in the ARM-side Newport model (2026-10-18)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../graphics/rb2-ro1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RB2 & RO1 (framebuffer/output)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--reference; RB2 semantics implemented in the ARM-side Newport model (2026-10-18)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../graphics/express-xz/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Express / XZ (hardware geometry)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--reference only (not implemented)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../graphics/irix-software/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How IRIX drives Newport (Xsgi, ng1, GL)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--reference (static reverse engineering of IRIX 6.5.22) + what henry observed on silicon (section 7)"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../irix-boot-flow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    IRIX boot flow (annotated)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../methodology/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Methodology (MAME oracle)
+  
+
+    
+  </span>
+  
+  
+    
+  
+  
+    <span class="md-status md-status--stable"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../fpga_stats/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FPGA build stats
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#phase-1-the-core-is-an-r10000-r9999-under-enable_r10000-done" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 1 -- the core is an R10000 (r9999, under ENABLE_R10000) -- DONE
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-2-the-ip28-board-in-this-repos-henry_soc-henry_tb" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 2 -- the IP28 board in this repo's henry_soc (henry_tb)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-3-driver-and-firmware" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 3 -- driver and firmware
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-4-silicon" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 4 -- silicon
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="ip28-indigo2-r10000-bring-up-plan">IP28 (Indigo2 R10000) bring-up plan<a class="headerlink" href="#ip28-indigo2-r10000-bring-up-plan" title="Permanent link">&para;</a></h1>
+<p>The reference for every item here is indysim's <code>--ip28 --cpu r10000</code>
+(<code>dsheffie/indysim</code> d6f4a44), which runs the real IP28 PROM (070-1477-002) to the
+System Maintenance Menu and the IRIX 6.5.22 IP28 miniroot to the <code>Inst&gt;</code> menu.
+IRIS (techomancer/iris) and MAME back it up.</p>
+<h2 id="phase-1-the-core-is-an-r10000-r9999-under-enable_r10000-done">Phase 1 -- the core is an R10000 (r9999, under <code>ENABLE_R10000</code>) -- DONE<a class="headerlink" href="#phase-1-the-core-is-an-r10000-r9999-under-enable_r10000-done" title="Permanent link">&para;</a></h2>
+<p>On r9999 branch <code>r10k-cacheact</code> (2026-10-30; uncommitted at the time of writing):</p>
+<ul>
+<li>PRId <code>0x0925</code>, FIR <code>0x0900</code>, Config <code>0x6c00a002</code> (SS = 0: 512 KB, which must be at
+  least the L2's real size -- the kernel's index-op sweep covers what Config claims).</li>
+<li>R10000 CACHE ops: <code>0x14</code> is a NOP (barrier); the S ops <code>0x17</code>/<code>0x13</code>/<code>0x03</code> are one
+  mem op each, sequenced by the L2 over the 128-byte block (L1D probe per line, dirty
+  writeback unless dropping), with the L1I invalidating the block at every colour in
+  the background.</li>
+<li><strong>xkphys / TLB cacheability: CCA 3, 4 and 5 cache</strong> (<code>CCA_CACHED</code>).  The IP28 kernel
+  runs at xkphys CCA 5 (<code>0xa8...</code>); caching only CCA 3 ran it uncached, aliased with
+  its CCA 3 K2 pages -&gt; lost stores (the <code>kptbl</code> panic / bit-lock spin).</li>
+<li>CP0: <code>mtc0 $25</code> with any select (perf counters); FrameMask/Diag/PerfCount/ECC/
+  CacheErr/TagLo/TagHi read 0; EntryLo and the TLBR shadow keep the R10000's 28-bit
+  PFN (IRIX keeps software bits above the PFN), the translating TLBs only 31 PA bits.</li>
+<li>The PROM's secondary-cache SRAM test needs tag/data SRAMs we do not have: either a
+  keypress at "Cache diagnostic FAILED", or the 2-word PROM patch (<code>0xbfc021cc</code>
+  <code>jal 0xbfc05bb4</code> -&gt; <code>nop</code>, <code>0xbfc021d4</code> <code>move s0,v0</code> -&gt; <code>move s0,zero</code>); no checksum.</li>
+</ul>
+<p>Validated on <code>ooo_core --ip28</code> (Verilated core + indysim's device models in C++, now in
+r9999): the PROM, sash64 and the IRIX 6.5.22 IP28 miniroot reach <code>Inst&gt;</code>; the PROM /
+sash / early kernel run clean under the co-sim checker with the store check.</p>
+<h2 id="phase-2-the-ip28-board-in-this-repos-henry_soc-henry_tb">Phase 2 -- the IP28 board in this repo's <code>henry_soc</code> (henry_tb)<a class="headerlink" href="#phase-2-the-ip28-board-in-this-repos-henry_soc-henry_tb" title="Permanent link">&para;</a></h2>
+<p>Henry models the Indy (IP22).  The IP28 board differs in the places below.  The
+reference for every row is the C++ model <code>ooo_core --ip28</code> runs (r9999 <code>sgi_hpc.cc</code>,
+<code>sgi_mc.cc</code>, <code>top.cc</code>; copied from indysim d6f4a44), with IRIS behind it.  Rows are in
+the order the IP28 PROM's POST needs them.  Everything is a build-time choice
+(<code>ENABLE_IP28</code>, or the fork simply diverges); the Indy build must stay intact.</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Item</th>
+<th>Henry (IP22) today</th>
+<th>IP28 needs</th>
+<th>Reference</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><strong>Clock dividers</strong></td>
+<td><code>ioc.sv</code> <code>PIT_DIV = 100</code>, <code>hpc3.sv</code> <code>RTC_DIV = 1000000</code>: a 100 MHz core</td>
+<td>the IP28 build runs at <strong>50 MHz</strong>: derive every divider from one <code>CORE_MHZ</code> define, or the 8254 and RTC run at half speed (IRIX's clock, its delays and SCSI timeouts all follow)</td>
+<td>--</td>
+</tr>
+<tr>
+<td>2</td>
+<td><strong>IDs</strong></td>
+<td>MC SYSID <code>0x13</code>; IOC2 SYSID <code>0x26</code></td>
+<td>MC SYSID <strong><code>0x15</code></strong> (rev D + EISA present; the PROM rejects rev &lt; 5 once HPC3 says Full House); HPC3 SYS_ID <strong><code>0x1b</code></strong> as a word <em>and</em> byte <code>0x5985b</code> (Linux reads the byte)</td>
+<td><code>sgi_mc.cc</code> <code>0x1c</code>; <code>sgi_hpc.cc</code></td>
+</tr>
+<tr>
+<td>3</td>
+<td><strong>Register read-back for the PROM's register tests</strong></td>
+<td>MC/HPC3 DMA-channel registers mostly write-absorbed, reads 0</td>
+<td>the PROM walks 1s/0s through MC registers and the HPC3 DMA registers (e.g. ENET RX NBDP <code>0x14004</code>) and fails POST on any mismatch: plain storage for every register it tests</td>
+<td><code>sgi_hpc.cc</code> read/write pairs</td>
+</tr>
+<tr>
+<td>4</td>
+<td><strong>Memory map</strong></td>
+<td>256 MB DRAM at <code>0x08000000</code>; probe window at <code>0x20000000</code> with MEMCFG base <code>0x80</code> in 4 MB units; <code>w_is_nomap</code> = <code>0x18000000-0x1effffff</code> and <code>&gt;= 0x30000000</code></td>
+<td>RAM at <strong><code>0x20000000</code></strong>, MEMCFG in <strong>16 MB units</strong> (base <code>0x20</code>, size <code>(field+1)*16 MB</code>), up to <code>0x5fffffff</code>; bank 0 = the 256 MB the board backs (wraps as SIMMs alias), banks 1-3 empty (loads 0, stores vanish); the <strong>low 512 KB alias</strong> reaches the base of RAM (<code>0x20000000</code>); the reserved decode moves above <code>0x60000000</code></td>
+<td><code>top.cc</code> <code>ip28_mem_pa</code></td>
+</tr>
+<tr>
+<td>5</td>
+<td><strong>The board decodes 32 PA bits</strong></td>
+<td><code>c_req_addr[35:32]</code> != 0 is reserved (bus error / zeros)</td>
+<td>drop PA[35:32] at the SoC decode: IRIX's PTEs put software bits there (the core's TLB already drops them; xkphys addresses can still carry them)</td>
+<td>IRIS <code>phys_mask</code></td>
+</tr>
+<tr>
+<td>6</td>
+<td><strong>DMA addresses</strong></td>
+<td>DMA engines (SCSI, ENET, MC VDMA) fold IP22 PAs onto board DRAM</td>
+<td>the same fold for <code>0x2xxxxxxx</code> (incl. the low alias), so a DMA and the CPU reach the same bytes</td>
+<td>indysim <code>mc_alias</code> (<code>ip28_bank0</code>)</td>
+</tr>
+<tr>
+<td>7</td>
+<td><strong>INT2 at <code>0x1fbd9000</code></strong></td>
+<td>INT3 at <code>0x1fbd9880</code> (<code>int3.sv</code>)</td>
+<td>the same register set at <strong><code>0x1fbd9000</code></strong> (IOC offset <code>0x59000</code>; indysim remaps it onto INT3 <code>+0x880</code>)</td>
+<td><code>sgi_hpc.cc</code> <code>ip28_int2</code></td>
+</tr>
+<tr>
+<td>8</td>
+<td><strong>8254 timers</strong></td>
+<td>counter 2 only, for calibration (Indy IRIX ticks on CP0 Compare); <code>timer1_irq</code> tied 0</td>
+<td>counters <strong>0 (rtclock -&gt; IP4) and 1 (kgclock -&gt; IP5)</strong>, both clocked by <strong>counter 2's output</strong> (startrtclock: ctr2 = 200, ctr0 = 50 -&gt; 100 Hz), latched in INT2 and acked through TIMER CLEAR (<code>+0x20</code>, bits 0/1).  IRIX IP28 ticks only on these.</td>
+<td><code>sgi_hpc.cc</code> <code>pit[]</code>, <code>pit_period</code>, <code>pit_irq</code></td>
+</tr>
+<tr>
+<td>9</td>
+<td><strong>93CS56 EEPROM</strong></td>
+<td>present (<code>hpc3.sv</code>), MAC words only</td>
+<td>the IP28 PROM keeps its <strong>environment</strong> there too: IRIS's default image (layout revision 9), byte port <code>0x3000b</code> as well as the word</td>
+<td><code>sgi_hpc.cc</code> <code>ip28_eeprom_t</code></td>
+</tr>
+<tr>
+<td>10</td>
+<td><strong>8042</strong></td>
+<td>decoded (<code>w_is_kbd</code>)</td>
+<td>present even without graphics (POST tests it): answer self-test / interface test</td>
+<td><code>sgi_ps2.cc</code></td>
+</tr>
+<tr>
+<td>11</td>
+<td><strong>Second WD33C93 at HPC <code>0x48000</code></strong></td>
+<td>absent</td>
+<td>registers present, every selection times out (local0 bit 2, no DMA channel); PROM, sash and IRIX probe it</td>
+<td><code>sgi_hpc.cc</code> (scsi1)</td>
+</tr>
+<tr>
+<td>12</td>
+<td><strong>EISA</strong></td>
+<td>n/a (Indy)</td>
+<td>SYSID says EISA present, so IRIX probes EISA I/O (<code>0x00080000</code>...) and memory: answer "no cards" without inventing phantoms (an open item in indysim too)</td>
+<td>IRIS</td>
+</tr>
+<tr>
+<td>13</td>
+<td><strong>L2 size</strong></td>
+<td><code>LG_L2_NUM_SETS</code> per build</td>
+<td>at most <strong>512 KB</strong> (Config SS = 0)</td>
+<td>--</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Status (2026-10-31, uncommitted).</strong>  All behind <code>ENABLE_IP28</code> (the fork's
+<code>gen_mipscore.sh</code> passes <code>ENABLE_IP28 CORE_MHZ=50</code>; <code>sim/Makefile</code> <code>+define+ENABLE_IP28</code>);
+the Indy configuration lints clean.  Driven by running the IP28 PROM on henry_tb
+(<code>--prom ip28prom_nosccachediag.bin --disk irix65_ip28.img</code>) and fixing each wall:</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Done</th>
+<th>Seen on henry_tb</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><code>CORE_MHZ</code> drives the 8254 (<code>PIT_DIV</code>), ds1386 (<code>RTC_DIV</code>) and RPSS dividers</td>
+<td>sv2v at 50 MHz: <code>PIT_DIV = 50</code>, <code>RTC_DIV = 500000</code></td>
+</tr>
+<tr>
+<td>2</td>
+<td>MC SYSID <code>0x15</code>; IOC SYSID <code>0x1b</code> (word and byte <code>0x5985b</code>)</td>
+<td>--</td>
+</tr>
+<tr>
+<td>3</td>
+<td>MC GIO64_ARB (<code>0x84</code>) reads back; ENET CBP/NBDP already did</td>
+<td>--</td>
+</tr>
+<tr>
+<td>4, 5</td>
+<td>MEMCFG decode in 16 MB units at <code>0x20000000</code>; bank 0 = the 256 MB, wrapping; other banks empty; reserved from <code>0x60000000</code>; 32-bit PA decode</td>
+<td>"No usable memory found" gone</td>
+</tr>
+<tr>
+<td>6</td>
+<td>one guest-PA -&gt; board fold (<code>ip28_board_pa</code>) for the CPU and both DMA masters</td>
+<td>the PROM's MC-DMA memory clear</td>
+</tr>
+<tr>
+<td>7</td>
+<td>INT2 at <code>0x1fbd9000</code> remapped onto the INT3 / 8254 registers</td>
+<td>"Data path" and "INT path" POST failures gone</td>
+</tr>
+<tr>
+<td>8</td>
+<td>8254 counter 2 output pulse; counter 1 (byte <code>0xb7</code>); counters 0/1 count counter 2; timer1 -&gt; IP5</td>
+<td>not yet exercised (IRIX)</td>
+</tr>
+<tr>
+<td>9</td>
+<td>a writable 93CS56 (READ/WRITE/ERASE/EWEN/EWDS/ERAL/WRAL), byte lane <code>0x3000b</code>, reset to the IRIS erased-part image</td>
+<td>"Could not set NVRAM variable" gone</td>
+</tr>
+<tr>
+<td>10</td>
+<td>nothing needed: the ARM-served 8042 passes POST</td>
+<td>--</td>
+</tr>
+<tr>
+<td>11</td>
+<td>a second <code>scsi_shim</code> (HD1 at <code>0x48000</code>, HPC3 channel 1) that times out every selection, INTRQ -&gt; local0 bit 2</td>
+<td>"SCSI controller 1 diagnostic FAILED" (fix being verified)</td>
+</tr>
+<tr>
+<td>12</td>
+<td><code>0x00080000-0x07ffffff</code> floats high (reads all ones, stores dropped)</td>
+<td>--</td>
+</tr>
+<tr>
+<td>13</td>
+<td>--</td>
+<td>build check</td>
+</tr>
+</tbody>
+</table>
+<p><code>DISABLE_DMA_SNOOP</code> (<code>make NOSNOOP=1</code>) drops the DMA snoop shim; to be validated on IP28.</p>
+<p>Not needed: graphics (the IP28 kernel has no Newport driver; serial console), the
+R10000's speculative-store hazard (r9999 never speculates uncached accesses; <code>cache 0x14</code>
+is a NOP), real tag/data SRAMs (see Phase 1), the audio HAL2 ("AES receiver not
+responding" is harmless), the PBUS channel configuration ("pbus configuration failed"
+is printed on IRIS/indysim boots too).</p>
+<p>Coherence: henry's DMA snoop shims stay.  IRIX IP28 also flushes and invalidates its
+DMA buffers with the S block ops (<code>0x17</code>/<code>0x13</code>), which <code>ooo_core --ip28</code> (no snooping
+at all) shows are sufficient on their own -- so the shims are a second line of defence
+here, not a requirement.</p>
+<p><strong>Validation.</strong>  henry_tb runs the IP28 PROM to the System Maintenance Menu, then
+sash64 and the miniroot to <code>Inst&gt;</code>, compared against <code>ooo_core --ip28</code> (same core, C++
+devices) and indysim.  Bring the C++ checker's PROM/IRIX mode (device-load adoption,
+interrupt sync, store check -- r9999 <code>top.cc</code>) to henry_tb as far as it goes; henry_tb
+already has the store check.  Per-row directed tests where a device has state (8254
+cascade and acks, MEMCFG decode incl. the alias and wrap, EEPROM protocol, INT2
+latching).</p>
+<p><strong>Order of work.</strong>  Rows 1-3 get POST past its first register tests; 4-6 are memory
+sizing and the kernel's first DMA; 7-8 the clock (without them IRIX sleeps forever --
+seen on <code>ooo_core</code> before its 8254 was clocked); 9-12 the device probes; 13 is a build
+check.</p>
+<h2 id="phase-3-driver-and-firmware">Phase 3 -- driver and firmware<a class="headerlink" href="#phase-3-driver-and-firmware" title="Permanent link">&para;</a></h2>
+<ul>
+<li>The ARM driver loads the IP28 PROM at the reset vector (<code>0x1fc00000</code>); stock image
+  plus a keypress, or the 2-word cache-diagnostic patch above.</li>
+<li>EEPROM contents (environment, MAC): preloaded from a file the driver keeps, as the
+  board's bbRAM is today.</li>
+<li>The disk: the same SCSI path as IRIX on IP22 (<code>irix65_ip28.img</code>: a VH with sash64,
+  <code>unix.IP28</code> and the miniroot in swap; boot <code>5</code> -&gt; <code>boot -f dksc(0,1,8)sash64</code> -&gt;
+  <code>boot -f dksc(0,1,8)unix</code>).  A complete IP28 install comes from IRIS (CD install) and
+  is converted CHD -&gt; raw.</li>
+<li>The PL runs at 50 MHz (clk50.xdc; <code>PL0_REF_CTRL</code> = <code>0x01011E00</code> on the board).</li>
+</ul>
+<h2 id="phase-4-silicon">Phase 4 -- silicon<a class="headerlink" href="#phase-4-silicon" title="Permanent link">&para;</a></h2>
+<p>IP28 PROM -&gt; sash64 -&gt; IRIX 6.5.22 IP28 miniroot; Linux (ip28_defconfig) to a
+Debian root.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "navigation.top", "navigation.indexes", "navigation.tracking", "toc.follow", "content.code.copy"], "search": "../assets/javascripts/workers/search.a7633da7.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.c21346df.min.js"></script>
+      
+    
+  </body>
+</html>
