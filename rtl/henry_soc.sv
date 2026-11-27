@@ -303,7 +303,15 @@ module henry_soc
       end
    endfunction
    wire w_hi_bank0 = bank_hit(w_memcfg0[31:16], w_pa32[31:24]);
-   wire w_is_nomem = w_hi_win & ~w_hi_bank0;
+   /* any valid bank, wherever its base: above the RAM window this is still memory (MC spec
+    * 5.15: ADDR = "does not map to a valid bank").  The IP28 PROM's DRAM-timing routines
+    * (bfc22f58, bfc23054, bfc23170) make MEMCFG1 bank 3 valid at 0x60000000 for one uncached
+    * store, IE masked; a fixed nomap there latched ADDR + the IP6 bus-error interrupt, taken
+    * at the Status restore -- fatal on the warm-restart path after an IRIX reboot. */
+   wire w_any_bank = bank_hit(w_memcfg0[31:16], w_pa32[31:24]) | bank_hit(w_memcfg0[15:0], w_pa32[31:24]) |
+		     bank_hit(w_memcfg1[31:16], w_pa32[31:24]) | bank_hit(w_memcfg1[15:0], w_pa32[31:24]);
+   wire w_hi_above = (w_pa32 >= 32'h60000000) & w_any_bank;
+   wire w_is_nomem = (w_hi_win & ~w_hi_bank0) | w_hi_above;
    /* the EISA bus with no cards: I/O (0x00080000-0x0009ffff) and memory (..0x07ffffff)
     * float high -- reads are all ones, writes go nowhere (r9999 top.cc ip28_eisa) */
    wire w_is_eisa  = (w_pa32 >= 32'h00080000) & (w_pa32 < 32'h08000000);
@@ -324,8 +332,10 @@ module henry_soc
     * fill can belong to a wrong-path load (garbage PA[35:32]), and an MC latch + bus-error
     * interrupt cannot be squashed -- that panicked 64-bit Linux in the atkbd probe. */
 `ifdef ENABLE_IP28
-   /* IP28: the same hole below the devices; the reserved space starts above the RAM */
-   wire w_is_nomap = ((w_pa32 >= 32'h18000000) & (w_pa32 < 32'h1f000000)) | (w_pa32 >= 32'h60000000);
+   /* IP28: the same hole below the devices; the reserved space starts above the RAM,
+    * except where a valid MEMCFG bank maps (w_hi_above: empty memory, no error) */
+   wire w_is_nomap = ((w_pa32 >= 32'h18000000) & (w_pa32 < 32'h1f000000)) |
+		     ((w_pa32 >= 32'h60000000) & ~w_any_bank);
 `else
    wire w_is_nomap = ((c_req_addr >= `PA_WIDTH'(36'h18000000)) & (c_req_addr < `PA_WIDTH'(36'h1f000000))) |
 		     (c_req_addr[`PA_WIDTH-1:28] >= (`PA_WIDTH-28)'(3));
